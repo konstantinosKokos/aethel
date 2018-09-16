@@ -78,7 +78,7 @@ def extract_nodes(xtree):
     :return:
     """
     root = xtree.getroot().find('node') # first child of root is actual root
-    yield (root, None, root.attrib)
+    yield (root.attrib['id'], None, root.attrib)
     parents = [root]
 
     while parents:
@@ -86,7 +86,7 @@ def extract_nodes(xtree):
         for parent in parents:
             for child in parent.findall('node'):
                 children.append(child)
-                yield (child, parent, child.attrib)
+                yield (child.attrib['id'], parent.attrib['id'], child.attrib)
             parents = children
 
 class ToNetworkX():
@@ -116,28 +116,67 @@ class ToNetworkX():
 
 class ToGraphViz():
     def __init__(self):
-        pass
+        # todo: let init decide on properties
+        # todo: dummy horizontal edges / subgraphs to retain hierarchical structure
+        self.show_word = True
+        self.show_dep = True
+        self.show_span = True
+        self.show_pos = True
+        self.coindex = True
+
 
     def __call__(self, xtree, output='gv_output', view=True):
         nodes = list(extract_nodes(xtree))
         graph = graphviz.Digraph()
         graph.node(str(nodes[0][0]), label='ROOT')
         for name, parent, attr in nodes[1:]:
-            try:
-                label = attr['word']
-            except KeyError:
-                label = ''
+            label = ''
+            if self.show_word:
+                try:
+                    label += attr['word'] + '\n'
+                except KeyError:
+                    pass
+            if self.show_pos:
+                try:
+                    label += attr['pos'] + '\n'
+                except KeyError:
+                    pass
+            if self.show_span:
+                try:
+                    label += attr['begin'] + '-' + attr['end']
+                except KeyError:
+                    pass
             graph.node(str(name), label=label)
-            graph.edge(str(parent), str(name))
 
-        graph.render(output, view=view)
+            if self.coindex:
+                try:
+                    coindex = attr['index']
+                    graph.edge(str(coindex), str(name))
+                except KeyError:
+                    pass
+
+            if self.show_dep:
+                try:
+                    label = attr['rel']
+                    graph.edge(str(parent), str(name), label=label)
+                except KeyError:
+                    graph.edge(str(parent), str(name))
+
+        if output:
+            graph.render(output, view=view)
+
+        return graph
+
 
 def main():
     # dummy transforms
     composed = transforms.Compose([lambda x: x[1].getroot()])
     text = transforms.Compose([lambda x: x[1].findtext('sentence')])
-    L = Lassy(transform=text)
+    L = Lassy()
+
+    samples = [L[i][1] for i in [10,20,30,40,50]]
 
     faster = DataLoader(L, batch_size=8, shuffle=False, num_workers=8)
     # full list of dataloader objects may be obtained via list(chain.from_iterable([text for text in faster]))
-    return L, faster
+
+    return samples, ToGraphViz()
