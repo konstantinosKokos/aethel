@@ -156,18 +156,14 @@ def remove_abstract_subject(xtree):
     suspects = filter(lambda x: x.attrib['cat'] == 'ppart' or x.attrib['cat'] == 'inf',
                       suspects)
 
-    has_abstract_subject = False
-
     for suspect in suspects:
         abstract_subjects = filter(lambda x: 'rel' in x.attrib.keys(), suspect.findall('node'))
         abstract_subjects = filter(lambda x: x.attrib['rel'] == 'su', abstract_subjects)
+        abstract_subjects = filter(lambda x: 'index' in x.attrib.keys(), abstract_subjects)
         for abstract_subject in abstract_subjects:
-            has_abstract_subject = True
             suspect.remove(abstract_subject)
 
-    return xtree, has_abstract_subject
-
-
+    return xtree
 
 def tree_to_dag(xtree):
     xtree = deepcopy(xtree)
