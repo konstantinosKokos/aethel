@@ -74,6 +74,19 @@ class Lassy(Dataset):
 
         return count
 
+    def get_lemmas(self):
+        lemmas = set()
+
+        for i in tqdm(range(len(self))):
+            lemmas |= get_lemmas(self[i][1])
+
+        return lemmas
+
+def get_lemmas(xtree):
+    nodes = [n for n in xtree.iter('node')]
+    nodes = filter(lambda x: 'lemma' in x.attrib, nodes)
+    return set(map(lambda x: x.attrib['lemma'], nodes))
+
 def extract_nodes(xtree):
     """
     A simple iterator over an xml parse that returns the parse tree's nodes. This is necessary as the default ET
@@ -166,6 +179,11 @@ def remove_abstract_subject(xtree):
     return xtree
 
 def tree_to_dag(xtree):
+    """
+    finds all occurrences of co-indexing within a tree and removes them, constructing appropriate links when necessary
+    :param xtree: the tree to convert to a DAG
+    :return: the xml parse of the resulting DAG
+    """
     xtree = deepcopy(xtree)
     root = xtree.getroot().find('node')
     parents = [root]
@@ -279,6 +297,14 @@ class ToNetworkX():
             nx.draw(tree, labels=labels)
 
         return tree, labels
+
+class Decompose():
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, xtree):
+        pass
+
 
 def main():
     # dummy transforms
