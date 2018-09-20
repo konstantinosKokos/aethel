@@ -10,7 +10,7 @@ from torchvision import transforms
 import networkx as nx
 import graphviz
 
-from itertools import groupby
+from itertools import groupby, chain
 from copy import deepcopy
 
 class Lassy(Dataset):
@@ -75,6 +75,7 @@ class Lassy(Dataset):
         return count
 
     def get_lemmas(self):
+        #todo replace with map/reduce for efficiency?
         lemmas = set()
 
         for i in tqdm(range(len(self))):
@@ -308,18 +309,20 @@ class Decompose():
 
 def main():
     # dummy transforms
-    composed = transforms.Compose([lambda x: x[1].getroot()])
-    text = transforms.Compose([lambda x: x[1].findtext('sentence')])
-    L = Lassy()
+    #composed = transforms.Compose([lambda x: x[1].getroot()])
+    #text = transforms.Compose([lambda x: x[1].findtext('sentence')])
+    tree = transforms.Compose([lambda x: x[1]])
 
-    samples = [L[i][1] for i in [10,20,30,40,50,100,500,1000,200]]
+    L = Lassy(transform = tree)
 
-    faster = DataLoader(L, batch_size=8, shuffle=False, num_workers=8)
-    # full list of dataloader objects may be obtained via list(chain.from_iterable([text for text in faster]))
+    samples = [L[i] for i in [10, 20, 30, 40, 50,100,500,1000,200]]
+
+    faster = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+                        collate_fn=lambda x: list(chain(x)))
 
     tg = ToGraphViz()
 
     # v This is how to get all trees that were pruned by abstract subject clause removal
     #bad = list(filter(lambda x: DS.remove_abstract_subject(x)[1], samples))
     #tg(samples[1])
-    return samples, ToGraphViz()
+    return samples, ToGraphViz(), faster
