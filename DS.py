@@ -84,9 +84,23 @@ class Lassy(Dataset):
         return lemmas
 
 def get_lemmas(xtree):
+    """
+    use as map()
+    :param xtree:
+    :return:
+    """
     nodes = [n for n in xtree.iter('node')]
     nodes = filter(lambda x: 'lemma' in x.attrib, nodes)
     return set(map(lambda x: x.attrib['lemma'], nodes))
+
+def reduce_lemmas(set_of_lemmas):
+    """
+    use as reduce()
+    :param set_of_lemmas:
+    :return:
+    """
+    lemmas = set()
+    return lemmas.union(*set_of_lemmas)
 
 def extract_nodes(xtree):
     """
@@ -308,21 +322,29 @@ class Decompose():
 
 
 def main():
-    # dummy transforms
-    #composed = transforms.Compose([lambda x: x[1].getroot()])
-    #text = transforms.Compose([lambda x: x[1].findtext('sentence')])
+    # # # # # Example pipelines
+    ### Gather all lemmas
+    # lemma_transform = transforms.Compose([lambda x: x[1], get_lemmas])
+    # L = Lassy(transform=lemma_transform)
+    # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=reduce_lemmas)
+    # lemmas = reduce_lemmas([batch for batch in lemmatizer])
+    ### Gather all trees
+    # tree_transform = transforms.Compose([lambda x: x[1]])
+    # L = Lassy(transform = tree)
+    # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fun=lambda x: list(chain(x)))
+    # trees = list(chain(*[batch for batch in forester]))
+    ### Gather all sentences
+    # text_transform = transforms.Compose([lambda x: x[0]])
+    # L = Lassy(transform=text_transform)
+    # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
+    # sentences = list(chain(*[batch for batch in sentencer]))
+
+
     tree = transforms.Compose([lambda x: x[1]])
-
     L = Lassy(transform = tree)
-
     samples = [L[i] for i in [10, 20, 30, 40, 50,100,500,1000,200]]
-
-    faster = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-                        collate_fn=lambda x: list(chain(x)))
+    faster = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
 
     tg = ToGraphViz()
 
-    # v This is how to get all trees that were pruned by abstract subject clause removal
-    #bad = list(filter(lambda x: DS.remove_abstract_subject(x)[1], samples))
-    #tg(samples[1])
     return samples, ToGraphViz(), faster
