@@ -75,7 +75,6 @@ class Lassy(Dataset):
         return count
 
     def get_lemmas(self):
-        #todo replace with map/reduce for efficiency?
         lemmas = set()
 
         for i in tqdm(range(len(self))):
@@ -108,7 +107,7 @@ class Lassy(Dataset):
 
 
     @staticmethod
-    def tree_to_dag2(xtree):
+    def tree_to_dag(xtree):
         xtree = deepcopy(xtree)
 
         # todo rewrite this properly
@@ -124,58 +123,14 @@ class Lassy(Dataset):
         nodes = list(Lassy.extract_nodes(xtree))
 
         for node, parent, depth in nodes[1:]:
-            if type(node.attrib['rel'] == str) and node in coindex.values():
-                node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
-            if 'index' in node.attrib.keys() and node not in coindex.values():
-                #print('BEFORE {}'.format(coindex[node.attrib['index']].attrib['rel']))
-                #print('ADDING {}'.format({parent.attrib['id']: node.attrib['rel']}))#
-
-                coindex[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: node.attrib['rel'],
-                                                              **coindex[node.attrib['index']].attrib['rel']}
-                #print('AFTER: {}'.format(coindex[node.attrib['index']].attrib['rel']))
-                coindex[node.attrib['index']].attrib['rel']
-                parent.remove(node)
-        return xtree
-
-
-    @staticmethod
-    def tree_to_dag(xtree):
-        # todo just rewrite the whole fucking thing because it's completely wrong
-        # todo - bug: iterates twice through coindexed subtrees
-        """
-        finds all occurrences of co-indexing within a tree and removes them, constructing appropriate links when necessary
-        :param xtree: the tree to convert to a DAG
-        :return: the xml parse of the resulting DAG
-        """
-        xtree = deepcopy(xtree)
-        root = xtree.getroot().find('node')
-        parents = [root]
-
-        coindexed = list(filter(lambda x: 'index' in x.attrib.keys(), xtree.iter('node')))
-        if not coindexed:
-            return xtree
-        coindex = {i: [node for node in group] for i, group in
-                   groupby(sorted(coindexed, key=lambda x: x.attrib['index']), key=lambda x: x.attrib['index'])}
-        # find the 'main' child for each set of siblings
-        coindex = {i: list(filter(lambda x: 'cat' in x.attrib or 'word' in x.attrib, nodes))[0]
-                   for i, nodes in coindex.items()}
-
-        while parents:
-            children = []
-            for parent in parents:
-                for child in parent.findall('node'):
-                    children.append(child)
-                    # collapse and resolve coindexing
-                    if 'index' in child.attrib:  # is the child coindexed?
-                        if coindex[child.attrib['index']].attrib['id'] != child.attrib['id']:  # is it NOT the main?
-                            #actual_child = ET.SubElement(parent, child.tag, coindex[child.attrib['index']].attrib)
-                            actual_child = deepcopy(coindex[child.attrib['index']])
-                            actual_child.attrib['rel'] = child.attrib['rel']
-                            parent.remove(child)
-                            parent.append(actual_child)
-                            children.remove(child)
-
-            parents = children
+            if type(node.attrib['rel']) == str:
+                if 'index' in node.attrib.keys() and node not in coindex.values():
+                    coindex[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: node.attrib['rel'],
+                                                                   **coindex[node.attrib['index']].attrib['rel']}
+                    coindex[node.attrib['index']].attrib['rel']
+                    parent.remove(node)
+                else:
+                    node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
         return xtree
 
     @staticmethod
@@ -260,30 +215,9 @@ class Lassy(Dataset):
 
         return xtree
 
-# todo: obsolete
-def has_coindexed_subject(xtree):
-    nodes = [node for node in xtree.iter('node')]
-    for node in nodes:
-        if 'index' in node.attrib.keys() and 'rel' in node.attrib.keys():
-            if node.attrib['rel'] == 'su':
-                return True
-    return False
-
 class ToGraphViz():
-    #todo: allow multi-type input (tree / DAG)
-    def __init__(self, to_show = {'node': ['id', 'index'], #''word', 'pos', 'cat', 'index'],
-                                           'edge': {'rel'} }):
-
-        self.name_property = 'id'
+    def __init__(self, to_show = ['id', 'word', 'pos', 'cat', 'index']):
         self.to_show = to_show
-
-
-    def get_name(self, node_attr):
-        """
-        :param node_triple: A "node" element as returned by extract_nodes()
-        :return:
-        """
-        return node_attr[self.name_property]
 
     def construct_node_label(self, child):
         """
@@ -291,7 +225,7 @@ class ToGraphViz():
         :return:
         """
         label = ''
-        for key in self.to_show['node']:
+        for key in self.to_show:
         #for key in child:
             if key != 'span':
                 try:
@@ -302,38 +236,23 @@ class ToGraphViz():
                 label += child['begin'] + '-' + child['end'] + '\n'
         return label
 
-    def construct_edge_label(self, parent, child):
-        #todo
-        """
-        :param child:
-        :param parent:
-        :return:
-        """
-        label = ''
-        for key in self.to_show['edge']:
-            if type(child[key]) == dict:
-                label += child[key][parent['id']]
-            else:
-                label += child[key] + '\n'
-        return label
-
     def __call__(self, xtree, output='gv_output', view=True):
         nodes = list(Lassy.extract_nodes(xtree)) # a list of triples
         graph = graphviz.Digraph()
 
         graph.node('title', label=xtree.findtext('sentence'), shape='none')
-
-        graph.node(self.get_name(nodes[0][0].attrib), label='ROOT')
-
-        graph.edge('title', self.get_name(nodes[0][0].attrib), style='invis')
+        graph.node(nodes[0][0].attrib['id'], label='ROOT')
+        graph.edge('title', nodes[0][0].attrib['id'], style='invis')
 
         for child, parent, _ in nodes[1:]:
             node_label = self.construct_node_label(child.attrib)
-            graph.node(self.get_name(child.attrib), label=node_label)
+            graph.node(child.attrib['id'], label=node_label)
 
-            # todo: iterate over the many parents of a child to construct edges
-            edge_label = self.construct_edge_label(parent.attrib, child.attrib)
-            graph.edge(self.get_name(parent.attrib), self.get_name(child.attrib), label=edge_label)
+            if type(child.attrib['rel']) == str:
+                graph.edge(parent.attrib['id'], child.attrib['id'], label=child.attrib['rel'])
+            else:
+                for parent_id, dependency in child.attrib['rel'].items():
+                    graph.edge(parent_id, child.attrib['id'], label=dependency)
 
         if output:
             graph.render(output, view=view)
@@ -406,8 +325,8 @@ def main():
 
 
     tree = Compose([lambda x: x[1]])
-    L = Lassy(transform = tree)
-    samples = [L[i] for i in [10, 20, 30, 40, 50,100,500,1000,200]]
+    L = Lassy(transform=tree)
+    samples = [L[i] for i in [10, 20, 30, 40, 50, 100, 500, 1000, 200]]
     faster = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
 
     tg = ToGraphViz()
