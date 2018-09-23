@@ -74,14 +74,6 @@ class Lassy(Dataset):
 
         return count
 
-    def get_lemmas(self):
-        lemmas = set()
-
-        for i in tqdm(range(len(self))):
-            lemmas |= Lassy.get_lemmas(self[i][1])
-
-        return lemmas
-
     @staticmethod
     def extract_nodes(xtree):
         """
