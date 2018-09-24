@@ -58,6 +58,7 @@ class Lassy(Dataset):
             raise TypeError('file argument has to be int or str')
 
         parse = ET.parse(file)
+        parse.getroot().set('type', 'Tree')
 
         sample = (file, parse)
 
@@ -66,64 +67,15 @@ class Lassy(Dataset):
 
         return sample
 
-    def count_tokens(self):
-        count = 0
-
-        for i in tqdm(range(len(self))):
-            count+= len(self[i][1].split(' '))
-
-        return count
-
     @staticmethod
-    def extract_nodes(xtree):
+    def count_tokens(xtree):
         """
-        A simple iterator over an xml parse that returns the parse tree's nodes. This is necessary as the default ET
-        iterator does not provide parent or depth info.
+        use as map()
         :param xtree:
         :return:
         """
-        root = xtree.getroot().find('node') # first child of root is actual root (there is an 'alpino' node at the top)
-        parents = [root]
-        depth = 0
 
-        yield (root, None, depth)
-
-        while parents:
-            depth += 1
-            children = []
-            for parent in parents:
-                for child in parent.findall('node'):
-                    children.append(child)
-                    yield (child, parent, depth)
-                parents = children
-
-
-    @staticmethod
-    def tree_to_dag(xtree):
-        xtree = deepcopy(xtree)
-
-        # todo rewrite this properly
-        coindexed = list(filter(lambda x: 'index' in x.attrib.keys(), xtree.iter('node')))
-        if not coindexed:
-            return xtree
-        coindex = {i: [node for node in group] for i, group in
-                   groupby(sorted(coindexed, key=lambda x: x.attrib['index']), key=lambda x: x.attrib['index'])}
-        # find the 'main' child for each set of siblings
-        coindex = {i: list(filter(lambda x: 'cat' in x.attrib or 'word' in x.attrib, nodes))[0]
-                   for i, nodes in coindex.items()}
-
-        nodes = list(Lassy.extract_nodes(xtree))
-
-        for node, parent, depth in nodes[1:]:
-            if type(node.attrib['rel']) == str:
-                if 'index' in node.attrib.keys() and node not in coindex.values():
-                    coindex[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: node.attrib['rel'],
-                                                                   **coindex[node.attrib['index']].attrib['rel']}
-                    coindex[node.attrib['index']].attrib['rel']
-                    parent.remove(node)
-                else:
-                    node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
-        return xtree
+        return len(xtree.split(' '))
 
     @staticmethod
     def get_lemmas(xtree):
@@ -158,7 +110,94 @@ class Lassy(Dataset):
         return [[node for node in group] for key, group in groupings]
 
     @staticmethod
-    def remove_subtree(xtree, criteria):
+    def extract_nodes(xtree):
+        """
+        A simple iterator over an xml parse that returns the parse tree's nodes. This is necessary as the default ET
+        iterator does not provide parent or depth info.
+        :param xtree:
+        :return (child_node, parent_node, depth)
+        """
+
+        root = xtree.getroot().find('node')
+        parents = [root]
+        depth = 0
+        yield (root, None, depth)
+        while parents:
+            depth += 1
+            children = []
+            for parent in parents:
+                for child in parent.findall('node'):
+                    children.append(child)
+                    yield (child, parent, depth)
+                parents = children
+
+    @staticmethod
+    def rel_to_dict(xtree):
+        xtree = deepcopy(xtree)
+        nodegroups = list(Lassy.extract_nodes(xtree))
+        for node, parent, _ in nodegroups[1:]:
+            node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
+        return xtree
+
+    @staticmethod
+    def find_main_coindex(xtree):
+        coindexed = list(filter(lambda x: 'index' in x.attrib.keys(), xtree.iter('node')))
+        if not coindexed:
+            return dict(), dict()
+        all_coind = {i: [node for node in group] for i, group in
+                     groupby(sorted(coindexed, key=lambda x: x.attrib['index']), key=lambda x: x.attrib['index'])}
+        # find the 'main' child for each set of siblings
+        main_coind = {i: list(filter(lambda x: 'cat' in x.attrib or 'word' in x.attrib, nodes))[0]
+                      for i, nodes in all_coind.items()}
+        return all_coind, main_coind
+
+    @staticmethod
+    def replace_main_coindex(all_coindexed, main_child):
+        """
+        Returns a new main coindex and removes the old main from the list of coindexed
+        :param all_coindex: all nodes sharing the same mutual index
+        :param main_child: the previous main node
+        :return:
+        """
+        new_candidates = list(filter(lambda x: x != main_child, all_coindexed))
+        all_coindexed.remove(main_child)
+        # make sure no descendant is lost
+        for subchild in main_child.findall('node'):
+            new_candidates[0].append(subchild)
+        # replace all properties except for the id (??) # todo
+        for key, value in main_child.attrib.items():
+            new_candidates[0].set(key, value)
+        return new_candidates[0]
+
+    @staticmethod
+    def tree_to_dag(xtree, inline=False):
+        if not inline:
+            xtree = deepcopy(xtree)
+
+        nodes = list(Lassy.extract_nodes(xtree))
+        
+        xtree.getroot().set('type', 'DAG')
+
+        _, main_coind = Lassy.find_main_coindex(xtree)
+
+        for node, parent, _ in nodes[1:]:
+            if node in main_coind.values():
+                node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
+
+
+        for node, parent, _ in nodes[1:]:
+            if type(node.attrib['rel']) == str:
+                if 'index' in node.attrib.keys():
+
+                    main_coind[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: node.attrib['rel'],
+                                                                      **main_coind[node.attrib['index']].attrib['rel']}
+                    parent.remove(node)
+                else:
+                    node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
+        return xtree
+
+    @staticmethod
+    def remove_subtree(xtree, criteria, inline=False):
         """
         usecase:
             - remove_subtree(xtree, {'pos': 'punct', 'rel': 'mod'}) will remove punctuation and modifiers
@@ -166,9 +205,13 @@ class Lassy(Dataset):
         :param criteria: a dictionary of key-value pairs
         :return: the pruned tree according to input criteria
         """
-        xtree = deepcopy(xtree)
+        if not inline:
+            xtree = deepcopy(xtree)
+
         root = xtree.getroot().find('node')
         parents = [root]
+
+        all_coind, main_coind = Lassy.find_main_coindex(xtree)
 
         while parents:
             children = []
@@ -176,35 +219,76 @@ class Lassy(Dataset):
                 for child in parent.findall('node'):
                     removed = False
                     for key in criteria.keys():
-                        if key in child.attrib:  # is the child coindexed?
+                        if key in child.attrib:
                             if child.attrib[key] == criteria[key]:
+                                for subchild in child.iter('node'):
+                                    if subchild in main_coind.values():
+                                        # trying to remove main coindex
+                                        coindex = subchild.attrib['index']
+                                        if subchild == main_coind[coindex] and len(all_coind[coindex]) > 1:
+                                            main_coind[coindex] = Lassy.replace_main_coindex(all_coind[coindex],
+                                                                                             subchild)
+                                            # if only 1 item left, it no longer coindexes anything
+                                            if len(all_coind[coindex]) == 1:
+                                                del main_coind[coindex].attrib['index']
+                                                del main_coind[coindex]
+                                                del all_coind[coindex]
+                                        else:
+                                            for key in all_coind.keys():
+                                                try:
+                                                    all_coind[key].remove(subchild)
+                                                except ValueError:
+                                                    continue
                                 parent.remove(child)
                                 removed = True
                                 break
+
                     if not removed:
                         children.append(child)
             parents = children
         return xtree
 
     @staticmethod
-    def remove_abstract_subject(xtree):
+    def remove_abstract_subject(xtree, inline=False):
+        if not inline:
+            xtree = deepcopy(xtree)
+
+        all_coind, main_coind = Lassy.find_main_coindex(xtree)
+
         suspects = filter(lambda x: 'cat' in x.attrib.keys(),
                           [node for node in xtree.iter('node')])
         suspects = list(filter(lambda x: x.attrib['cat'] == 'ppart' or x.attrib['cat'] == 'inf',
                           suspects))
+        #print('suspects:', [s.attrib['id'] for s in suspects])
 
         if not suspects:
             return xtree
 
-        xtree = deepcopy(xtree)
-
         for suspect in suspects:
             abstract_subjects = filter(lambda x: 'rel' in x.attrib.keys(), suspect.findall('node'))
-            abstract_subjects = filter(lambda x: x.attrib['rel'] == 'su', abstract_subjects)
-            abstract_subjects = filter(lambda x: 'index' in x.attrib.keys(), abstract_subjects)
+            abstract_subjects = list(filter(lambda x: x.attrib['rel'] == 'su', abstract_subjects))
+            #abstract_subjects = list(filter(lambda x: 'index' in x.attrib.keys(), abstract_subjects))
+            #print('abstract subjects: ', [a.attrib['id'] for a in abstract_subjects])
             for abstract_subject in abstract_subjects:
-                suspect.remove(abstract_subject)
+                for subchild in abstract_subject.iter('node'):
+                    if subchild in main_coind.values():
+                        # trying to remove main coindex
+                        coindex = subchild.attrib['index']
+                        if subchild == main_coind[coindex] and len(all_coind[coindex]) > 1:
+                            main_coind[coindex] = Lassy.replace_main_coindex(all_coind[coindex], subchild)
+                            # if only 1 item left, it no longer coindexes anything
+                            if len(all_coind[coindex]) == 1:
+                                del main_coind[coindex].attrib['index']
+                                del main_coind[coindex]
+                                del all_coind[coindex]
+                    else:
+                        for key in all_coind.keys():
+                            try:
+                                all_coind[key].remove(subchild)
+                            except ValueError:
+                                continue
 
+                suspect.remove(abstract_subject)
         return xtree
 
 class ToGraphViz():
