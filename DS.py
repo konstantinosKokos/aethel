@@ -401,11 +401,34 @@ class Decompose():
         return newdict
 
     @staticmethod
+    def choose_head(rels):
+        """
+
+        :param rels:
+        :return:
+            if a head is found, return the head's index
+            if structure is headless, return None
+            if unspecified case, return -1
+        """
+        # todo: perhaps deeper iteration necessary
+        # todo: enumerate all headedness conditions from manual
+        candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
+        throwaway = ['top', '--', 'mwp'] # .. just ignore these
+        for i, candidate in enumerate(candidates):
+            for j, rel in enumerate(rels):
+                if rel == candidate:
+                    return j
+        for thr in throwaway:
+            if thr in rels:
+                return None # no head, but not failed either
+        return -1
+
+    @staticmethod
     def find_non_head(grouped):
         non_head = []
         for key in grouped.keys():
             rels = tuple(map(lambda x: x[1], grouped[key]))
-            if 'hd' not in rels and rels !=['top'] and '--' not in rels and 'top' not in rels:
+            if Decompose.choose_head(rels) == -1:
                 non_head.append(rels)
         return non_head
 
