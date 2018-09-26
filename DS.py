@@ -13,6 +13,8 @@ import graphviz
 from itertools import groupby, chain
 from copy import deepcopy
 
+from pprint import pprint as print
+
 class Lassy(Dataset):
     """
     Lassy dataset
@@ -362,6 +364,62 @@ class ToNetworkX():
 
 class Decompose():
     def __init__(self, **kwargs):
+        # type_dict: POS → Type
+        type_dict = dict()
+
+    @staticmethod
+    def is_leaf(node):
+        if 'word' in node.attrib.keys():
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def group_by_parent(xtree):
+        # todo: consider the effect of obsolete ids here
+        nodes = list(xtree.iter('node'))
+        grouped = []
+        for node in nodes:
+            if type(node.attrib['rel']) == str:
+                grouped.append([node, -1, 'top'])
+            else:
+                for parent, rel in node.attrib['rel'].items():
+                    grouped.append([node, parent, rel])
+        grouped = sorted(grouped, key=lambda x: int(x[1]))
+        grouped = groupby(grouped, key=lambda x: int(x[1]))
+        grouped = {k: [[v[0],v[2]] for v in V] for k, V in grouped}
+        grouped = dict(map(lambda x: [x[0], x[1]], grouped.items()))
+
+        newdict = dict()
+
+        for key in grouped.keys():
+            if key == -1:
+                newdict[None] = grouped[key]
+                continue
+            newkey = list(filter(lambda x: x.attrib['id'] == str(key), nodes))[0]
+            newdict[newkey] = grouped[key]
+        return newdict
+
+    @staticmethod
+    def find_non_head(grouped, start=None):
+        # todo: iterate over a DAG and find all same-depth siblings where no 'hd' is present
+        this_level_rels = []
+        for child, rel in grouped[start]:
+            this_level_rels.append([child.attrib['id'], rel])
+            try:
+                Decompose.find_non_head(grouped, start=child)
+            except KeyError:
+                continue
+        if start:
+            print(start.attrib['id'])
+        else:
+            print('None')
+        print(this_level_rels)
+
+
+    @staticmethod
+    def test_iter_group(grouped):
+        # todo some doctest / sanity check
         pass
 
     @staticmethod
