@@ -401,21 +401,13 @@ class Decompose():
         return newdict
 
     @staticmethod
-    def find_non_head(grouped, start=None):
-        # todo: iterate over a DAG and find all same-depth siblings where no 'hd' is present
-        this_level_rels = []
-        for child, rel in grouped[start]:
-            this_level_rels.append([child.attrib['id'], rel])
-            try:
-                Decompose.find_non_head(grouped, start=child)
-            except KeyError:
-                continue
-        if start:
-            print(start.attrib['id'])
-        else:
-            print('None')
-        print(this_level_rels)
-
+    def find_non_head(grouped):
+        non_head = []
+        for key in grouped.keys():
+            rels = tuple(map(lambda x: x[1], grouped[key]))
+            if 'hd' not in rels and rels !=['top'] and '--' not in rels and 'top' not in rels:
+                non_head.append(rels)
+        return non_head
 
     @staticmethod
     def test_iter_group(grouped):
@@ -439,11 +431,13 @@ class Decompose():
 
 def main():
     # # # # # Example pipelines
+
     ### Gather all lemmas
     # lemma_transform = Compose([lambda x: x[1], get_lemmas])
     # L = Lassy(transform=lemma_transform)
     # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=reduce_lemmas)
     # lemmas = reduce_lemmas([batch for batch in lemmatizer])
+
     ### Gather all trees. remove modifiers and punct and convert to DAGs
     # tree_transform = Compose([lambda x: x[1], lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
     #                          lambda x: Lassy.remove_abstract_subject(x), Lassy.tree_to_dag])
@@ -451,11 +445,25 @@ def main():
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # trees = list(chain(*[batch for batch in forester]))
     # return forester
+
     ### Gather all sentences
     # text_transform = Compose([lambda x: x[0]])
     # L = Lassy(transform=text_transform)
     # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # sentences = list(chain(*[batch for batch in sentencer]))
+
+    ### Find all same-level dependencies without a head
+    #todo : create a mapping between files and non-head occurrences to visualize wtf is going on
+    find_non_head = Compose([lambda x: x[1], lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
+                              Lassy.remove_abstract_subject, Lassy.tree_to_dag,
+                              lambda x: Decompose.find_non_head(Decompose.group_by_parent(x))])
+    L = Lassy(transform=find_non_head)
+    finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+                        collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x, y))))
+    non_heads = set()
+    for batch in tqdm(finder):
+        non_heads |= batch
+    return L, finder, non_heads
 
 
     tree = Compose([lambda x: x[1]])
