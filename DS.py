@@ -375,16 +375,18 @@ class Decompose():
 
     @staticmethod
     def sanitize(grouped):
-        # todo: also remove duplicate links
         """
         ad-hoc post-processing cleanup
         :param grouped:
         :return:
         """
         for key in grouped:
+            seen = []
             for child, rel in grouped[key]:
-                if child not in grouped.keys() and not Decompose.is_leaf(child) and rel != 'top':
+                if (child not in grouped.keys() and not Decompose.is_leaf(child) and rel != 'top') \
+                or (child in seen):
                     grouped[key].remove([child,rel])
+                seen.append(child)
         return grouped
 
 
