@@ -46,23 +46,23 @@ class Lassy(Dataset):
         """
         return len(self.filelist)
 
-    def __getitem__(self, file):
+    def __getitem__(self, id):
         """
         :param file:
         :return:
         """
 
-        if type(file) == int:
-            file = self.filelist[file]
-        elif type(file) == str:
-            pass
+        if type(id) == int:
+            file = self.filelist[id]
+        elif type(id) == str:
+            raise NotImplementedError
         else:
             raise TypeError('file argument has to be int or str')
 
         parse = ET.parse(file)
         parse.getroot().set('type', 'Tree')
 
-        sample = (file, parse)
+        sample = (id, file, parse)
 
         if self.transform:
             return self.transform(sample)
@@ -243,7 +243,7 @@ class Lassy(Dataset):
                                                     continue
                                 parent.remove(child)
                                 removed = True
-                                break
+                                #break
 
                     if not removed:
                         children.append(child)
@@ -269,8 +269,6 @@ class Lassy(Dataset):
         for suspect in suspects:
             abstract_subjects = filter(lambda x: 'rel' in x.attrib.keys(), suspect.findall('node'))
             abstract_subjects = list(filter(lambda x: x.attrib['rel'] == 'su', abstract_subjects))
-            #abstract_subjects = list(filter(lambda x: 'index' in x.attrib.keys(), abstract_subjects))
-            #print('abstract subjects: ', [a.attrib['id'] for a in abstract_subjects])
             for abstract_subject in abstract_subjects:
                 for subchild in abstract_subject.iter('node'):
                     if subchild in main_coind.values():
@@ -337,31 +335,6 @@ class ToGraphViz():
 
         return graph
 
-class ToNetworkX():
-    def __init__(self):
-        pass
-
-    def __call__(self, xtree, view=False):
-        nodes = list(Lassy.extract_nodes(xtree)) # todo node -> nodeattr
-        tree = nx.DiGraph()
-        labels = dict()
-
-        # TODO remember the pos issue
-        tree.add_node(nodes[0][0], **nodes[0][2])
-        labels[nodes[0][0]] = 'ROOT'
-        for name, parent, attrib in nodes[1:]:
-            tree.add_node(name, **attrib)
-            tree.add_edge(name, parent)
-            try:
-                labels[name] = attrib['word']
-            except KeyError:
-                labels[name] = ''
-
-        if view:
-            nx.draw(tree, labels=labels)
-
-        return tree, labels
-
 class Decompose():
     def __init__(self, **kwargs):
         # type_dict: POS → Type
@@ -401,9 +374,23 @@ class Decompose():
         return newdict
 
     @staticmethod
+    def sanitize(grouped):
+        # todo: also remove duplicate links
+        """
+        ad-hoc post-processing cleanup
+        :param grouped:
+        :return:
+        """
+        for key in grouped:
+            for child, rel in grouped[key]:
+                if child not in grouped.keys() and not Decompose.is_leaf(child) and rel != 'top':
+                    grouped[key].remove([child,rel])
+        return grouped
+
+
+    @staticmethod
     def choose_head(rels):
         """
-
         :param rels:
         :return:
             if a head is found, return the head's index
@@ -411,9 +398,10 @@ class Decompose():
             if unspecified case, return -1
         """
         # todo: perhaps deeper iteration necessary
-        # todo: enumerate all headedness conditions from manual
+        # todo: conjunction, dp, nucl/sat
+        # todo: mwp?
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
-        throwaway = ['top', '--', 'mwp'] # .. just ignore these
+        throwaway = ['top', '--', 'mwp']  # .. just ignore these
         for i, candidate in enumerate(candidates):
             for j, rel in enumerate(rels):
                 if rel == candidate:
@@ -435,7 +423,23 @@ class Decompose():
     @staticmethod
     def test_iter_group(grouped):
         # todo some doctest / sanity check
-        pass
+        for key in grouped:
+            seen = []
+            for child, rel in grouped[key]:
+                if child not in grouped.keys() and rel != 'top':
+                    try:
+                        assert(Decompose.is_leaf(child))
+                    except AssertionError:
+                        print(child.attrib)
+                        return grouped
+                    try:
+                        assert(child not in seen)
+                        seen.append(child)
+                    except AssertionError:
+                        print(child.attrib)
+                        return grouped
+
+        return []
 
     @staticmethod
     def assign_struct(leaf):
@@ -462,31 +466,52 @@ def main():
     # lemmas = reduce_lemmas([batch for batch in lemmatizer])
 
     ### Gather all trees. remove modifiers and punct and convert to DAGs
-    # tree_transform = Compose([lambda x: x[1], lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-    #                          lambda x: Lassy.remove_abstract_subject(x), Lassy.tree_to_dag])
+    # tree_transform = Compose([lambda x: x[2],
+    #                           lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
+    #                           lambda x: Lassy.remove_abstract_subject(x),
+    #                          Lassy.tree_to_dag])
     # L = Lassy(transform = tree_transform)
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-    # trees = list(chain(*[batch for batch in forester]))
-    # return forester
+    # trees = list(chain(*[batch for batch in tqdm(forester)]))
+    # return L, forester, trees
 
     ### Gather all sentences
-    # text_transform = Compose([lambda x: x[0]])
+    # text_transform = Compose([lambda x: x[2].getroot().find('sentence')])
     # L = Lassy(transform=text_transform)
     # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # sentences = list(chain(*[batch for batch in sentencer]))
 
     ### Find all same-level dependencies without a head
     #todo : create a mapping between files and non-head occurrences to visualize wtf is going on
-    find_non_head = Compose([lambda x: x[1], lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-                              Lassy.remove_abstract_subject, Lassy.tree_to_dag,
-                              lambda x: Decompose.find_non_head(Decompose.group_by_parent(x))])
+    # find_non_head = Compose([lambda x: [x[0], x[2]],
+    #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
+    #                          lambda x: [x[0], Lassy.remove_abstract_subject(x[1])],
+    #                          lambda x: [x[0], Lassy.tree_to_dag(x[1])],
+    #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
+    #                          lambda x: [x[0], Decompose.find_non_head(x[1])]])
+    # L = Lassy(transform=find_non_head)
+    # finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+    #                     collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x[1], y))))
+    # non_heads = set()
+    # for batch in tqdm(finder):
+    #     non_heads |= batch
+    # return L, finder, non_heads
+
+    ### Assert the grouping by parent
+    find_non_head = Compose([lambda x: [x[0], x[2]],
+                             lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'}, inline=True)],
+                             lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=True)],
+                             lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=True)],
+                             lambda x: [x[0], Decompose.group_by_parent(x[1])],
+                             lambda x: [x[0], Decompose.sanitize(x[1])],
+                             lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head)
-    finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-                        collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x, y))))
-    non_heads = set()
-    for batch in tqdm(finder):
-        non_heads |= batch
-    return L, finder, non_heads
+    asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+                          collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
+    bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
+    return L, asserter, bad_groups
+
+
 
 
     tree = Compose([lambda x: x[1]])
