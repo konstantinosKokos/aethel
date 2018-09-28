@@ -55,7 +55,7 @@ class Lassy(Dataset):
         if type(id) == int:
             file = self.filelist[id]
         elif type(id) == str:
-            raise NotImplementedError
+            file = id
         else:
             raise TypeError('file argument has to be int or str')
 
@@ -80,25 +80,26 @@ class Lassy(Dataset):
         return len(xtree.split(' '))
 
     @staticmethod
-    def get_lemmas(xtree):
+    def get_property_set(xtree, property):
         """
         use as map()
+        :param property:
         :param xtree:
         :return:
         """
-        nodes = [n for n in xtree.iter('node')]
-        nodes = filter(lambda x: 'lemma' in x.attrib, nodes)
-        return set(map(lambda x: x.attrib['lemma'], nodes))
+        nodes = list(xtree.iter('node'))
+        nodes = filter(lambda x: property in x.attrib, nodes)
+        return set(map(lambda x: x.attrib[property], nodes))
 
     @staticmethod
-    def reduce_lemmas(set_of_lemmas):
+    def reduce_property(set_of_sets):
         """
         use as reduce()
-        :param set_of_lemmas:
+        :param set_of_property_items:
         :return:
         """
-        lemmas = set()
-        return lemmas.union(*set_of_lemmas)
+        property_items = set()
+        return property_items.union(*set_of_sets)
 
     @staticmethod
     def group_by_depth(nodes):
@@ -338,7 +339,11 @@ class ToGraphViz():
 class Decompose():
     def __init__(self, **kwargs):
         # type_dict: POS → Type
-        type_dict = dict()
+        all_POS = {'--',  'adj', 'adv', 'comp', 'comparative', 'det', 'fixed', 'name', 'noun', 'num',
+                    'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
+        all_CAT = {'du', 'mwu', 'ssub', 'ppres', 'smain', 'detp', 'rel', 'ppart', 'oti', 'sv1', 'ap', 'svan', 'whq',
+                   'pp', 'whsub', 'ti', 'ahi', 'whrel', 'advp', 'np', 'conj', 'cp', 'inf', 'top'}
+        self.type_dict = {x: x for x in {*all_POS, *all_CAT}}
 
     @staticmethod
     def is_leaf(node):
@@ -349,7 +354,6 @@ class Decompose():
 
     @staticmethod
     def group_by_parent(xtree):
-        # todo: consider the effect of obsolete ids here
         nodes = list(xtree.iter('node'))
         grouped = []
         for node in nodes:
@@ -360,7 +364,7 @@ class Decompose():
                     grouped.append([node, parent, rel])
         grouped = sorted(grouped, key=lambda x: int(x[1]))
         grouped = groupby(grouped, key=lambda x: int(x[1]))
-        grouped = {k: [[v[0],v[2]] for v in V] for k, V in grouped}
+        grouped = {k: [[v[0], v[2]] for v in V] for k, V in grouped}
         grouped = dict(map(lambda x: [x[0], x[1]], grouped.items()))
 
         newdict = dict()
@@ -384,18 +388,19 @@ class Decompose():
             seen = []
             for child, rel in grouped[key]:
                 if (child not in grouped.keys() and not Decompose.is_leaf(child) and rel != 'top') \
-                or (child in seen):
+                        or (child in seen):
                     grouped[key].remove([child,rel])
                 seen.append(child)
         return grouped
 
 
     @staticmethod
-    def choose_head(rels):
+    def choose_head(children_rels):
+        #todo
         """
-        :param rels:
+        :param children_rels: a list of [node, rel] lists
         :return:
-            if a head is found, return the head's index
+            if a head is found, return the head
             if structure is headless, return None
             if unspecified case, return -1
         """
@@ -404,27 +409,24 @@ class Decompose():
         # todo: mwp?
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
         throwaway = ['top', '--', 'mwp']  # .. just ignore these
-        for i, candidate in enumerate(candidates):
-            for j, rel in enumerate(rels):
-                if rel == candidate:
-                    return j
-        for thr in throwaway:
-            if thr in rels:
-                return None # no head, but not failed either
+        for i, (candidate, rel) in enumerate(children_rels):
+            if rel in candidates:
+                return candidate
+        for _, rel in children_rels:
+            if rel in throwaway:
+                return None
         return -1
 
     @staticmethod
     def find_non_head(grouped):
         non_head = []
         for key in grouped.keys():
-            rels = tuple(map(lambda x: x[1], grouped[key]))
-            if Decompose.choose_head(rels) == -1:
-                non_head.append(rels)
+            if Decompose.choose_head(grouped[key]) == -1:
+                non_head.append(list(map(lambda x: x[1], grouped[key])))
         return non_head
 
     @staticmethod
     def test_iter_group(grouped):
-        # todo some doctest / sanity check
         for key in grouped:
             seen = []
             for child, rel in grouped[key]:
@@ -443,36 +445,111 @@ class Decompose():
 
         return []
 
+    def recursive_call(self, parent, grouped, start_type, lexicon):
+        def get_key(node):
+            return node.attrib['lemma']
+
+        def add_to_lexicon(lexicon, to_add):
+            if set(to_add.keys()).intersection(set(lexicon.keys())):
+                print(lexicon)
+                print('---------------')
+                print(to_add)
+            return {**lexicon, **to_add}
+
+        # called with a parent that is a leaf
+        if parent not in grouped.keys():
+            return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
+
+        # find the next functor
+        headchild = Decompose.choose_head(grouped[parent])
+        if headchild == -1:
+            raise ValueError('No head found')
+        elif headchild is None:
+            raise NotImplementedError('Headless structure')
+
+        # if headchild has siblings, it is a function that accepts the siblings types as arguments
+        # and returns the type of its parent
+        arglist = []
+
+        # todo: do not kill of the dependencies yet
+        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
+        # todo: optimization: no need to iterate twice over visited nodes
+        # todo: secondary types?
+        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
+
+        # todo: is this the proper way of ordering? no..
+        ordered_children = sorted(grouped[parent], key=lambda x: x[0].attrib['begin'])
+
+        for child, rel in ordered_children:
+            # ignore self during iteration
+            if child == headchild:
+                continue
+            # find the type
+            child_type = self.get_plain_type(child)
+            # add the type and dependency as arguments
+            arglist.append((child_type, rel))
+
+            # did we reach the end?
+            if Decompose.is_leaf(child):
+                if child not in lexicon.keys():
+                    lexicon = add_to_lexicon(lexicon, {get_key(child): {'secondary': child_type}})
+                elif child in lexicon.keys():
+                    assert(lexicon[child] == child_type)
+            else:
+                # flow downwards this path
+                lexicon = self.recursive_call(child, grouped, child_type, lexicon)
+
+        # time to flow down the headchild
+        if arglist:
+            lexicon = self.recursive_call(headchild, grouped, [arglist, start_type], lexicon)
+        else:
+            lexicon = self.recursive_call(headchild, grouped, start_type, lexicon)
+
+        return lexicon
+
     @staticmethod
-    def assign_struct(leaf):
-        pass
+    def reduce_secondary(lexicon):
+        #todo
+        return lexicon
+        for key in lexicon:
+            if 'primary' not in lexicon[key].keys():
+                lexicon[key]['primary'] = lexicon[key]['secondary']
+                del(lexicon[key]['secondary'])
+        return lexicon
 
-    def __call__(self, xtree):
-        nodes = Lassy.extract_nodes(xtree) # todo node-> node attr
+    def get_plain_type(self, node):
+        try:
+            return self.type_dict[node.attrib['pos']]
+        except KeyError:
+            return self.type_dict[node.attrib['cat']]
 
-        # leaves are all nodes that are assigned a word
-        leaves = filter(lambda x: 'word' in x[0].keys(), nodes)
-
-        # todo: map each leave to a structure
-        structures = map(self.assign_struct, leaves)
-
-        return {leaf[0]['lemma']: struct for leaf, struct in zip(leaves, structures)}
+    def __call__(self, grouped):
+        # todo: some function to remove useless root nodes
+        start, rel = grouped[None][0]
+        while rel == 'top':
+            start, rel = grouped[start][0]
+        start_type = self.get_plain_type(start)
+        lexicon = dict()
+        lexicon = self.recursive_call(start, grouped, start_type, lexicon)
+        return Decompose.reduce_secondary(lexicon)
 
 def main():
     # # # # # Example pipelines
 
-    ### Gather all lemmas
-    # lemma_transform = Compose([lambda x: x[1], get_lemmas])
+    ### Gather all lemmas/pos/cat/...
+    # lemma_transform = Compose([lambda x: x[2],
+    #                            lambda x: Lassy.get_property_set(x, 'cat')])
     # L = Lassy(transform=lemma_transform)
-    # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=reduce_lemmas)
-    # lemmas = reduce_lemmas([batch for batch in lemmatizer])
-
-    ### Gather all trees. remove modifiers and punct and convert to DAGs
-    # tree_transform = Compose([lambda x: x[2],
-    #                           lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-    #                           lambda x: Lassy.remove_abstract_subject(x),
-    #                          Lassy.tree_to_dag])
-    # L = Lassy(transform = tree_transform)
+    # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=Lassy.reduce_property)
+    # lemmas = Lassy.reduce_property([batch for batch in tqdm(lemmatizer)])
+    # return L, lemmatizer, lemmas
+    #
+    # ## Gather all trees. remove modifiers and punct and convert to DAGs
+    tree_transform = Compose([lambda x: x[2],
+                              lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
+                              lambda x: Lassy.remove_abstract_subject(x),
+                              Lassy.tree_to_dag])
+    L0 = Lassy(transform = tree_transform)
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # trees = list(chain(*[batch for batch in tqdm(forester)]))
     # return L, forester, trees
@@ -484,7 +561,6 @@ def main():
     # sentences = list(chain(*[batch for batch in sentencer]))
 
     ### Find all same-level dependencies without a head
-    #todo : create a mapping between files and non-head occurrences to visualize wtf is going on
     # find_non_head = Compose([lambda x: [x[0], x[2]],
     #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
     #                          lambda x: [x[0], Lassy.remove_abstract_subject(x[1])],
@@ -505,13 +581,13 @@ def main():
                              lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=True)],
                              lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=True)],
                              lambda x: [x[0], Decompose.group_by_parent(x[1])],
-                             lambda x: [x[0], Decompose.sanitize(x[1])],
-                             lambda x: [x[0], Decompose.test_iter_group(x[1])]])
+                             lambda x: [x[0], Decompose.sanitize(x[1])]])
+                             #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
                           collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
-    bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
-    return L, asserter, bad_groups
+    #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
+    return L0, L, asserter #, bad_groups
 
 
 
