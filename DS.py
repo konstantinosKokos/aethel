@@ -21,7 +21,7 @@ class Lassy(Dataset):
     """
 
     def __init__(self, root_dir='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir = '/Treebank',
-                 transform=None):
+                 transform=None, ignore=True):
         """
 
         :param root_dir:
@@ -35,7 +35,18 @@ class Lassy(Dataset):
         else:
             raise ValueError('%s and %s must be existing directories' % (root_dir, treebank_dir))
 
-        self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))]
+        ignored = []
+        if ignore:
+            try:
+                with open('ignored.txt', 'r') as f:
+                    ignored = f.readlines()
+                    ignored = list(map(lambda x: x[0:-1], ignored))
+            except FileNotFoundError:
+                pass
+            print('Ignoring {} samples..'.format(len(ignored)))
+
+        self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))
+                         if y not in ignored]
         self.transform = transform
 
         print('Dataset constructed with {} samples.'.format(len(self.filelist)))
@@ -49,7 +60,7 @@ class Lassy(Dataset):
     def __getitem__(self, id):
         """
         :param file:
-        :return:
+        :return: id (INT), FILENAME (STR), PARSE (XMLTREE)
         """
 
         if type(id) == int:
@@ -68,6 +79,13 @@ class Lassy(Dataset):
             return self.transform(sample)
 
         return sample
+
+    def get_filename(self, id):
+        return self.filelist[id]
+
+    @staticmethod
+    def get_sentence(xtree):
+        return xtree.getroot().findtext('sentence')
 
     @staticmethod
     def count_tokens(xtree):
@@ -418,6 +436,32 @@ class Decompose():
         return -1
 
     @staticmethod
+    def collapse_mwu(grouped):
+        """
+        placeholder function that collapses nodes with 'mwp' dependencies into a single node
+        :param grouped:
+        :return:
+        """
+        # todo: better subcase management for proper names etc. using external parser or alpino
+        to_remove = []
+
+        # find all mwu parents
+        for key in grouped.keys():
+            if key is not None:
+                if 'cat' in key.attrib.keys():
+                    if key.attrib['cat'] == 'mwu':
+                        # sort their children and collapse their texts
+                        nodes = sorted(grouped[key], key=lambda x: int(x[0].attrib['begin']))
+                        collapsed_text = ''.join([x[0].attrib['word']+' ' for x in nodes])
+                        key.attrib['word'] = collapsed_text[0:-1] # update the parent text
+                        to_remove.append(key)
+
+        # parent is not a parent anymore (since no children are inherited)
+        for key in to_remove:
+            del(grouped[key])
+        return grouped
+
+    @staticmethod
     def find_non_head(grouped):
         non_head = []
         for key in grouped.keys():
@@ -442,10 +486,17 @@ class Decompose():
                     except AssertionError:
                         print(child.attrib)
                         return grouped
-
         return []
 
     def recursive_call(self, parent, grouped, start_type, lexicon):
+
+        # todo: do not kill of the dependencies yet
+        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
+        # todo: optimization: no need to iterate twice over visited nodes
+        # todo: secondary types?
+        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
+
+
         def get_key(node):
             return node.attrib['lemma']
 
@@ -458,7 +509,10 @@ class Decompose():
 
         # called with a parent that is a leaf
         if parent not in grouped.keys():
-            return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
+            if parent in lexicon.keys():
+                return lexicon
+            else:
+                return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
 
         # find the next functor
         headchild = Decompose.choose_head(grouped[parent])
@@ -471,22 +525,17 @@ class Decompose():
         # and returns the type of its parent
         arglist = []
 
-        # todo: do not kill of the dependencies yet
-        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
-        # todo: optimization: no need to iterate twice over visited nodes
-        # todo: secondary types?
-        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
-
         # todo: is this the proper way of ordering? no..
         ordered_children = sorted(grouped[parent], key=lambda x: x[0].attrib['begin'])
 
         for child, rel in ordered_children:
-            # ignore self during iteration
+            # left until we find headchild, then right
+            # ignore head during iteration
             if child == headchild:
                 continue
-            # find the type
+
+            # find the type, add the type and dependency as arguments
             child_type = self.get_plain_type(child)
-            # add the type and dependency as arguments
             arglist.append((child_type, rel))
 
             # did we reach the end?
@@ -525,13 +574,25 @@ class Decompose():
 
     def __call__(self, grouped):
         # todo: some function to remove useless root nodes
-        start, rel = grouped[None][0]
-        while rel == 'top':
-            start, rel = grouped[start][0]
-        start_type = self.get_plain_type(start)
-        lexicon = dict()
-        lexicon = self.recursive_call(start, grouped, start_type, lexicon)
-        return Decompose.reduce_secondary(lexicon)
+        def give_start_point(grouped):
+            start, rel = grouped[None][0]
+            if rel == 'top':
+                start, rel = grouped[start][0]
+                while rel == '--':
+                    try:
+                        start, rel = grouped[start][0]
+                    except KeyError:
+                        break
+                    except ValueError:
+                        break
+            return start
+
+        start = give_start_point(grouped)
+
+        # todo: missing the skipping part
+        lexicon = self.recursive_call(start, grouped, self.get_plain_type(start), dict())
+        return lexicon
+
 
 def main():
     # # # # # Example pipelines
@@ -545,11 +606,11 @@ def main():
     # return L, lemmatizer, lemmas
     #
     # ## Gather all trees. remove modifiers and punct and convert to DAGs
-    tree_transform = Compose([lambda x: x[2],
-                              lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-                              lambda x: Lassy.remove_abstract_subject(x),
-                              Lassy.tree_to_dag])
-    L0 = Lassy(transform = tree_transform)
+    tree_transform = Compose([lambda x: x[2]])
+                             # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
+                             # lambda x: Lassy.remove_abstract_subject(x),
+                             # Lassy.tree_to_dag])
+    L0 = Lassy(transform = tree_transform,ignore=False)
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # trees = list(chain(*[batch for batch in tqdm(forester)]))
     # return L, forester, trees
@@ -581,13 +642,14 @@ def main():
                              lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=True)],
                              lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=True)],
                              lambda x: [x[0], Decompose.group_by_parent(x[1])],
-                             lambda x: [x[0], Decompose.sanitize(x[1])]])
-                             #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
-    L = Lassy(transform=find_non_head)
+                             lambda x: [x[0], Decompose.sanitize(x[1])],
+                             lambda x: [x[0], Decompose.collapse_mwu(x[1])],
+                             lambda x: [x[0], Decompose.test_iter_group(x[1])]])
+    L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
                           collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
-    #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
-    return L0, L, asserter #, bad_groups
+    bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
+    return L0, L, bad_groups #asserter #, bad_groups
 
 
 
