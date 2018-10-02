@@ -422,17 +422,10 @@ class Decompose():
             if structure is headless, return None
             if unspecified case, return -1
         """
-        # todo: perhaps deeper iteration necessary
-        # todo: conjunction, dp, nucl/sat
-        # todo: mwp?
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
-        throwaway = ['top', '--']  # .. just ignore these
         for i, (candidate, rel) in enumerate(children_rels):
             if rel in candidates:
                 return candidate
-        for _, rel in children_rels:
-            if rel in throwaway:
-                return None
         return -1
 
     @staticmethod
@@ -450,8 +443,7 @@ class Decompose():
             if key is not None:
                 if 'cat' in key.attrib.keys():
                     if key.attrib['cat'] == 'mwu':
-                        # sort their children and collapse their texts
-                        nodes = sorted(grouped[key], key=lambda x: int(x[0].attrib['begin']))
+                        nodes = Decompose.order_siblings(grouped[key])
                         collapsed_text = ''.join([x[0].attrib['word']+' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1] # update the parent text
                         to_remove.append(key)
@@ -473,35 +465,63 @@ class Decompose():
         :return:
         """
         keys_to_remove = list()
+
         for key in grouped.keys():
             if key is not None:
-                if 'cat' in key.attrib.keys(): # todo: more removal conditions
-                    if key.attrib['cat'] == 'du':
+                if 'cat' in key.attrib.keys():  # todo: more removal conditions
+                    if key.attrib['cat'] == 'du' or key.attrib['cat'] == 'conj':
                         keys_to_remove.append(key)
 
-
         for key in keys_to_remove:
-            del grouped[key]
-        empty_keys = list()
+            del grouped[key]  # here we delete the conj/du from being a parent
+
         for key in grouped.keys():
+            children_to_remove = list()
             for c, r in grouped[key]:
                 if c in keys_to_remove:
-                    grouped[key].remove([c, r])
-                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top']:
-                    grouped[key].remove([c,r])
-            if grouped[key] == []:
-                empty_keys.append(key)
-        for key in empty_keys:
-            del grouped[key]
+                    children_to_remove.append([c, r])
+                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top', 'cnj', 'crd']:
+                    children_to_remove.append([c, r])
+            for c in children_to_remove:
+                grouped[key].remove(c)
+
+        repeat = 1
+        while repeat:
+            empty_keys = list()
+            repeat = 0
+
+            for key in grouped.keys():
+                if not grouped[key]:
+                    repeat = 1
+                    empty_keys.append(key)
+            for key in empty_keys:
+                del grouped[key]
+            for key in grouped.keys():
+                for c, r in grouped[key]:
+                    if c in empty_keys:
+                        repeat = 1
+                        grouped[key].remove([c, r])
+
         return grouped
 
     @staticmethod
     def get_disconnected(grouped):
         all_keys = set(grouped.keys())
         all_children = set([x[0] for k in all_keys for x in grouped[k]])
-        assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
-        return all_keys.difference(all_children)
+        try:
+            assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
+        except AssertionError:
+            return list(filter(lambda x: not Decompose.is_leaf(x), all_children.difference(all_keys)))
+        return True
+        #return all_keys.difference(all_children)
 
+    @staticmethod
+    def order_siblings(siblings, exclude=None):
+        # todo: this needs work (i.e. secondary criteria, perhaps taking arguments)
+        if exclude:
+            siblings = filter(lambda x: x[0] != exclude, siblings)
+        else:
+            return sorted(siblings, key = lambda x: int(x[0].attrib['id']))
 
     @staticmethod
     def find_non_head(grouped):
@@ -530,91 +550,68 @@ class Decompose():
                         return grouped
         return []
 
-        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
-        # todo: optimization: no need to iterate twice over visited nodes
-        # todo: secondary types?
-        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
-
-
     def get_key(node):
         return node.attrib['lemma']
 
-    def recursive_call(self, parent, grouped, start_type, lexicon):
+    # def recursive_call(self, parent, grouped, start_type, lexicon):
+    #     # todo: optimization: no need to iterate twice over visited nodes | IMPORTANT! skews stats
+    #     # todo: secondary types?
+    #     # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
+    #
+    #     def get_key(node):
+    #         return node.attrib['lemma']
+    #
+    #     def add_to_lexicon(lexicon, to_add):
+    #         if set(to_add.keys()).intersection(set(lexicon.keys())):
+    #             print(lexicon)
+    #             print('---------------')
+    #             print(to_add)
+    #         return {**lexicon, **to_add}
+    #
+    #     # called with a parent that is a leaf
+    #     if parent not in grouped.keys():
+    #         if parent in lexicon.keys():
+    #             return lexicon
+    #         else:
+    #             return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
+    #
+    #     # find the next functor
+    #     headchild = Decompose.choose_head(grouped[parent])
+    #     assert(Decompose.is_leaf(headchild))
+    #     if headchild == -1:
+    #         raise ValueError('No head found')
+    #
+    #     # if headchild has siblings, it is a function that accepts the siblings types as arguments
+    #     # and returns the type of its parent
+    #     arglist = []
+    #
+    #     ordered_children = Decompose.order_siblings(grouped[parent], exclude=headchild)
+    #
+    #     for child, rel in ordered_children:
+    #         # left until we find headchild, then right
+    #
+    #         # find the type, add the type and dependency as arguments
+    #         child_type = self.get_plain_type(child)
+    #         arglist.append((child_type, rel))
+    #
+    #         # did we reach the end?
+    #         if Decompose.is_leaf(child):
+    #             if child not in lexicon.keys():
+    #                 lexicon = add_to_lexicon(lexicon, {get_key(child): {'secondary': child_type}})
+    #             elif child in lexicon.keys():
+    #                 assert (lexicon[child] == child_type)
+    #         else:
+    #             # flow downwards this path
+    #             lexicon = self.recursive_call(child, grouped, child_type, lexicon)
+    #
+    #     # time to flow down the headchild
+    #     if arglist:
+    #         lexicon = self.recursive_call(headchild, grouped, [arglist, start_type], lexicon)
+    #     else:
+    #         lexicon = self.recursive_call(headchild, grouped, start_type, lexicon)
+    #
+    #     return lexicon
 
-        # todo: do not kill of the dependencies yet
-        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
-        # todo: optimization: no need to iterate twice over visited nodes
-        # todo: secondary types?
-        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
-
-        def get_key(node):
-            return node.attrib['lemma']
-
-        def add_to_lexicon(lexicon, to_add):
-            if set(to_add.keys()).intersection(set(lexicon.keys())):
-                print(lexicon)
-                print('---------------')
-                print(to_add)
-            return {**lexicon, **to_add}
-
-        # called with a parent that is a leaf
-        if parent not in grouped.keys():
-            if parent in lexicon.keys():
-                return lexicon
-            else:
-                return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
-
-        # find the next functor
-        headchild = Decompose.choose_head(grouped[parent])
-        if headchild == -1:
-            raise ValueError('No head found')
-        elif headchild is None:
-            raise NotImplementedError('Headless structure')
-
-        # if headchild has siblings, it is a function that accepts the siblings types as arguments
-        # and returns the type of its parent
-        arglist = []
-
-        # todo: is this the proper way of ordering? no..
-        ordered_children = sorted(grouped[parent], key=lambda x: x[0].attrib['begin'])
-
-        for child, rel in ordered_children:
-            # left until we find headchild, then right
-            # ignore head during iteration
-            if child == headchild:
-                continue
-
-            # find the type, add the type and dependency as arguments
-            child_type = self.get_plain_type(child)
-            arglist.append((child_type, rel))
-
-            # did we reach the end?
-            if Decompose.is_leaf(child):
-                if child not in lexicon.keys():
-                    lexicon = add_to_lexicon(lexicon, {get_key(child): {'secondary': child_type}})
-                elif child in lexicon.keys():
-                    assert (lexicon[child] == child_type)
-            else:
-                # flow downwards this path
-                lexicon = self.recursive_call(child, grouped, child_type, lexicon)
-
-        # time to flow down the headchild
-        if arglist:
-            lexicon = self.recursive_call(headchild, grouped, [arglist, start_type], lexicon)
-        else:
-            lexicon = self.recursive_call(headchild, grouped, start_type, lexicon)
-
-        return lexicon
-
-    @staticmethod
-    def reduce_secondary(lexicon):
-        #todo
-        return lexicon
-        for key in lexicon:
-            if 'primary' not in lexicon[key].keys():
-                lexicon[key]['primary'] = lexicon[key]['secondary']
-                del(lexicon[key]['secondary'])
-        return lexicon
 
     def get_plain_type(self, node):
         try:
@@ -622,11 +619,20 @@ class Decompose():
         except KeyError:
             return self.type_dict[node.attrib['cat']]
 
+    def recursive_call(self, start, grouped, seen, lexicon):
+        # is this a subtree or a leaf node?
+        if start not in grouped.keys():
+            assert Decompose.is_leaf(start)
+        return lexicon
+
+
     def __call__(self, grouped):
-        # init an empty
+        # init an empty type dict
         lexicon = dict()
+        seen = list()
+
         # get list of roots in case of disconnected tree
-        roots = Decompose.get_disconnected(grouped)
+        roots = sorted(Decompose.get_disconnected(grouped), key=lambda x: x.attrib['id'])
 
         for key in roots:
             lexicon = self.recursive_call(key, grouped, self.get_plain_type(key), lexicon)
@@ -685,8 +691,8 @@ def main():
                              lambda x: [x[0], Decompose.sanitize(x[1])],
                              lambda x: [x[0], Decompose.collapse_mwu(x[1])],
                              lambda x: [x[0], Decompose.split_du(x[1])],
-                             #lambda x: [x[0], Decompose.get_disconnected(x[1])],
-                             lambda x: [x[0], decomposer(x[1])]])
+                             lambda x: [x[0], Decompose.get_disconnected(x[1])]])
+                             #lambda x: [x[0], decomposer(x[1])]])
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
