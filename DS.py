@@ -426,7 +426,7 @@ class Decompose():
         # todo: conjunction, dp, nucl/sat
         # todo: mwp?
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
-        throwaway = ['top', '--', 'mwp']  # .. just ignore these
+        throwaway = ['top', '--']  # .. just ignore these
         for i, (candidate, rel) in enumerate(children_rels):
             if rel in candidates:
                 return candidate
@@ -459,7 +459,49 @@ class Decompose():
         # parent is not a parent anymore (since no children are inherited)
         for key in to_remove:
             del(grouped[key])
+        # this is the normal return type
         return grouped
+        # alternative return type for when using as map()
+        # return [tr.attrib['word'].lower() for tr in to_remove]
+
+    @staticmethod
+    def split_du(grouped):
+        # todo: write this neatly
+        """
+        take a dictionary that contains headless structures and return multiple dictionaries that don't
+        :param grouped: the original dictionary to split
+        :return:
+        """
+        keys_to_remove = list()
+        for key in grouped.keys():
+            if key is not None:
+                if 'cat' in key.attrib.keys(): # todo: more removal conditions
+                    if key.attrib['cat'] == 'du':
+                        keys_to_remove.append(key)
+
+
+        for key in keys_to_remove:
+            del grouped[key]
+        empty_keys = list()
+        for key in grouped.keys():
+            for c, r in grouped[key]:
+                if c in keys_to_remove:
+                    grouped[key].remove([c, r])
+                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top']:
+                    grouped[key].remove([c,r])
+            if grouped[key] == []:
+                empty_keys.append(key)
+        for key in empty_keys:
+            del grouped[key]
+        return grouped
+
+    @staticmethod
+    def get_disconnected(grouped):
+        all_keys = set(grouped.keys())
+        all_children = set([x[0] for k in all_keys for x in grouped[k]])
+        assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
+        return all_keys.difference(all_children)
+
 
     @staticmethod
     def find_non_head(grouped):
@@ -488,6 +530,15 @@ class Decompose():
                         return grouped
         return []
 
+        # todo: is lemmatization necessary at this part? perhaps return both word and lemma
+        # todo: optimization: no need to iterate twice over visited nodes
+        # todo: secondary types?
+        # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
+
+
+    def get_key(node):
+        return node.attrib['lemma']
+
     def recursive_call(self, parent, grouped, start_type, lexicon):
 
         # todo: do not kill of the dependencies yet
@@ -495,7 +546,6 @@ class Decompose():
         # todo: optimization: no need to iterate twice over visited nodes
         # todo: secondary types?
         # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
-
 
         def get_key(node):
             return node.attrib['lemma']
@@ -543,7 +593,7 @@ class Decompose():
                 if child not in lexicon.keys():
                     lexicon = add_to_lexicon(lexicon, {get_key(child): {'secondary': child_type}})
                 elif child in lexicon.keys():
-                    assert(lexicon[child] == child_type)
+                    assert (lexicon[child] == child_type)
             else:
                 # flow downwards this path
                 lexicon = self.recursive_call(child, grouped, child_type, lexicon)
@@ -573,30 +623,19 @@ class Decompose():
             return self.type_dict[node.attrib['cat']]
 
     def __call__(self, grouped):
-        # todo: some function to remove useless root nodes
-        def give_start_point(grouped):
-            start, rel = grouped[None][0]
-            if rel == 'top':
-                start, rel = grouped[start][0]
-                while rel == '--':
-                    try:
-                        start, rel = grouped[start][0]
-                    except KeyError:
-                        break
-                    except ValueError:
-                        break
-            return start
+        # init an empty
+        lexicon = dict()
+        # get list of roots in case of disconnected tree
+        roots = Decompose.get_disconnected(grouped)
 
-        start = give_start_point(grouped)
+        for key in roots:
+            lexicon = self.recursive_call(key, grouped, self.get_plain_type(key), lexicon)
 
-        # todo: missing the skipping part
-        lexicon = self.recursive_call(start, grouped, self.get_plain_type(start), dict())
         return lexicon
 
 
 def main():
     # # # # # Example pipelines
-
     ### Gather all lemmas/pos/cat/...
     # lemma_transform = Compose([lambda x: x[2],
     #                            lambda x: Lassy.get_property_set(x, 'cat')])
@@ -637,6 +676,7 @@ def main():
     # return L, finder, non_heads
 
     ### Assert the grouping by parent
+    decomposer = Decompose()
     find_non_head = Compose([lambda x: [x[0], x[2]],
                              lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'}, inline=True)],
                              lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=True)],
@@ -644,12 +684,16 @@ def main():
                              lambda x: [x[0], Decompose.group_by_parent(x[1])],
                              lambda x: [x[0], Decompose.sanitize(x[1])],
                              lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-                             lambda x: [x[0], Decompose.test_iter_group(x[1])]])
+                             lambda x: [x[0], Decompose.split_du(x[1])],
+                             #lambda x: [x[0], Decompose.get_disconnected(x[1])],
+                             lambda x: [x[0], decomposer(x[1])]])
+                             #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-                          collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
-    bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
-    return L0, L, bad_groups #asserter #, bad_groups
+                          collate_fn=lambda y: list(chain(y)))
+    #                      collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
+    #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
+    return L0, L, asserter #, bad_groups
 
 
 
