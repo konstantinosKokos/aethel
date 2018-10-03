@@ -255,9 +255,9 @@ class Lassy(Dataset):
                                                 del main_coind[coindex]
                                                 del all_coind[coindex]
                                         else:
-                                            for key in all_coind.keys():
+                                            for key2 in all_coind.keys():
                                                 try:
-                                                    all_coind[key].remove(subchild)
+                                                    all_coind[key2].remove(subchild)
                                                 except ValueError:
                                                     continue
                                 parent.remove(child)
@@ -275,23 +275,19 @@ class Lassy(Dataset):
             xtree = deepcopy(xtree)
 
         all_coind, main_coind = Lassy.find_main_coindex(xtree)
-
         suspects = filter(lambda x: 'cat' in x.attrib.keys(),
                           [node for node in xtree.iter('node')])
         suspects = list(filter(lambda x: x.attrib['cat'] == 'ppart' or x.attrib['cat'] == 'inf',
-                          suspects))
-        #print('suspects:', [s.attrib['id'] for s in suspects])
+                               suspects))
 
         if not suspects:
             return xtree
 
         for suspect in suspects:
-            abstract_subjects = filter(lambda x: 'rel' in x.attrib.keys(), suspect.findall('node'))
-            # todo
-            abstract_subjects = list(filter((lambda x: x.attrib['rel'] == 'su') or
-                                            (lambda x: x.attrib['rel'] == 'obj1'),
+            abstract_subjects = list(filter(lambda x: ('rel' in x.attrib.keys() # todo is this chain good
+                                                       and x in chain(*all_coind.values())), suspect.findall('node')))
+            abstract_subjects = list(filter(lambda x: (x.attrib['rel'] == 'su' or x.attrib['rel'] == 'obj1'),
                                             abstract_subjects))
-            print([a.attrib['word'] for a in abstract_subjects])
             for abstract_subject in abstract_subjects:
                 for subchild in abstract_subject.iter('node'):
                     if subchild in main_coind.values():
@@ -748,13 +744,13 @@ def main():
     ### Assert the grouping by parent
     decomposer = Decompose()
     find_non_head = Compose([lambda x: [x[0], x[2]],
-                             lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'}, inline=True)],
-                             lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=True)],
-                             lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=True)],
-                             lambda x: [x[0], Decompose.group_by_parent(x[1])],
-                             lambda x: [x[0], Decompose.sanitize(x[1])],
-                             lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-                             lambda x: [x[0], Decompose.split_du(x[1])],])
+                             lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'}, inline=False)],
+                             lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=False)],])
+                             # lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
+                             # lambda x: [x[0], Decompose.group_by_parent(x[1])],
+                             # lambda x: [x[0], Decompose.sanitize(x[1])],
+                             # lambda x: [x[0], Decompose.collapse_mwu(x[1])],
+                             # lambda x: [x[0], Decompose.split_du(x[1])],])
                              #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
                              #lambda x: [x[0], decomposer(x[1])]])
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
