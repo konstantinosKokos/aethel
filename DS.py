@@ -20,7 +20,7 @@ class Lassy(Dataset):
     Lassy dataset
     """
 
-    def __init__(self, root_dir='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir = '/Treebank',
+    def __init__(self, root_dir='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir='/Treebank',
                  transform=None, ignore=True):
         """
 
@@ -411,10 +411,8 @@ class Decompose():
                 seen.append(child)
         return grouped
 
-
     @staticmethod
     def choose_head(children_rels):
-        #todo
         """
         :param children_rels: a list of [node, rel] lists
         :return:
@@ -468,8 +466,8 @@ class Decompose():
 
         for key in grouped.keys():
             if key is not None:
-                if 'cat' in key.attrib.keys():  # todo: more removal conditions
-                    if key.attrib['cat'] == 'du' or key.attrib['cat'] == 'conj':
+                if 'cat' in key.attrib.keys():
+                    if key.attrib['cat'] == 'du': # or key.attrib['cat'] == 'conj':
                         keys_to_remove.append(key)
 
         for key in keys_to_remove:
@@ -480,7 +478,7 @@ class Decompose():
             for c, r in grouped[key]:
                 if c in keys_to_remove:
                     children_to_remove.append([c, r])
-                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top', 'cnj', 'crd']:
+                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top']:
                     children_to_remove.append([c, r])
             for c in children_to_remove:
                 grouped[key].remove(c)
@@ -508,20 +506,18 @@ class Decompose():
     def get_disconnected(grouped):
         all_keys = set(grouped.keys())
         all_children = set([x[0] for k in all_keys for x in grouped[k]])
-        try:
-            assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
-        except AssertionError:
-            return list(filter(lambda x: not Decompose.is_leaf(x), all_children.difference(all_keys)))
-        return True
-        #return all_keys.difference(all_children)
+        assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
+        # except AssertionError:
+        #     return list(filter(lambda x: not Decompose.is_leaf(x), all_children.difference(all_keys)))
+        # return True
+        return all_keys.difference(all_children)
 
     @staticmethod
     def order_siblings(siblings, exclude=None):
         # todo: this needs work (i.e. secondary criteria, perhaps taking arguments)
-        if exclude:
-            siblings = filter(lambda x: x[0] != exclude, siblings)
-        else:
-            return sorted(siblings, key = lambda x: int(x[0].attrib['id']))
+        if exclude is not None:
+            siblings = list(filter(lambda x: x[0] != exclude, siblings))
+        return sorted(siblings, key=lambda x: int(x[0].attrib['id']))
 
     @staticmethod
     def find_non_head(grouped):
@@ -549,9 +545,6 @@ class Decompose():
                         print(child.attrib)
                         return grouped
         return []
-
-    def get_key(node):
-        return node.attrib['lemma']
 
     # def recursive_call(self, parent, grouped, start_type, lexicon):
     #     # todo: optimization: no need to iterate twice over visited nodes | IMPORTANT! skews stats
@@ -619,23 +612,61 @@ class Decompose():
         except KeyError:
             return self.type_dict[node.attrib['cat']]
 
-    def recursive_call(self, start, grouped, seen, lexicon):
+    def recursive_call(self, start, grouped, lexicon, top_type=None):
+        # todo: tracking does not work
+        """
+
+        :param start:
+        :param grouped:
+        :param seen:
+        :param lexicon:
+        :return:
+        """
+
+        # this will give us the key to be used in the lexicon
+        def get_key(node):
+            return node.attrib['word'] + ', ' + node.attrib['id']
+
         # is this a subtree or a leaf node?
         if start not in grouped.keys():
-            assert Decompose.is_leaf(start)
+            if get_key(start) in lexicon.keys():  # has this node been passed through before?
+                lexicon[get_key(start)] = lexicon[get_key(start)] + ' MODALITY: {' + self.get_plain_type(start) + '}'
+            else:
+                lexicon[get_key(start)] = self.get_plain_type(start)
+        else:
+            siblings = grouped[start]
+            headchild = Decompose.choose_head(siblings)
+            if headchild == -1:
+                print(siblings)
+                raise ValueError
+
+            siblings = Decompose.order_siblings(siblings, exclude=headchild)  # todo: this ignores left/right position
+            arglist = list(map(lambda x: [self.get_plain_type(x[0]), x[1]], siblings))
+
+            # todo: in the case of headchild being RHD, we need to iterate down the head first
+            if top_type:
+                start_type = str(top_type)
+            else:
+                start_type = self.get_plain_type(start)
+            if Decompose.is_leaf(headchild):
+                lexicon[get_key(headchild)] = str(arglist) + '→ ' + start_type
+            else:
+                lexicon = self.recursive_call(headchild, grouped, lexicon, top_type=str(arglist) +
+                                                                                          '→ ' + start_type)
+
+            for child, _ in siblings:
+                lexicon = self.recursive_call(child, grouped, lexicon)
         return lexicon
 
 
     def __call__(self, grouped):
         # init an empty type dict
         lexicon = dict()
-        seen = list()
-
         # get list of roots in case of disconnected tree
         roots = sorted(Decompose.get_disconnected(grouped), key=lambda x: x.attrib['id'])
 
         for key in roots:
-            lexicon = self.recursive_call(key, grouped, self.get_plain_type(key), lexicon)
+            lexicon = self.recursive_call(key, grouped, lexicon)
 
         return lexicon
 
@@ -691,8 +722,8 @@ def main():
                              lambda x: [x[0], Decompose.sanitize(x[1])],
                              lambda x: [x[0], Decompose.collapse_mwu(x[1])],
                              lambda x: [x[0], Decompose.split_du(x[1])],
-                             lambda x: [x[0], Decompose.get_disconnected(x[1])]])
-                             #lambda x: [x[0], decomposer(x[1])]])
+                             #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
+                             lambda x: [x[0], decomposer(x[1])]])
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
