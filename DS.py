@@ -287,7 +287,11 @@ class Lassy(Dataset):
 
         for suspect in suspects:
             abstract_subjects = filter(lambda x: 'rel' in x.attrib.keys(), suspect.findall('node'))
-            abstract_subjects = list(filter(lambda x: x.attrib['rel'] == 'su', abstract_subjects))
+            # todo
+            abstract_subjects = list(filter((lambda x: x.attrib['rel'] == 'su') or
+                                            (lambda x: x.attrib['rel'] == 'obj1'),
+                                            abstract_subjects))
+            print([a.attrib['word'] for a in abstract_subjects])
             for abstract_subject in abstract_subjects:
                 for subchild in abstract_subject.iter('node'):
                     if subchild in main_coind.values():
@@ -357,7 +361,7 @@ class ToGraphViz():
 
         reduced_sentence = ''.join([x.attrib['word']+' ' for x in sorted(
             set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
-            key=lambda x: x.attrib['id']) if 'word' in x.attrib])
+            key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
 
         graph.node('title', label=reduced_sentence, shape='none')
 
@@ -543,7 +547,8 @@ class Decompose():
         # todo: this needs work (i.e. secondary criteria, perhaps taking arguments)
         if exclude is not None:
             siblings = list(filter(lambda x: x[0] != exclude, siblings))
-        return sorted(siblings, key=lambda x: int(x[0].attrib['id']))
+        return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
+                                               int(x[0].attrib['id'])))
 
     @staticmethod
     def find_non_head(grouped):
@@ -648,7 +653,6 @@ class Decompose():
         :param lexicon:
         :return:
         """
-
         # this will give us the key to be used in the lexicon
         def get_key(node):
             return node.attrib['word'] + ', ' + node.attrib['id']
