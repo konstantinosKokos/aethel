@@ -331,7 +331,7 @@ class ToGraphViz():
                 label += child['begin'] + '-' + child['end'] + '\n'
         return label
 
-    def __call__(self, xtree, output='gv_output', view=True):
+    def xml_to_gv(self, xtree):
         nodes = list(Lassy.extract_nodes(xtree)) # a list of triples
         graph = graphviz.Digraph()
 
@@ -349,6 +349,32 @@ class ToGraphViz():
                 for parent_id, dependency in child.attrib['rel'].items():
                     graph.edge(parent_id, child.attrib['id'], label=dependency)
 
+        return graph
+
+    def grouped_to_gv(self, grouped):
+
+        graph = graphviz.Digraph()
+
+        reduced_sentence = ''.join([x.attrib['word']+' ' for x in sorted(
+            set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
+            key=lambda x: x.attrib['id']) if 'word' in x.attrib])
+
+        graph.node('title', label=reduced_sentence, shape='none')
+
+        for parent in grouped.keys():
+            node_label = self.construct_node_label(parent.attrib)
+            graph.node(parent.attrib['id'], label=node_label)
+            for child, rel in grouped[parent]:
+                node_label = self.construct_node_label(child.attrib)
+                graph.node(child.attrib['id'], label=node_label)
+                graph.edge(parent.attrib['id'], child.attrib['id'], label=rel)
+        return graph
+
+    def __call__(self, parse, output='gv_output', view=True):
+        if type(parse) == ET.ElementTree:
+            graph = self.xml_to_gv(parse)
+        else:
+            graph = self.grouped_to_gv(parse)
         if output:
             graph.render(output, view=view)
 
@@ -613,7 +639,7 @@ class Decompose():
             return self.type_dict[node.attrib['cat']]
 
     def recursive_call(self, start, grouped, lexicon, top_type=None):
-        # todo: tracking does not work
+        # todo: what if the modality applies to a group of constituents?
         """
 
         :param start:
@@ -643,13 +669,16 @@ class Decompose():
             siblings = Decompose.order_siblings(siblings, exclude=headchild)  # todo: this ignores left/right position
             arglist = list(map(lambda x: [self.get_plain_type(x[0]), x[1]], siblings))
 
-            # todo: in the case of headchild being RHD, we need to iterate down the head first
             if top_type:
                 start_type = str(top_type)
             else:
                 start_type = self.get_plain_type(start)
             if Decompose.is_leaf(headchild):
-                lexicon[get_key(headchild)] = str(arglist) + '→ ' + start_type
+                if get_key(headchild) in lexicon.keys():  # has this node been passed through before?
+                    lexicon[get_key(headchild)] = lexicon[get_key(headchild)] + ' MODALITY: {' \
+                                                  + str(arglist) + '→ ' + start_type + '}'
+                else:
+                    lexicon[get_key(headchild)] = str(arglist) + '→ ' + start_type
             else:
                 lexicon = self.recursive_call(headchild, grouped, lexicon, top_type=str(arglist) +
                                                                                           '→ ' + start_type)
@@ -686,7 +715,7 @@ def main():
                              # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
                              # lambda x: Lassy.remove_abstract_subject(x),
                              # Lassy.tree_to_dag])
-    L0 = Lassy(transform = tree_transform,ignore=False)
+    L0 = Lassy(transform = tree_transform, ignore=False)
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # trees = list(chain(*[batch for batch in tqdm(forester)]))
     # return L, forester, trees
@@ -721,9 +750,9 @@ def main():
                              lambda x: [x[0], Decompose.group_by_parent(x[1])],
                              lambda x: [x[0], Decompose.sanitize(x[1])],
                              lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-                             lambda x: [x[0], Decompose.split_du(x[1])],
+                             lambda x: [x[0], Decompose.split_du(x[1])],])
                              #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
-                             lambda x: [x[0], decomposer(x[1])]])
+                             #lambda x: [x[0], decomposer(x[1])]])
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
     L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
