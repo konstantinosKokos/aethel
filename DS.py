@@ -5,9 +5,10 @@ from glob import glob
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
+from warnings import warn
+
 from torchvision.transforms import Compose
 
-import networkx as nx
 import graphviz
 
 from itertools import groupby, chain
@@ -80,56 +81,6 @@ class Lassy(Dataset):
 
         return sample
 
-    def get_filename(self, id):
-        return self.filelist[id]
-
-    @staticmethod
-    def get_sentence(xtree):
-        return xtree.getroot().findtext('sentence')
-
-    @staticmethod
-    def count_tokens(xtree):
-        """
-        use as map()
-        :param xtree:
-        :return:
-        """
-
-        return len(xtree.split(' '))
-
-    @staticmethod
-    def get_property_set(xtree, property):
-        """
-        use as map()
-        :param property:
-        :param xtree:
-        :return:
-        """
-        nodes = list(xtree.iter('node'))
-        nodes = filter(lambda x: property in x.attrib, nodes)
-        return set(map(lambda x: x.attrib[property], nodes))
-
-    @staticmethod
-    def reduce_property(set_of_sets):
-        """
-        use as reduce()
-        :param set_of_property_items:
-        :return:
-        """
-        property_items = set()
-        return property_items.union(*set_of_sets)
-
-    @staticmethod
-    def group_by_depth(nodes):
-        """
-        Takes a list of nodes and groups them by depth.
-        :param nodes:
-        :return:
-        """
-        nodes = sorted(nodes, key = lambda x: x[2])
-        groupings = groupby(nodes, key = lambda x: x[2])
-        return [[node for node in group] for key, group in groupings]
-
     @staticmethod
     def extract_nodes(xtree):
         """
@@ -141,24 +92,16 @@ class Lassy(Dataset):
 
         root = xtree.getroot().find('node')
         parents = [root]
-        depth = 0
-        yield (root, None, depth)
+
+        yield (root, None)
         while parents:
-            depth += 1
             children = []
             for parent in parents:
                 for child in parent.findall('node'):
                     children.append(child)
-                    yield (child, parent, depth)
+                    yield (child, parent)
                 parents = children
 
-    @staticmethod
-    def rel_to_dict(xtree):
-        xtree = deepcopy(xtree)
-        nodegroups = list(Lassy.extract_nodes(xtree))
-        for node, parent, _ in nodegroups[1:]:
-            node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
-        return xtree
 
     @staticmethod
     def find_main_coindex(xtree):
@@ -173,141 +116,29 @@ class Lassy(Dataset):
         return all_coind, main_coind
 
     @staticmethod
-    def replace_main_coindex(all_coindexed, main_child):
-        """
-        Returns a new main coindex and removes the old main from the list of coindexed
-        :param all_coindex: all nodes sharing the same mutual index
-        :param main_child: the previous main node
-        :return:
-        """
-        new_candidates = list(filter(lambda x: x != main_child, all_coindexed))
-        all_coindexed.remove(main_child)
-        # make sure no descendant is lost
-        for subchild in main_child.findall('node'):
-            new_candidates[0].append(subchild)
-        # replace all properties except for the id (??) # todo
-        for key, value in main_child.attrib.items():
-            new_candidates[0].set(key, value)
-        return new_candidates[0]
-
-    @staticmethod
     def tree_to_dag(xtree, inline=False):
+        # todo: primary / secondary edge labels
         if not inline:
             xtree = deepcopy(xtree)
 
         nodes = list(Lassy.extract_nodes(xtree))
-        
-        xtree.getroot().set('type', 'DAG')
 
         _, main_coind = Lassy.find_main_coindex(xtree)
 
-        for node, parent, _ in nodes[1:]:
+        for node, parent in nodes[1:]:
             if node in main_coind.values():
-                node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
+                node.attrib['rel'] = {parent.attrib['id']: [node.attrib['rel'], 'primary']}
 
-
-        for node, parent, _ in nodes[1:]:
+        for node, parent in nodes[1:]:
             if type(node.attrib['rel']) == str:
                 if 'index' in node.attrib.keys():
 
-                    main_coind[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: node.attrib['rel'],
+                    main_coind[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: [node.attrib['rel'],
+                                                                                            'secondary'],
                                                                       **main_coind[node.attrib['index']].attrib['rel']}
                     parent.remove(node)
                 else:
                     node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
-        return xtree
-
-    @staticmethod
-    def remove_subtree(xtree, criteria, inline=False):
-        """
-        usecase:
-            - remove_subtree(xtree, {'pos': 'punct', 'rel': 'mod'}) will remove punctuation and modifiers
-        :param xtree: the xml tree to be modified
-        :param criteria: a dictionary of key-value pairs
-        :return: the pruned tree according to input criteria
-        """
-        if not inline:
-            xtree = deepcopy(xtree)
-
-        root = xtree.getroot().find('node')
-        parents = [root]
-
-        all_coind, main_coind = Lassy.find_main_coindex(xtree)
-
-        while parents:
-            children = []
-            for parent in parents:
-                for child in parent.findall('node'):
-                    removed = False
-                    for key in criteria.keys():
-                        if key in child.attrib:
-                            if child.attrib[key] == criteria[key]:
-                                for subchild in child.iter('node'):
-                                    if subchild in main_coind.values():
-                                        # trying to remove main coindex
-                                        coindex = subchild.attrib['index']
-                                        if subchild == main_coind[coindex] and len(all_coind[coindex]) > 1:
-                                            main_coind[coindex] = Lassy.replace_main_coindex(all_coind[coindex],
-                                                                                             subchild)
-                                            # if only 1 item left, it no longer coindexes anything
-                                            if len(all_coind[coindex]) == 1:
-                                                del main_coind[coindex].attrib['index']
-                                                del main_coind[coindex]
-                                                del all_coind[coindex]
-                                        else:
-                                            for key2 in all_coind.keys():
-                                                try:
-                                                    all_coind[key2].remove(subchild)
-                                                except ValueError:
-                                                    continue
-                                parent.remove(child)
-                                removed = True
-                                #break
-
-                    if not removed:
-                        children.append(child)
-            parents = children
-        return xtree
-
-    @staticmethod
-    def remove_abstract_subject(xtree, inline=False):
-        if not inline:
-            xtree = deepcopy(xtree)
-
-        all_coind, main_coind = Lassy.find_main_coindex(xtree)
-        suspects = filter(lambda x: 'cat' in x.attrib.keys(),
-                          [node for node in xtree.iter('node')])
-        suspects = list(filter(lambda x: x.attrib['cat'] == 'ppart' or x.attrib['cat'] == 'inf',
-                               suspects))
-
-        if not suspects:
-            return xtree
-
-        for suspect in suspects:
-            abstract_subjects = list(filter(lambda x: ('rel' in x.attrib.keys() # todo is this chain good
-                                                       and x in chain(*all_coind.values())), suspect.findall('node')))
-            abstract_subjects = list(filter(lambda x: (x.attrib['rel'] == 'su' or x.attrib['rel'] == 'obj1'),
-                                            abstract_subjects))
-            for abstract_subject in abstract_subjects:
-                for subchild in abstract_subject.iter('node'):
-                    if subchild in main_coind.values():
-                        # trying to remove main coindex
-                        coindex = subchild.attrib['index']
-                        if subchild == main_coind[coindex] and len(all_coind[coindex]) > 1:
-                            main_coind[coindex] = Lassy.replace_main_coindex(all_coind[coindex], subchild)
-                            # if only 1 item left, it no longer coindexes anything
-                            if len(all_coind[coindex]) == 1:
-                                del main_coind[coindex].attrib['index']
-                                del main_coind[coindex]
-                                del all_coind[coindex]
-                    else:
-                        for key in all_coind.keys():
-                            try:
-                                all_coind[key].remove(subchild)
-                            except ValueError:
-                                continue
-
-                suspect.remove(abstract_subject)
         return xtree
 
 class ToGraphViz():
@@ -331,6 +162,19 @@ class ToGraphViz():
                 label += child['begin'] + '-' + child['end'] + '\n'
         return label
 
+    def construct_edge_label(self, rel):
+        if type(rel) == list:
+            return rel[0] + ' ' + rel[1]
+        else:
+            return rel
+
+    def get_edge_style(self, rel):
+        style = ''
+        if type(rel) == list:
+            if rel[1] == 'secondary':
+                style = 'dashed'
+        return style
+
     def xml_to_gv(self, xtree):
         nodes = list(Lassy.extract_nodes(xtree)) # a list of triples
         graph = graphviz.Digraph()
@@ -339,7 +183,7 @@ class ToGraphViz():
         graph.node(nodes[0][0].attrib['id'], label='ROOT')
         graph.edge('title', nodes[0][0].attrib['id'], style='invis')
 
-        for child, parent, _ in nodes[1:]:
+        for child, parent in nodes[1:]:
             node_label = self.construct_node_label(child.attrib)
             graph.node(child.attrib['id'], label=node_label)
 
@@ -347,14 +191,13 @@ class ToGraphViz():
                 graph.edge(parent.attrib['id'], child.attrib['id'], label=child.attrib['rel'])
             else:
                 for parent_id, dependency in child.attrib['rel'].items():
-                    graph.edge(parent_id, child.attrib['id'], label=dependency)
+                    graph.edge(parent_id, child.attrib['id'], label=self.construct_edge_label(dependency))
 
         return graph
 
     def grouped_to_gv(self, grouped):
 
         graph = graphviz.Digraph()
-
         reduced_sentence = ''.join([x.attrib['word']+' ' for x in sorted(
             set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
             key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
@@ -367,7 +210,7 @@ class ToGraphViz():
             for child, rel in grouped[parent]:
                 node_label = self.construct_node_label(child.attrib)
                 graph.node(child.attrib['id'], label=node_label)
-                graph.edge(parent.attrib['id'], child.attrib['id'], label=rel)
+                graph.edge(parent.attrib['id'], child.attrib['id'], style=self.get_edge_style(rel), label=self.construct_edge_label(rel))
         return graph
 
     def __call__(self, parse, output='gv_output', view=True):
@@ -377,8 +220,6 @@ class ToGraphViz():
             graph = self.grouped_to_gv(parse)
         if output:
             graph.render(output, view=view)
-
-        return graph
 
 class Decompose():
     def __init__(self, **kwargs):
@@ -398,6 +239,11 @@ class Decompose():
 
     @staticmethod
     def group_by_parent(xtree):
+        """
+        Converts the representation from ETree to a dictionary mapping parents to their children
+        :param xtree:
+        :return:
+        """
         nodes = list(xtree.iter('node'))
         grouped = []
         for node in nodes:
@@ -422,66 +268,7 @@ class Decompose():
         return newdict
 
     @staticmethod
-    def sanitize(grouped):
-        """
-        ad-hoc post-processing cleanup
-        :param grouped:
-        :return:
-        """
-        for key in grouped:
-            seen = []
-            for child, rel in grouped[key]:
-                if (child not in grouped.keys() and not Decompose.is_leaf(child) and rel != 'top') \
-                        or (child in seen):
-                    grouped[key].remove([child,rel])
-                seen.append(child)
-        return grouped
-
-    @staticmethod
-    def choose_head(children_rels):
-        """
-        :param children_rels: a list of [node, rel] lists
-        :return:
-            if a head is found, return the head
-            if structure is headless, return None
-            if unspecified case, return -1
-        """
-        candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
-        for i, (candidate, rel) in enumerate(children_rels):
-            if rel in candidates:
-                return candidate
-        return -1
-
-    @staticmethod
-    def collapse_mwu(grouped):
-        """
-        placeholder function that collapses nodes with 'mwp' dependencies into a single node
-        :param grouped:
-        :return:
-        """
-        # todo: better subcase management for proper names etc. using external parser or alpino
-        to_remove = []
-
-        # find all mwu parents
-        for key in grouped.keys():
-            if key is not None:
-                if 'cat' in key.attrib.keys():
-                    if key.attrib['cat'] == 'mwu':
-                        nodes = Decompose.order_siblings(grouped[key])
-                        collapsed_text = ''.join([x[0].attrib['word']+' ' for x in nodes])
-                        key.attrib['word'] = collapsed_text[0:-1] # update the parent text
-                        to_remove.append(key)
-
-        # parent is not a parent anymore (since no children are inherited)
-        for key in to_remove:
-            del(grouped[key])
-        # this is the normal return type
-        return grouped
-        # alternative return type for when using as map()
-        # return [tr.attrib['word'].lower() for tr in to_remove]
-
-    @staticmethod
-    def split_du(grouped):
+    def split_dag(grouped, cats_to_remove=['du'], rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--', 'top']):
         # todo: write this neatly
         """
         take a dictionary that contains headless structures and return multiple dictionaries that don't
@@ -493,18 +280,19 @@ class Decompose():
         for key in grouped.keys():
             if key is not None:
                 if 'cat' in key.attrib.keys():
-                    if key.attrib['cat'] == 'du': # or key.attrib['cat'] == 'conj':
+                    if key.attrib['cat'] in cats_to_remove: # or key.attrib['cat'] == 'conj':
                         keys_to_remove.append(key)
 
         for key in keys_to_remove:
-            del grouped[key]  # here we delete the conj/du from being a parent
+            del grouped[key]  # here we delete the node from being a parent
 
+        # here we remove children
         for key in grouped.keys():
             children_to_remove = list()
             for c, r in grouped[key]:
                 if c in keys_to_remove:
                     children_to_remove.append([c, r])
-                elif r in ['dp', 'sat', 'nucl', 'tag', '--', 'top']:
+                elif r in rels_to_remove:
                     children_to_remove.append([c, r])
             for c in children_to_remove:
                 grouped[key].remove(c)
@@ -529,176 +317,64 @@ class Decompose():
         return grouped
 
     @staticmethod
-    def get_disconnected(grouped):
-        all_keys = set(grouped.keys())
-        all_children = set([x[0] for k in all_keys for x in grouped[k]])
-        assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
-        # except AssertionError:
-        #     return list(filter(lambda x: not Decompose.is_leaf(x), all_children.difference(all_keys)))
-        # return True
-        return all_keys.difference(all_children)
+    def abstract_object_to_subject(grouped):
+        # todo: write this neatly
+        for parent in grouped.keys():
+            if parent.attrib['cat'] != 'ssub' and parent.attrib['cat'] != 'smain':
+                continue
+            subject = list(filter(lambda x: x[1] == ['su', 'secondary'], [x for x in grouped[parent]]))
+            if not subject:
+                continue
+            subject = subject[0][0]
+            ppart = list(filter(lambda x: (x[0].attrib['cat'] == 'ppart' or x[0].attrib['cat'] == 'inf'),
+                                [x for x in grouped[parent] if 'cat' in x[0].attrib]))
+            if not ppart:
+                continue
+            ppart = ppart[0][0]
+            print(ppart.attrib)
+            abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
+                                                    (x[0].attrib['index'] == subject.attrib['index']),
+                                      [x for x in grouped[ppart] if 'index' in x[0].attrib]))
+            if not abstract_so:
+                continue
+            rel = abstract_so[0][1][0]
+            abstract_so = abstract_so[0][0]
+            # # # Dictionary changes
+            # remove the abstract subject / object from being a child of the ppart/inf
+            grouped[ppart].remove([abstract_so, [rel, 'primary']])
+            # remove the abstract so from being a child of the ssub with a secondary label
+            grouped[parent].remove([abstract_so, ['su', 'secondary']])
+            # add it again with a primary label
+            grouped[parent].append([abstract_so, ['su', 'primary']])
+            # # # Internal node changes (for consistency) # todo redundant
+            # remove the primary edge property from abstract object
+            del abstract_so.attrib['rel'][ppart.attrib['id']]
+            # convert the secondary edge to primary internally
+            abstract_so.attrib['rel'][parent.attrib['id']] = ['su', 'primary']
+        return grouped
 
     @staticmethod
-    def order_siblings(siblings, exclude=None):
-        # todo: this needs work (i.e. secondary criteria, perhaps taking arguments)
-        if exclude is not None:
-            siblings = list(filter(lambda x: x[0] != exclude, siblings))
-        return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
-                                               int(x[0].attrib['id'])))
+    def remove_abstract_so(grouped):
+        for parent in grouped.keys():
+            if parent.attrib['cat'] != 'ppart' and parent.attrib['cat'] != 'inf':
+                continue
+            for child, rel in grouped[parent]:
+                if type(rel) != list:
+                    continue
+                if (rel[0] == 'su' or rel[0] == 'obj1'):
+                    if rel[1] == 'secondary':
+                        # # # Dictionary changes
+                        # remove the abstract s/o from being a child of the ppart/inf
+                        grouped[parent].remove([child, rel])
+                        # # # Internal node changes (for consistency) # todo redundant
+                        del child.attrib['rel'][parent.attrib['id']]
+                    else:
+                        if 'index' in child.keys():
+                            warn('Found primary object between {} and {}'.format(parent.attrib['id'],
+                                                                                 child.attrib['id']))
+                        #ToGraphViz()(grouped, output='abc')
 
-    @staticmethod
-    def find_non_head(grouped):
-        non_head = []
-        for key in grouped.keys():
-            if Decompose.choose_head(grouped[key]) == -1:
-                non_head.append(list(map(lambda x: x[1], grouped[key])))
-        return non_head
-
-    @staticmethod
-    def test_iter_group(grouped):
-        for key in grouped:
-            seen = []
-            for child, rel in grouped[key]:
-                if child not in grouped.keys() and rel != 'top':
-                    try:
-                        assert(Decompose.is_leaf(child))
-                    except AssertionError:
-                        print(child.attrib)
-                        return grouped
-                    try:
-                        assert(child not in seen)
-                        seen.append(child)
-                    except AssertionError:
-                        print(child.attrib)
-                        return grouped
-        return []
-
-    # def recursive_call(self, parent, grouped, start_type, lexicon):
-    #     # todo: optimization: no need to iterate twice over visited nodes | IMPORTANT! skews stats
-    #     # todo: secondary types?
-    #     # todo: what if a lemma/word/whatever is used twice with different types? dictionary is the wrong datastruct
-    #
-    #     def get_key(node):
-    #         return node.attrib['lemma']
-    #
-    #     def add_to_lexicon(lexicon, to_add):
-    #         if set(to_add.keys()).intersection(set(lexicon.keys())):
-    #             print(lexicon)
-    #             print('---------------')
-    #             print(to_add)
-    #         return {**lexicon, **to_add}
-    #
-    #     # called with a parent that is a leaf
-    #     if parent not in grouped.keys():
-    #         if parent in lexicon.keys():
-    #             return lexicon
-    #         else:
-    #             return add_to_lexicon(lexicon, {get_key(parent): {'primary': start_type}})
-    #
-    #     # find the next functor
-    #     headchild = Decompose.choose_head(grouped[parent])
-    #     assert(Decompose.is_leaf(headchild))
-    #     if headchild == -1:
-    #         raise ValueError('No head found')
-    #
-    #     # if headchild has siblings, it is a function that accepts the siblings types as arguments
-    #     # and returns the type of its parent
-    #     arglist = []
-    #
-    #     ordered_children = Decompose.order_siblings(grouped[parent], exclude=headchild)
-    #
-    #     for child, rel in ordered_children:
-    #         # left until we find headchild, then right
-    #
-    #         # find the type, add the type and dependency as arguments
-    #         child_type = self.get_plain_type(child)
-    #         arglist.append((child_type, rel))
-    #
-    #         # did we reach the end?
-    #         if Decompose.is_leaf(child):
-    #             if child not in lexicon.keys():
-    #                 lexicon = add_to_lexicon(lexicon, {get_key(child): {'secondary': child_type}})
-    #             elif child in lexicon.keys():
-    #                 assert (lexicon[child] == child_type)
-    #         else:
-    #             # flow downwards this path
-    #             lexicon = self.recursive_call(child, grouped, child_type, lexicon)
-    #
-    #     # time to flow down the headchild
-    #     if arglist:
-    #         lexicon = self.recursive_call(headchild, grouped, [arglist, start_type], lexicon)
-    #     else:
-    #         lexicon = self.recursive_call(headchild, grouped, start_type, lexicon)
-    #
-    #     return lexicon
-
-
-    def get_plain_type(self, node):
-        try:
-            return self.type_dict[node.attrib['pos']]
-        except KeyError:
-            return self.type_dict[node.attrib['cat']]
-
-    def recursive_call(self, start, grouped, lexicon, top_type=None):
-        # todo: what if the modality applies to a group of constituents?
-        """
-
-        :param start:
-        :param grouped:
-        :param seen:
-        :param lexicon:
-        :return:
-        """
-        # this will give us the key to be used in the lexicon
-        def get_key(node):
-            return node.attrib['word'] + ', ' + node.attrib['id']
-
-        # is this a subtree or a leaf node?
-        if start not in grouped.keys():
-            if get_key(start) in lexicon.keys():  # has this node been passed through before?
-                lexicon[get_key(start)] = lexicon[get_key(start)] + ' MODALITY: {' + self.get_plain_type(start) + '}'
-            else:
-                lexicon[get_key(start)] = self.get_plain_type(start)
-        else:
-            siblings = grouped[start]
-            headchild = Decompose.choose_head(siblings)
-            if headchild == -1:
-                print(siblings)
-                raise ValueError
-
-            siblings = Decompose.order_siblings(siblings, exclude=headchild)  # todo: this ignores left/right position
-            arglist = list(map(lambda x: [self.get_plain_type(x[0]), x[1]], siblings))
-
-            if top_type:
-                start_type = str(top_type)
-            else:
-                start_type = self.get_plain_type(start)
-            if Decompose.is_leaf(headchild):
-                if get_key(headchild) in lexicon.keys():  # has this node been passed through before?
-                    lexicon[get_key(headchild)] = lexicon[get_key(headchild)] + ' MODALITY: {' \
-                                                  + str(arglist) + '→ ' + start_type + '}'
-                else:
-                    lexicon[get_key(headchild)] = str(arglist) + '→ ' + start_type
-            else:
-                lexicon = self.recursive_call(headchild, grouped, lexicon, top_type=str(arglist) +
-                                                                                          '→ ' + start_type)
-
-            for child, _ in siblings:
-                lexicon = self.recursive_call(child, grouped, lexicon)
-        return lexicon
-
-
-    def __call__(self, grouped):
-        # init an empty type dict
-        lexicon = dict()
-        # get list of roots in case of disconnected tree
-        roots = sorted(Decompose.get_disconnected(grouped), key=lambda x: x.attrib['id'])
-
-        for key in roots:
-            lexicon = self.recursive_call(key, grouped, lexicon)
-
-        return lexicon
-
+        return grouped
 
 def main():
     # # # # # Example pipelines
@@ -711,11 +387,11 @@ def main():
     # return L, lemmatizer, lemmas
     #
     # ## Gather all trees. remove modifiers and punct and convert to DAGs
-    tree_transform = Compose([lambda x: x[2]])
+    tree_transform = Compose([lambda x: x])
                              # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-                             # lambda x: Lassy.remove_abstract_subject(x),
+                             # lambda x: Lassy.remove_abstract_so(x),
                              # Lassy.tree_to_dag])
-    L0 = Lassy(transform = tree_transform, ignore=False)
+    L0 = Lassy(transform=tree_transform, ignore=False)
     # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
     # trees = list(chain(*[batch for batch in tqdm(forester)]))
     # return L, forester, trees
@@ -729,7 +405,7 @@ def main():
     ### Find all same-level dependencies without a head
     # find_non_head = Compose([lambda x: [x[0], x[2]],
     #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
-    #                          lambda x: [x[0], Lassy.remove_abstract_subject(x[1])],
+    #                          lambda x: [x[0], Lassy.remove_abstract_so(x[1])],
     #                          lambda x: [x[0], Lassy.tree_to_dag(x[1])],
     #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
     #                          lambda x: [x[0], Decompose.find_non_head(x[1])]])
@@ -744,31 +420,24 @@ def main():
     ### Assert the grouping by parent
     decomposer = Decompose()
     find_non_head = Compose([lambda x: [x[0], x[2]],
-                             lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'}, inline=False)],
-                             lambda x: [x[0], Lassy.remove_abstract_subject(x[1], inline=False)],])
-                             # lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
-                             # lambda x: [x[0], Decompose.group_by_parent(x[1])],
+                             # lambda x: [x[0], Lassy.remove_abstract_so(x[1], inline=False)],
+                             lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
+                             lambda x: [x[0], Decompose.group_by_parent(x[1])],
                              # lambda x: [x[0], Decompose.sanitize(x[1])],
                              # lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-                             # lambda x: [x[0], Decompose.split_du(x[1])],])
+                             lambda x: [x[0], Decompose.split_dag(x[1],
+                                                                  cats_to_remove=['du'],
+                                                                  rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
+                                                                                  'top'])],
+                             lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
+                             lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
                              #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
                              #lambda x: [x[0], decomposer(x[1])]])
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
+                             ])
     L = Lassy(transform=find_non_head, ignore=False)
     asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
                           collate_fn=lambda y: list(chain(y)))
     #                      collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
     #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
     return L0, L, asserter #, bad_groups
-
-
-
-
-    tree = Compose([lambda x: x[1]])
-    L = Lassy(transform=tree)
-    samples = [L[i] for i in [10, 20, 30, 40, 50, 100, 500, 1000, 200]]
-    faster = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-
-    tg = ToGraphViz()
-
-    return samples, ToGraphViz(), faster
