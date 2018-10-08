@@ -474,6 +474,11 @@ class Decompose():
             else:
                 return rel
 
+        def is_gap(node):
+            if list(filter(lambda x: x[1] == 'secondary', [x for x in node.attrib['rel'].values()
+                                                           if type(x) == list])):
+                return True
+            return False
 
         siblings = grouped[current]
         headchild = Decompose.choose_head(siblings)
@@ -485,14 +490,11 @@ class Decompose():
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
-        is_gap = bool(list(filter(lambda x: x[1] == 'secondary',
-                                  [x for x in headchild.attrib['rel'].values()
-                                   if type(x) == list])))
-
+        gap = is_gap(headchild)
         arglist = [(self.get_plain_type(sib), get_rel(rel)) for sib, rel in siblings]
         headtype = (arglist, top_type)
 
-        if is_gap:
+        if gap:
             headtype = ['!', headtype]
         if Decompose.is_leaf(headchild):
             lexicon[get_key(headchild)] = headtype
@@ -504,20 +506,26 @@ class Decompose():
                 if rel[1] == 'secondary':
                     continue
             if Decompose.is_leaf(sib):
-                lexicon[get_key(sib)] = self.get_plain_type(sib)
+                if is_gap(sib):
+                    sib_type = ['!', self.get_plain_type(sib)]
+                else:
+                    sib_type = self.get_plain_type(sib)
+                if get_key(sib) in lexicon.keys():
+                    raise KeyError
+                lexicon[get_key(sib)] = sib_type
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
     def __call__(self, grouped):
-        ToGraphViz()(grouped)
+        # ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
         # init lexicon here
-        # todo perhaps a small class object
         lexicon = dict()
 
         for top_node in top_nodes:
             self.recursive_assignment(top_node, grouped, None, lexicon)
+
         return lexicon
 
 
