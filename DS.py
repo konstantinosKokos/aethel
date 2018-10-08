@@ -237,6 +237,12 @@ class Decompose():
         else:
             return False
 
+    def get_plain_type(self, node):
+        try:
+            return self.type_dict[node.attrib['pos']]
+        except KeyError:
+            return self.type_dict[node.attrib['cat']]
+
     @staticmethod
     def group_by_parent(xtree):
         """
@@ -280,7 +286,7 @@ class Decompose():
         for key in grouped.keys():
             if key is not None:
                 if 'cat' in key.attrib.keys():
-                    if key.attrib['cat'] in cats_to_remove: # or key.attrib['cat'] == 'conj':
+                    if key.attrib['cat'] in cats_to_remove:
                         keys_to_remove.append(key)
 
         for key in keys_to_remove:
@@ -317,40 +323,74 @@ class Decompose():
         return grouped
 
     @staticmethod
+    def get_disconnected(grouped):
+        all_keys = set(grouped.keys())
+        all_children = set([x[0] for k in all_keys for x in grouped[k]])
+        assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
+        # except AssertionError:
+        #     return list(filter(lambda x: not Decompose.is_leaf(x), all_children.difference(all_keys)))
+        # return True
+        return all_keys.difference(all_children)
+
+    @staticmethod
     def abstract_object_to_subject(grouped):
         # todo: write this neatly
-        for parent in grouped.keys():
-            if parent.attrib['cat'] != 'ssub' and parent.attrib['cat'] != 'smain':
+        for main_parent in grouped.keys():
+
+            parent = main_parent
+
+            if main_parent.attrib['cat'] not in ['ssub', 'smain', 'sv1']:
                 continue
-            subject = list(filter(lambda x: x[1] == ['su', 'secondary'], [x for x in grouped[parent]]))
-            if not subject:
+            real_so = list(filter(lambda x: (x[1] == ['su', 'secondary'] or x[1] == ['obj1', 'secondary']),
+                                  [x for x in grouped[main_parent]]))
+            if not real_so:
                 continue
-            subject = subject[0][0]
+
+            assert type(real_so[0][1] == list)
+            parent_dep = real_so[0][1][0]
+            real_so = real_so[0][0]
+
+            # om te construction --  go one level lower
+            ti = list(filter(lambda x: x[0].attrib['cat'] == 'ti',
+                             [x for x in grouped[main_parent] if 'cat' in x[0].attrib]))
+            if ti:
+                parent = ti[0][0]
+
             ppart = list(filter(lambda x: (x[0].attrib['cat'] == 'ppart' or x[0].attrib['cat'] == 'inf'),
                                 [x for x in grouped[parent] if 'cat' in x[0].attrib]))
             if not ppart:
                 continue
             ppart = ppart[0][0]
-            print(ppart.attrib)
             abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
-                                                    (x[0].attrib['index'] == subject.attrib['index']),
+                                                    (x[0].attrib['index'] == real_so.attrib['index']),
                                       [x for x in grouped[ppart] if 'index' in x[0].attrib]))
+
+            # chained inf / ppart construction
+            if not abstract_so:
+                ppart = list(filter(lambda x: (x[0].attrib['cat'] == 'ppart' or x[0].attrib['cat'] == 'inf'),
+                                [x for x in grouped[ppart] if 'cat' in x[0].attrib]))
+                if ppart:
+                    ppart = ppart[0][0]
+                    abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
+                                                        (x[0].attrib['index'] == real_so.attrib['index']),
+                                              [x for x in grouped[ppart] if 'index' in x[0].attrib]))
             if not abstract_so:
                 continue
+
             rel = abstract_so[0][1][0]
             abstract_so = abstract_so[0][0]
             # # # Dictionary changes
-            # remove the abstract subject / object from being a child of the ppart/inf
+            # remove the abstract real_so / object from being a child of the ppart/inf
             grouped[ppart].remove([abstract_so, [rel, 'primary']])
             # remove the abstract so from being a child of the ssub with a secondary label
-            grouped[parent].remove([abstract_so, ['su', 'secondary']])
+            grouped[main_parent].remove([abstract_so, [parent_dep, 'secondary']])
             # add it again with a primary label
-            grouped[parent].append([abstract_so, ['su', 'primary']])
+            grouped[main_parent].append([abstract_so, [parent_dep, 'primary']])
             # # # Internal node changes (for consistency) # todo redundant
             # remove the primary edge property from abstract object
             del abstract_so.attrib['rel'][ppart.attrib['id']]
             # convert the secondary edge to primary internally
-            abstract_so.attrib['rel'][parent.attrib['id']] = ['su', 'primary']
+            abstract_so.attrib['rel'][main_parent.attrib['id']] = ['su', 'primary']
         return grouped
 
     @staticmethod
@@ -370,11 +410,116 @@ class Decompose():
                         del child.attrib['rel'][parent.attrib['id']]
                     else:
                         if 'index' in child.keys():
+                            raise ValueError
                             warn('Found primary object between {} and {}'.format(parent.attrib['id'],
                                                                                  child.attrib['id']))
                         #ToGraphViz()(grouped, output='abc')
 
         return grouped
+
+    @staticmethod
+    def order_siblings(siblings, exclude=None):
+        if exclude is not None:
+            siblings = list(filter(lambda x: x[0] != exclude, siblings))
+        return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
+                                               int(x[0].attrib['id'])))
+
+    @staticmethod
+    def collapse_mwu(grouped):
+        """
+        placeholder function that collapses nodes with 'mwp' dependencies into a single node
+        :param grouped:
+        :return:
+        """
+        # todo: better subcase management for proper names etc. using external parser or alpino
+        to_remove = []
+
+        # find all mwu parents
+        for key in grouped.keys():
+            if key is not None:
+                if 'cat' in key.attrib.keys():
+                    if key.attrib['cat'] == 'mwu':
+                        nodes = Decompose.order_siblings(grouped[key])
+                        collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
+                        key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
+                        to_remove.append(key)
+
+        # parent is not a parent anymore (since no children are inherited)
+        for key in to_remove:
+            del (grouped[key])
+        return grouped
+
+    @staticmethod
+    def choose_head(children_rels):
+        """
+        :param children_rels: a list of [node, rel] lists
+        :return:
+            if a head is found, return the head
+            if structure is headless, return None
+            if unspecified case, return -1
+        """
+        candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
+        for i, (candidate, rel) in enumerate(children_rels):
+            if rel in candidates:
+                return candidate
+        return -1
+
+    def recursive_assignment(self, current, grouped, top_type, lexicon):
+        def get_key(node):
+            return node.attrib['word'] + ' ' + node.attrib['id']
+
+        def get_rel(rel):
+            if type(rel) == list:
+                return rel[0]
+            else:
+                return rel
+
+
+        siblings = grouped[current]
+        headchild = Decompose.choose_head(siblings)
+        if headchild == -1:
+            raise ValueError('Did not find a head')
+
+        if top_type is None:
+            top_type = self.get_plain_type(current)
+
+        siblings = Decompose.order_siblings(siblings, exclude=headchild)
+
+        is_gap = bool(list(filter(lambda x: x[1] == 'secondary',
+                                  [x for x in headchild.attrib['rel'].values()
+                                   if type(x) == list])))
+
+        arglist = [(self.get_plain_type(sib), get_rel(rel)) for sib, rel in siblings]
+        headtype = (arglist, top_type)
+
+        if is_gap:
+            headtype = ['!', headtype]
+        if Decompose.is_leaf(headchild):
+            lexicon[get_key(headchild)] = headtype
+        else:
+            self.recursive_assignment(headchild, grouped, headtype, lexicon)
+
+        for sib, rel in siblings:
+            if type(rel) == list:
+                if rel[1] == 'secondary':
+                    continue
+            if Decompose.is_leaf(sib):
+                lexicon[get_key(sib)] = self.get_plain_type(sib)
+            else:
+                self.recursive_assignment(sib, grouped, None, lexicon)
+
+    def __call__(self, grouped):
+        ToGraphViz()(grouped)
+        top_nodes = Decompose.get_disconnected(grouped)
+
+        # init lexicon here
+        # todo perhaps a small class object
+        lexicon = dict()
+
+        for top_node in top_nodes:
+            self.recursive_assignment(top_node, grouped, None, lexicon)
+        return lexicon
+
 
 def main():
     # # # # # Example pipelines
@@ -424,7 +569,7 @@ def main():
                              lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
                              lambda x: [x[0], Decompose.group_by_parent(x[1])],
                              # lambda x: [x[0], Decompose.sanitize(x[1])],
-                             # lambda x: [x[0], Decompose.collapse_mwu(x[1])],
+                             lambda x: [x[0], Decompose.collapse_mwu(x[1])],
                              lambda x: [x[0], Decompose.split_dag(x[1],
                                                                   cats_to_remove=['du'],
                                                                   rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
@@ -432,7 +577,7 @@ def main():
                              lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
                              lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
                              #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
-                             #lambda x: [x[0], decomposer(x[1])]])
+                             lambda x: [x[0], decomposer(x[1])]
                              #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
                              ])
     L = Lassy(transform=find_non_head, ignore=False)
