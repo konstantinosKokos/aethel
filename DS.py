@@ -460,19 +460,20 @@ class Decompose():
         """
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
         for i, (candidate, rel) in enumerate(children_rels):
-            if rel in candidates:
+            if Decompose.get_rel(rel) in candidates:
                 return candidate
         return -1
+
+    @staticmethod
+    def get_rel(rel):
+        if type(rel) == list:
+            return rel[0]
+        else:
+            return rel
 
     def recursive_assignment(self, current, grouped, top_type, lexicon):
         def get_key(node):
             return node.attrib['word'] + ' ' + node.attrib['id']
-
-        def get_rel(rel):
-            if type(rel) == list:
-                return rel[0]
-            else:
-                return rel
 
         def is_gap(node):
             if list(filter(lambda x: x[1] == 'secondary', [x for x in node.attrib['rel'].values()
@@ -483,7 +484,7 @@ class Decompose():
         siblings = grouped[current]
         headchild = Decompose.choose_head(siblings)
         if headchild == -1:
-            raise ValueError('Did not find a head')
+            raise ValueError('Did not find a head in {}'.format([s[1] for s in siblings]))
 
         if top_type is None:
             top_type = self.get_plain_type(current)
@@ -491,11 +492,11 @@ class Decompose():
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
         gap = is_gap(headchild)
-        arglist = [(self.get_plain_type(sib), get_rel(rel)) for sib, rel in siblings]
+        arglist = tuple([(self.get_plain_type(sib), Decompose.get_rel(rel)) for sib, rel in siblings])
         headtype = (arglist, top_type)
 
         if gap:
-            headtype = ['!', headtype]
+            headtype = ('!', headtype)
         if Decompose.is_leaf(headchild):
             lexicon[get_key(headchild)] = headtype
         else:
@@ -507,7 +508,7 @@ class Decompose():
                     continue
             if Decompose.is_leaf(sib):
                 if is_gap(sib):
-                    sib_type = ['!', self.get_plain_type(sib)]
+                    sib_type = ('!', self.get_plain_type(sib))
                 else:
                     sib_type = self.get_plain_type(sib)
                 if get_key(sib) in lexicon.keys():
@@ -525,9 +526,55 @@ class Decompose():
 
         for top_node in top_nodes:
             self.recursive_assignment(top_node, grouped, None, lexicon)
-
         return lexicon
 
+class Type():
+    def __init__(self, arglist, result, modality=None):
+        self.arglist = arglist
+        self.result = result
+        self.modality = modality
+
+    def __str__(self):
+        if self.modality:
+            to_print = ' ◇ □ '
+        else:
+            to_print = ''
+        if self.arglist:
+            to_print += str(self.arglist)
+            if type(self.arglist) == Type:
+                to_print = '(' + to_print + ')'
+            to_print += ' ⭢ '
+        if type(self.result) == Type:
+            to_print += '(' + str(self.result) + ')'
+        else:
+            to_print += str(self.result)
+        return to_print
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __eq__(self, t):
+        return self.arglist == t.arglist and self.result == t.result and self.modality == t.modality
+
+    def __main__(self):
+        print(self.__str__)
+
+
+
+def reduce_lexicon(main_lex, new_lex):
+    def key_reducer(key):
+        return key
+
+    for key in new_lex:
+        reduced_key = key_reducer(key)
+
+        if reduced_key in main_lex.keys():
+            if new_lex[key] in main_lex[reduced_key].keys():
+                main_lex[reduced_key][new_lex[key]] += 1
+            else:
+                main_lex[reduced_key][new_lex[key]] = 1
+        else:
+            main_lex[reduced_key] = {new_lex[key]: 1}
 
 def main():
     # # # # # Example pipelines
