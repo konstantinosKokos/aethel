@@ -12,6 +12,7 @@ from torchvision.transforms import Compose
 import graphviz
 
 from itertools import groupby, chain
+from functools import reduce
 from copy import deepcopy
 
 from pprint import pprint as print
@@ -222,7 +223,7 @@ class ToGraphViz():
             graph.render(output, view=view)
 
 class Decompose():
-    def __init__(self, **kwargs):
+    def __init__(self):
         # type_dict: POS → Type
         all_POS = {'--',  'adj', 'adv', 'comp', 'comparative', 'det', 'fixed', 'name', 'noun', 'num',
                     'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
@@ -487,7 +488,7 @@ class Decompose():
             raise ValueError('Did not find a head in {}'.format([s[1] for s in siblings]))
 
         if top_type is None:
-            top_type = self.get_plain_type(current)
+            top_type = Type(None, self.get_plain_type(current))
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
@@ -514,7 +515,8 @@ class Decompose():
                 else:
                     sib_type = Type(None, self.get_plain_type(sib))
                 if get_key(sib) in lexicon.keys():
-                    raise KeyError
+                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}'\
+                                   .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id']))
                 lexicon[get_key(sib)] = Type(None, sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
@@ -529,10 +531,6 @@ class Decompose():
         for top_node in top_nodes:
             self.recursive_assignment(top_node, grouped, None, lexicon)
         return lexicon
-
-
-class Lexicon:
-    pass
 
 
 class Type:
@@ -577,14 +575,20 @@ class Type:
     def __eq__(self, t):
         return self.arglist == t.arglist and self.result == t.result and self.modality == t.modality
 
+    def __hash__(self):
+        return self.__repr__().__hash__()
+
     def __main__(self):
         print(self.__str__)
 
 
-def reduce_lexicon(main_lex, new_lex):
-    def key_reducer(key):
-        return key
+def reduce_lexicon(main_lex, new_lex, key_reducer = lambda x: x.split(' ')[0]):
+    """
 
+    :param main_lex:
+    :param new_lex:
+    :return:
+    """
     for key in new_lex:
         reduced_key = key_reducer(key)
 
@@ -595,6 +599,24 @@ def reduce_lexicon(main_lex, new_lex):
                 main_lex[reduced_key][new_lex[key]] = 1
         else:
             main_lex[reduced_key] = {new_lex[key]: 1}
+
+
+def get_values(lexicon):
+    return set([key for subdict in lexicon.values() for key in subdict])
+
+
+def count_occurrences(lexicon):
+    def sum_reduce(lex1, lex2):
+        for key in lex2.keys():
+            if key in lex1.keys():
+                lex1[key] = lex1[key] + lex2[key]
+            else:
+                lex1[key] = lex2[key]
+        return lex1
+    unwrapped = [subdict for subdict in lexicon.values()]
+    occurrences = reduce(sum_reduce, unwrapped, dict())
+    return sorted(occurrences.items(), key = lambda x: -x[1])
+
 
 def main():
     # # # # # Example pipelines
@@ -648,7 +670,7 @@ def main():
                              lambda x: [x[0], Decompose.split_dag(x[1],
                                                                   cats_to_remove=['du'],
                                                                   rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
-                                                                                  'top'])],
+                                                                                  'top', 'mod'])],
                              lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
                              lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
                              #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
