@@ -474,7 +474,7 @@ class Decompose():
 
     def recursive_assignment(self, current, grouped, top_type, lexicon):
         def get_key(node):
-            return node.attrib['word'] + ' ' + node.attrib['id']
+            return node.attrib['word'].lower() + ' ' + node.attrib['id']
 
         def is_gap(node):
             if list(filter(lambda x: x[1] == 'secondary', [x for x in node.attrib['rel'].values()
@@ -488,7 +488,7 @@ class Decompose():
             raise ValueError('Did not find a head in {}'.format([s[1] for s in siblings]))
 
         if top_type is None:
-            top_type = Type(None, self.get_plain_type(current))
+            top_type = Type([], self.get_plain_type(current))
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
@@ -511,13 +511,13 @@ class Decompose():
                     continue
             if Decompose.is_leaf(sib):
                 if is_gap(sib):
-                    sib_type = Type(None, self.get_plain_type(sib), True)
+                    sib_type = Type([], self.get_plain_type(sib), True)
                 else:
-                    sib_type = Type(None, self.get_plain_type(sib))
+                    sib_type = Type([], self.get_plain_type(sib))
                 if get_key(sib) in lexicon.keys():
                     raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}'\
                                    .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id']))
-                lexicon[get_key(sib)] = Type(None, sib_type)
+                lexicon[get_key(sib)] = Type([], sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
@@ -538,6 +538,7 @@ class Type:
         self.arglist = arglist
         self.result = result
         self.modality = modality
+        # todo: arglist arity is ignored
         if not arglist:
             try:
                 self.arity = result.arity
@@ -566,16 +567,20 @@ class Type:
             pass
         to_print = to_print + resprint
         if self.modality:
-            to_print = ' ◇ □ (' + to_print + ')'
+            if self.arglist:
+                to_print = '(' + to_print + ')'
+            to_print = ' ◇ □ ' + to_print
         return to_print
 
     def __repr__(self):
         return self.__str__()
 
     def __eq__(self, t):
+        # recursive calls within argument and result types
         return self.arglist == t.arglist and self.result == t.result and self.modality == t.modality
 
     def __hash__(self):
+        # hash the string representation which should be unique for any given type
         return self.__repr__().__hash__()
 
     def __main__(self):
@@ -616,6 +621,16 @@ def count_occurrences(lexicon):
     unwrapped = [subdict for subdict in lexicon.values()]
     occurrences = reduce(sum_reduce, unwrapped, dict())
     return sorted(occurrences.items(), key = lambda x: -x[1])
+
+
+def seek_conjunctions(lexicon):
+    for word in lexicon.keys():
+        for word_type in lexicon[word].keys():
+            if 'CONJ' in [x[0] for x in word_type.arglist]:
+                # todo --
+                raise NotImplementedError
+                print(word)
+                break
 
 
 def main():
