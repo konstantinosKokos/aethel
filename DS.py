@@ -492,11 +492,13 @@ class Decompose():
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
         gap = is_gap(headchild)
-        arglist = tuple([(self.get_plain_type(sib), Decompose.get_rel(rel)) for sib, rel in siblings])
-        headtype = (arglist, top_type)
+        arglist = [[self.get_plain_type(sib), Decompose.get_rel(rel)] for sib, rel in siblings]
 
         if gap:
-            headtype = ('!', headtype)
+            headtype = Type(arglist, top_type, True)
+        else:
+            headtype = Type(arglist, top_type)
+
         if Decompose.is_leaf(headchild):
             lexicon[get_key(headchild)] = headtype
         else:
@@ -508,12 +510,12 @@ class Decompose():
                     continue
             if Decompose.is_leaf(sib):
                 if is_gap(sib):
-                    sib_type = ('!', self.get_plain_type(sib))
+                    sib_type = Type(None, self.get_plain_type(sib), True)
                 else:
-                    sib_type = self.get_plain_type(sib)
+                    sib_type = Type(None, self.get_plain_type(sib))
                 if get_key(sib) in lexicon.keys():
                     raise KeyError
-                lexicon[get_key(sib)] = sib_type
+                lexicon[get_key(sib)] = Type(None, sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
@@ -528,7 +530,12 @@ class Decompose():
             self.recursive_assignment(top_node, grouped, None, lexicon)
         return lexicon
 
-class Type():
+
+class Lexicon:
+    pass
+
+
+class Type:
     def __init__(self, arglist, result, modality=False):
         self.arglist = arglist
         self.result = result
@@ -538,15 +545,20 @@ class Type():
                 self.arity = result.arity
             except AttributeError:
                 self.arity = 0
-        else:
-            self.arity = result.arity + arglist.arity + 1
+
+    @staticmethod
+    def print_arg(arg):
+        return '(' + arg[0] + ', ' + arg[1] + ')'
 
     def __str__(self):
         to_print = ''
         if self.arglist:
-            argprint = str(self.arglist)
-            if self.arglist.arity:
-                argprint = '(' + argprint + ')'
+            if len(self.arglist) == 1:
+                argprint = self.print_arg(self.arglist[0])
+            else:
+                argprint = '(' + ', '.join(map(self.print_arg, self.arglist)) + ')'
+            # if self.arglist.arity:
+            #     argprint = '(' + argprint + ')'
             to_print = argprint + ' → '
         resprint = str(self.result)
         try:
@@ -567,7 +579,6 @@ class Type():
 
     def __main__(self):
         print(self.__str__)
-
 
 
 def reduce_lexicon(main_lex, new_lex):
