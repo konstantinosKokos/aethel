@@ -228,7 +228,7 @@ class Decompose():
                     'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
         all_CAT = {'du', 'mwu', 'ssub', 'ppres', 'smain', 'detp', 'rel', 'ppart', 'oti', 'sv1', 'ap', 'svan', 'whq',
                    'pp', 'whsub', 'ti', 'ahi', 'whrel', 'advp', 'np', 'conj', 'cp', 'inf', 'top'}
-        self.type_dict = {x: x for x in {*all_POS, *all_CAT}}
+        self.type_dict = {x: x.upper() for x in {*all_POS, *all_CAT}}
 
     @staticmethod
     def is_leaf(node):
@@ -529,25 +529,34 @@ class Decompose():
         return lexicon
 
 class Type():
-    def __init__(self, arglist, result, modality=None):
+    def __init__(self, arglist, result, modality=False):
         self.arglist = arglist
         self.result = result
         self.modality = modality
+        if not arglist:
+            try:
+                self.arity = result.arity
+            except AttributeError:
+                self.arity = 0
+        else:
+            self.arity = result.arity + arglist.arity + 1
 
     def __str__(self):
-        if self.modality:
-            to_print = ' ◇ □ '
-        else:
-            to_print = ''
+        to_print = ''
         if self.arglist:
-            to_print += str(self.arglist)
-            if type(self.arglist) == Type:
-                to_print = '(' + to_print + ')'
-            to_print += ' ⭢ '
-        if type(self.result) == Type:
-            to_print += '(' + str(self.result) + ')'
-        else:
-            to_print += str(self.result)
+            argprint = str(self.arglist)
+            if self.arglist.arity:
+                argprint = '(' + argprint + ')'
+            to_print = argprint + ' → '
+        resprint = str(self.result)
+        try:
+            if self.result.arity:
+                resprint = '(' + resprint + ')'
+        except AttributeError:
+            pass
+        to_print = to_print + resprint
+        if self.modality:
+            to_print = ' ◇ □ (' + to_print + ')'
         return to_print
 
     def __repr__(self):
