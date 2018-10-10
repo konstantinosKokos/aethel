@@ -3,7 +3,6 @@ import xml.etree.cElementTree as ET
 from glob import glob
 
 from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
 
 from warnings import warn
 
@@ -222,11 +221,12 @@ class ToGraphViz():
         if output:
             graph.render(output, view=view)
 
+
 class Decompose():
     def __init__(self):
         # type_dict: POS → Type
-        all_POS = {'--',  'adj', 'adv', 'comp', 'comparative', 'det', 'fixed', 'name', 'noun', 'num',
-                    'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
+        all_POS = {'adj', 'adv', 'comp', 'comparative', 'det', 'fixed', 'name', 'noun', 'num',
+                   'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
         all_CAT = {'du', 'mwu', 'ssub', 'ppres', 'smain', 'detp', 'rel', 'ppart', 'oti', 'sv1', 'ap', 'svan', 'whq',
                    'pp', 'whsub', 'ti', 'ahi', 'whrel', 'advp', 'np', 'conj', 'cp', 'inf', 'top'}
         self.type_dict = {x: x.upper() for x in {*all_POS, *all_CAT}}
@@ -279,7 +279,9 @@ class Decompose():
         # todo: write this neatly
         """
         take a dictionary that contains headless structures and return multiple dictionaries that don't
-        :param grouped: the original dictionary to split
+        :param grouped:
+        :param cats_to_remove:
+        :param rels_to_remove:
         :return:
         """
         keys_to_remove = list()
@@ -426,7 +428,7 @@ class Decompose():
                                                int(x[0].attrib['id'])))
 
     @staticmethod
-    def collapse_mwu(grouped):
+    def collapse_mwu(grouped, relabel = lambda x: x):
         """
         placeholder function that collapses nodes with 'mwp' dependencies into a single node
         :param grouped:
@@ -441,14 +443,26 @@ class Decompose():
                 if 'cat' in key.attrib.keys():
                     if key.attrib['cat'] == 'mwu':
                         nodes = Decompose.order_siblings(grouped[key])
+                        new_cat = relabel
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
+                        # todo:
+                        # key.attrib['cat'] = NEW CAT
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
         for key in to_remove:
             del (grouped[key])
         return grouped
+
+    @staticmethod
+    def pick_first_conj(children_rels):
+        """
+        ad-hoc function that picks the first sibling as a head
+        :param children_rels:
+        :return:
+        """
+        return [x for x in children_rels if x[1] == 'cnj'][0][0]
 
     @staticmethod
     def choose_head(children_rels):
@@ -463,6 +477,8 @@ class Decompose():
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in candidates:
                 return candidate
+        # if 'cnj' in [x[1] for x in children_rels]:
+        #     return Decompose.pick_first_conj(children_rels)
         return -1
 
     @staticmethod
@@ -499,7 +515,6 @@ class Decompose():
             headtype = Type(arglist, top_type, True)
         else:
             headtype = Type(arglist, top_type)
-
         if Decompose.is_leaf(headchild):
             lexicon[get_key(headchild)] = headtype
         else:
@@ -536,7 +551,14 @@ class Decompose():
 class Type:
     def __init__(self, arglist, result, modality=False):
         self.arglist = arglist
+        # make sure that A -> [] -> B is the same as A -> B
+        while type(result) == Type:
+            if not result.arglist:
+                result = result.result
+            else:
+                break
         self.result = result
+
         self.modality = modality
         # todo: arglist arity is ignored
         if not arglist:
@@ -583,26 +605,57 @@ class Type:
         # hash the string representation which should be unique for any given type
         return self.__repr__().__hash__()
 
+    def wcmp(self, other):
+        """
+        Weak comparison between a normal Type and a Type with a missing argument / result
+        :param other:
+        :return:
+        """
+        if len(self.arglist) != len(other.arglist):
+            return False
+        for i, a in enumerate(self.arglist):
+            if a == other.arglist[i] or (other.arglist[i][0] == '?' and a[1] == other.arglist[i][1]):
+                continue
+            else:
+                return False
+        # if other.result == '?': # todo
+        #     return True
+        if type(self.result) != type(other.result):
+            print(1)
+            return False
+        elif type(self.result) == Type:
+            return True and self.result.wcmp(other.result)
+        else:
+            return self.result == other.result
+
     def __main__(self):
         print(self.__str__)
 
 
-def reduce_lexicon(main_lex, new_lex, key_reducer = lambda x: x.split(' ')[0]):
+def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
     """
 
     :param main_lex:
     :param new_lex:
+    :param key_reducer:
     :return:
     """
+    # for each word of the new lexicon
     for key in new_lex:
+        # remove the internal id
         reduced_key = key_reducer(key)
-
+        # if the word exists in the original lexicon
         if reduced_key in main_lex.keys():
+            # if the assigned type has already been assigned to the word in the original lexicon
             if new_lex[key] in main_lex[reduced_key].keys():
+                # increase each occurrence count
                 main_lex[reduced_key][new_lex[key]] += 1
             else:
+                # otherwise add it to the lexicon
                 main_lex[reduced_key][new_lex[key]] = 1
+        # if the word does not exist in the original lexicon
         else:
+            # init a new dictionary in the original lexicon, with this type as its only key and a single occurrence
             main_lex[reduced_key] = {new_lex[key]: 1}
 
 
@@ -620,81 +673,135 @@ def count_occurrences(lexicon):
         return lex1
     unwrapped = [subdict for subdict in lexicon.values()]
     occurrences = reduce(sum_reduce, unwrapped, dict())
-    return sorted(occurrences.items(), key = lambda x: -x[1])
+    return sorted(occurrences.items(), key=lambda x: -x[1])
 
 
-def seek_conjunctions(lexicon):
-    for word in lexicon.keys():
-        for word_type in lexicon[word].keys():
-            if 'CONJ' in [x[0] for x in word_type.arglist]:
-                # todo --
-                raise NotImplementedError
-                print(word)
-                break
+def randomshit():
+    import pickle
+    with open('first_pass.dict', 'rb') as f:
+        l = pickle.load(f)
+    import DS
+    values = DS.get_values(l)
+    MWU = dict()
+    for k in l.keys():
+        for z in l[k].keys():
+            if 'MWU' in [x[0] for x in z.arglist]:
+                MWU[k] = l[k]
+    mwus = []
+    for k in MWU:
+        mwu = list(filter(lambda x: 'MWU' in [y[0] for y in x.arglist], MWU[k].keys()))
+        mwus.extend(mwu)
+
+    for k in MWU:
+        local_mwus = list(filter(lambda x: 'MWU' in [y[0] for y in x.arglist], MWU[k]))
+        for kk in set(local_mwus):
+            tt = DS.Type(list(map(lambda x: x if x[0] != 'MWU' else ['?', x[1]], [a for a in kk.arglist])), kk.result)
+            matches = list(filter(lambda x: x.wcmp(tt) and x != tt, MWU[k]))
+            if len(matches) > 1:
+                print('--------------------------------------------------------------')
+                print(k)
+                print(kk)
+                print(tt)
+                print('\n')
+                print(matches)
+                print('\n')
+
+def reiterate(dataset, lexicon=None):
+    """
+
+    :param dataset:
+    :param lexicon:
+    :return:
+    """
+    raise NotImplementedError
 
 
 def main():
-    # # # # # Example pipelines
-    ### Gather all lemmas/pos/cat/...
-    # lemma_transform = Compose([lambda x: x[2],
-    #                            lambda x: Lassy.get_property_set(x, 'cat')])
-    # L = Lassy(transform=lemma_transform)
-    # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=Lassy.reduce_property)
-    # lemmas = Lassy.reduce_property([batch for batch in tqdm(lemmatizer)])
-    # return L, lemmatizer, lemmas
-    #
-    # ## Gather all trees. remove modifiers and punct and convert to DAGs
-    tree_transform = Compose([lambda x: x])
-                             # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-                             # lambda x: Lassy.remove_abstract_so(x),
-                             # Lassy.tree_to_dag])
-    L0 = Lassy(transform=tree_transform, ignore=False)
-    # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-    # trees = list(chain(*[batch for batch in tqdm(forester)]))
-    # return L, forester, trees
+    # a non-processed dataset for comparisons
+    L0 = Lassy(ignore=False)
 
-    ### Gather all sentences
-    # text_transform = Compose([lambda x: x[2].getroot().find('sentence')])
-    # L = Lassy(transform=text_transform)
-    # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-    # sentences = list(chain(*[batch for batch in sentencer]))
-
-    ### Find all same-level dependencies without a head
-    # find_non_head = Compose([lambda x: [x[0], x[2]],
-    #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
-    #                          lambda x: [x[0], Lassy.remove_abstract_so(x[1])],
-    #                          lambda x: [x[0], Lassy.tree_to_dag(x[1])],
-    #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
-    #                          lambda x: [x[0], Decompose.find_non_head(x[1])]])
-    # L = Lassy(transform=find_non_head)
-    # finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-    #                     collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x[1], y))))
-    # non_heads = set()
-    # for batch in tqdm(finder):
-    #     non_heads |= batch
-    # return L, finder, non_heads
-
-    ### Assert the grouping by parent
+    # a processed dataset that yields a lexicon
     decomposer = Decompose()
-    find_non_head = Compose([lambda x: [x[0], x[2]],
-                             # lambda x: [x[0], Lassy.remove_abstract_so(x[1], inline=False)],
-                             lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
-                             lambda x: [x[0], Decompose.group_by_parent(x[1])],
-                             # lambda x: [x[0], Decompose.sanitize(x[1])],
-                             lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-                             lambda x: [x[0], Decompose.split_dag(x[1],
-                                                                  cats_to_remove=['du'],
-                                                                  rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
-                                                                                  'top', 'mod'])],
-                             lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
-                             lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
-                             #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
-                             lambda x: [x[0], decomposer(x[1])]
-                             #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
-                             ])
-    L = Lassy(transform=find_non_head, ignore=False)
-    asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-                          collate_fn=lambda y: list(chain(y)))
-    #                      collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
-    #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
-    return L0, L, asserter #, bad_groups
+    lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
+                           lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
+                           lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
+                           lambda x: [x[0], Decompose.collapse_mwu(x[1])],  # remove mwus
+                           lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
+                                                                cats_to_remove=['du'],
+                                                                rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
+                                                                                'top', 'mod'])],
+                           lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
+                           lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
+                           lambda x: [x[0], decomposer(x[1])]  # decompose into a lexicon
+                           ])
+    L = Lassy(transform=lexicalizer, ignore=False)
+    return L0, L, ToGraphViz()
+
+
+
+
+
+    # # # # # # Example pipelines
+    # ### Gather all lemmas/pos/cat/...
+    # # lemma_transform = Compose([lambda x: x[2],
+    # #                            lambda x: Lassy.get_property_set(x, 'cat')])
+    # # L = Lassy(transform=lemma_transform)
+    # # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=Lassy.reduce_property)
+    # # lemmas = Lassy.reduce_property([batch for batch in tqdm(lemmatizer)])
+    # # return L, lemmatizer, lemmas
+    # #
+    # # ## Gather all trees. remove modifiers and punct and convert to DAGs
+    # tree_transform = Compose([lambda x: x])
+    #                          # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
+    #                          # lambda x: Lassy.remove_abstract_so(x),
+    #                          # Lassy.tree_to_dag])
+    # L0 = Lassy(transform=tree_transform, ignore=False)
+    # # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
+    # # trees = list(chain(*[batch for batch in tqdm(forester)]))
+    # # return L, forester, trees
+    #
+    # ### Gather all sentences
+    # # text_transform = Compose([lambda x: x[2].getroot().find('sentence')])
+    # # L = Lassy(transform=text_transform)
+    # # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
+    # # sentences = list(chain(*[batch for batch in sentencer]))
+    #
+    # ### Find all same-level dependencies without a head
+    # # find_non_head = Compose([lambda x: [x[0], x[2]],
+    # #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
+    # #                          lambda x: [x[0], Lassy.remove_abstract_so(x[1])],
+    # #                          lambda x: [x[0], Lassy.tree_to_dag(x[1])],
+    # #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
+    # #                          lambda x: [x[0], Decompose.find_non_head(x[1])]])
+    # # L = Lassy(transform=find_non_head)
+    # # finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+    # #                     collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x[1], y))))
+    # # non_heads = set()
+    # # for batch in tqdm(finder):
+    # #     non_heads |= batch
+    # # return L, finder, non_heads
+    #
+    # ### Assert the grouping by parent
+    # decomposer = Decompose()
+    # find_non_head = Compose([lambda x: [x[0], x[2]],
+    #                          # lambda x: [x[0], Lassy.remove_abstract_so(x[1], inline=False)],
+    #                          lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
+    #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
+    #                          # lambda x: [x[0], Decompose.sanitize(x[1])],
+    #                          lambda x: [x[0], Decompose.collapse_mwu(x[1])],
+    #                          lambda x: [x[0], Decompose.split_dag(x[1],
+    #                                                               cats_to_remove=['du'],
+    #                                                               rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
+    #                                                                               'top', 'mod'])],
+    #                          lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
+    #                          lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
+    #                          #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
+    #                          lambda x: [x[0], decomposer(x[1])]
+    #                          #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
+    #                          ])
+    # L = Lassy(transform=find_non_head, ignore=False)
+    # asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
+    #                       collate_fn=lambda y: list(chain(y)))
+    # #                      collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
+    # #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
+    # return L0, L, asserter #, bad_groups
