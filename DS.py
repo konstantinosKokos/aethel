@@ -550,13 +550,16 @@ class Decompose():
 
 class Type:
     def __init__(self, arglist, result, modality=False):
-        self.arglist = arglist
-        # make sure that A -> [] -> B is the same as A -> B
+        # make sure that [] -> A -> B is the same as A -> B
         while type(result) == Type:
             if not result.arglist:
                 result = result.result
+            elif not arglist:
+                arglist = result.arglist
+                result = result.result
             else:
                 break
+        self.arglist = arglist
         self.result = result
 
         self.modality = modality
