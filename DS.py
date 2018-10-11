@@ -117,7 +117,6 @@ class Lassy(Dataset):
 
     @staticmethod
     def tree_to_dag(xtree, inline=False):
-        # todo: primary / secondary edge labels
         if not inline:
             xtree = deepcopy(xtree)
 
@@ -238,11 +237,27 @@ class Decompose():
         else:
             return False
 
-    def get_plain_type(self, node):
-        try:
-            return self.type_dict[node.attrib['pos']]
-        except KeyError:
+    def majority_vote(self, node, grouped):
+        sibling_types = [self.get_plain_type(n[0], grouped) for n in grouped[node]]
+        votes = {c: len([x for x in sibling_types if x == c]) for c in set(sibling_types)}
+        votes = sorted(votes, key=lambda x: -votes[x])
+        return votes[0]
+
+    def get_plain_type(self, node, grouped):
+        if 'cat' in node.attrib.keys():
+            if node.attrib['cat'] == 'conj':
+                # todo needs crd
+                # todo perhaps majority vote here
+                return self.majority_vote(node, grouped)
+                # cnj = [x for x in grouped[node] if x[1] == 'cnj']  # todo not efficient
+                # if len(cnj) == 0:
+                #     ToGraphViz()(grouped)
+                #     raise IndexError
+                # else:
+                #     cnj = cnj[0][0]
+                # return self.get_plain_type(cnj, grouped)
             return self.type_dict[node.attrib['cat']]
+        return self.type_dict[node.attrib['pos']]
 
     @staticmethod
     def group_by_parent(xtree):
@@ -275,7 +290,7 @@ class Decompose():
         return newdict
 
     @staticmethod
-    def split_dag(grouped, cats_to_remove=['du'], rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--', 'top']):
+    def split_dag(grouped, cats_to_remove=('du',), rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--', 'top')):
         # todo: write this neatly
         """
         take a dictionary that contains headless structures and return multiple dictionaries that don't
@@ -371,7 +386,7 @@ class Decompose():
             # chained inf / ppart construction
             if not abstract_so:
                 ppart = list(filter(lambda x: (x[0].attrib['cat'] == 'ppart' or x[0].attrib['cat'] == 'inf'),
-                                [x for x in grouped[ppart] if 'cat' in x[0].attrib]))
+                             [x for x in grouped[ppart] if 'cat' in x[0].attrib]))
                 if ppart:
                     ppart = ppart[0][0]
                     abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
@@ -404,7 +419,7 @@ class Decompose():
             for child, rel in grouped[parent]:
                 if type(rel) != list:
                     continue
-                if (rel[0] == 'su' or rel[0] == 'obj1'):
+                if rel[0] == 'su' or rel[0] == 'obj1':
                     if rel[1] == 'secondary':
                         # # # Dictionary changes
                         # remove the abstract s/o from being a child of the ppart/inf
@@ -427,14 +442,13 @@ class Decompose():
         return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
                                                int(x[0].attrib['id'])))
 
-    @staticmethod
-    def collapse_mwu(grouped, relabel = lambda x: x):
+    def collapse_mwu(self, grouped, relabel=lambda x: x):
         """
         placeholder function that collapses nodes with 'mwp' dependencies into a single node
         :param grouped:
+        :param relabel:
         :return:
         """
-        # todo: better subcase management for proper names etc. using external parser or alpino
         to_remove = []
 
         # find all mwu parents
@@ -446,23 +460,14 @@ class Decompose():
                         new_cat = relabel
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
-                        # todo:
-                        # key.attrib['cat'] = NEW CAT
+                        # todo: better subcase management for proper names etc. using external parser or alpino
+                        key.attrib['cat'] = self.majority_vote(key, grouped)
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
         for key in to_remove:
             del (grouped[key])
         return grouped
-
-    @staticmethod
-    def pick_first_conj(children_rels):
-        """
-        ad-hoc function that picks the first sibling as a head
-        :param children_rels:
-        :return:
-        """
-        return [x for x in children_rels if x[1] == 'cnj'][0][0]
 
     @staticmethod
     def choose_head(children_rels):
@@ -477,8 +482,6 @@ class Decompose():
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in candidates:
                 return candidate
-        # if 'cnj' in [x[1] for x in children_rels]:
-        #     return Decompose.pick_first_conj(children_rels)
         return -1
 
     @staticmethod
@@ -504,12 +507,12 @@ class Decompose():
             raise ValueError('Did not find a head in {}'.format([s[1] for s in siblings]))
 
         if top_type is None:
-            top_type = Type([], self.get_plain_type(current))
+            top_type = Type([], self.get_plain_type(current, grouped))
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
         gap = is_gap(headchild)
-        arglist = [[self.get_plain_type(sib), Decompose.get_rel(rel)] for sib, rel in siblings]
+        arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
 
         if gap:
             headtype = Type(arglist, top_type, True)
@@ -526,11 +529,11 @@ class Decompose():
                     continue
             if Decompose.is_leaf(sib):
                 if is_gap(sib):
-                    sib_type = Type([], self.get_plain_type(sib), True)
+                    sib_type = Type([], self.get_plain_type(sib, grouped), True)
                 else:
-                    sib_type = Type([], self.get_plain_type(sib))
+                    sib_type = Type([], self.get_plain_type(sib, grouped))
                 if get_key(sib) in lexicon.keys():
-                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}'\
+                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}'
                                    .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id']))
                 lexicon[get_key(sib)] = Type([], sib_type)
             else:
@@ -728,7 +731,7 @@ def main():
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
                            lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
-                           lambda x: [x[0], Decompose.collapse_mwu(x[1])],  # remove mwus
+                           lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
                                                                 cats_to_remove=['du'],
                                                                 rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
