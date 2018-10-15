@@ -197,7 +197,7 @@ class ToGraphViz():
     def grouped_to_gv(self, grouped):
 
         graph = graphviz.Digraph()
-        reduced_sentence = ''.join([x.attrib['word']+' ' for x in sorted(
+        reduced_sentence = ''.join([x.attrib['word'] + ' ' for x in sorted(
             set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
             key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
 
@@ -222,13 +222,18 @@ class ToGraphViz():
 
 
 class Decompose():
-    def __init__(self):
+    def __init__(self, type_dict = None):
         # type_dict: POS → Type
-        all_POS = {'adj', 'adv', 'comp', 'comparative', 'det', 'fixed', 'name', 'noun', 'num',
-                   'part', 'pp', 'prefix', 'prep', 'pron', 'punct', 'tag', 'verb', 'vg', 'smain'}
-        all_CAT = {'du', 'mwu', 'ssub', 'ppres', 'smain', 'detp', 'rel', 'ppart', 'oti', 'sv1', 'ap', 'svan', 'whq',
-                   'pp', 'whsub', 'ti', 'ahi', 'whrel', 'advp', 'np', 'conj', 'cp', 'inf', 'top'}
-        self.type_dict = {x: x.upper() for x in {*all_POS, *all_CAT}}
+        if not type_dict:
+            # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
+            self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADVP', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
+                              'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DETP',
+                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
+                              'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
+                              'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT',
+                              'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'S',
+                              'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
+                              'whrel': 'WHREL', 'whsub': 'WHSUB'}
 
     @staticmethod
     def is_leaf(node):
@@ -246,16 +251,7 @@ class Decompose():
     def get_plain_type(self, node, grouped):
         if 'cat' in node.attrib.keys():
             if node.attrib['cat'] == 'conj':
-                # todo needs crd
-                # todo perhaps majority vote here
                 return self.majority_vote(node, grouped)
-                # cnj = [x for x in grouped[node] if x[1] == 'cnj']  # todo not efficient
-                # if len(cnj) == 0:
-                #     ToGraphViz()(grouped)
-                #     raise IndexError
-                # else:
-                #     cnj = cnj[0][0]
-                # return self.get_plain_type(cnj, grouped)
             return self.type_dict[node.attrib['cat']]
         return self.type_dict[node.attrib['pos']]
 
@@ -442,7 +438,7 @@ class Decompose():
         return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
                                                int(x[0].attrib['id'])))
 
-    def collapse_mwu(self, grouped, relabel=lambda x: x):
+    def collapse_mwu(self, grouped):
         """
         placeholder function that collapses nodes with 'mwp' dependencies into a single node
         :param grouped:
@@ -457,10 +453,8 @@ class Decompose():
                 if 'cat' in key.attrib.keys():
                     if key.attrib['cat'] == 'mwu':
                         nodes = Decompose.order_siblings(grouped[key])
-                        new_cat = relabel
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
-                        # todo: better subcase management for proper names etc. using external parser or alpino
                         key.attrib['cat'] = self.majority_vote(key, grouped)
                         to_remove.append(key)
 
@@ -468,6 +462,15 @@ class Decompose():
         for key in to_remove:
             del (grouped[key])
         return grouped
+
+    @staticmethod
+    def pick_first_conj(children_rels):
+        """
+        ad-hoc function that picks the first sibling as a head
+        :param children_rels:
+        :return:
+        """
+        return [x for x in children_rels if x[1] == 'cnj'][0][0]
 
     @staticmethod
     def choose_head(children_rels):
@@ -482,6 +485,10 @@ class Decompose():
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in candidates:
                 return candidate
+        rels = [x[1] for x in children_rels]
+        if 'cnj' in rels or 'crd' in rels:
+            # todo: avoiding value error by picking the first daughter as a head
+            return Decompose.pick_first_conj(children_rels)
         return -1
 
     @staticmethod
@@ -508,6 +515,7 @@ class Decompose():
 
         if top_type is None:
             top_type = Type([], self.get_plain_type(current, grouped))
+            # top_type = self.get_plain_type(current, grouped)
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
