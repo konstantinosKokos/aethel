@@ -234,6 +234,7 @@ class Decompose():
                               'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'S',
                               'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
                               'whrel': 'WHREL', 'whsub': 'WHSUB'}
+            # self.type_dict = {k: Type([], v) for k, v in self.type_dict.items()}
 
     @staticmethod
     def is_leaf(node):
@@ -251,6 +252,7 @@ class Decompose():
     def get_plain_type(self, node, grouped):
         if 'cat' in node.attrib.keys():
             if node.attrib['cat'] == 'conj':
+                # todo this check never passes
                 return self.majority_vote(node, grouped)
             return self.type_dict[node.attrib['cat']]
         return self.type_dict[node.attrib['pos']]
@@ -455,7 +457,8 @@ class Decompose():
                         nodes = Decompose.order_siblings(grouped[key])
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
-                        key.attrib['cat'] = self.majority_vote(key, grouped)
+                        # TODO: Essentially I need an inverse map of type_dict
+                        key.attrib['cat'] = self.majority_vote(key, grouped).lower()
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
@@ -470,7 +473,12 @@ class Decompose():
         :param children_rels:
         :return:
         """
-        return [x for x in children_rels if x[1] == 'cnj'][0][0]
+        a = [x for x in children_rels if x[1] == 'cnj']
+        if a:
+            return a[0][0]
+        else:
+            return children_rels[0][0]
+
 
     @staticmethod
     def choose_head(children_rels):
@@ -479,17 +487,17 @@ class Decompose():
         :return:
             if a head is found, return the head
             if structure is headless, return None
-            if unspecified case, return -1
+            if unspecified case, raise ValueError
         """
         candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in candidates:
                 return candidate
+        # cases of expected headless structures should return None
         rels = [x[1] for x in children_rels]
         if 'cnj' in rels or 'crd' in rels:
-            # todo: avoiding value error by picking the first daughter as a head
-            return Decompose.pick_first_conj(children_rels)
-        return -1
+            return None
+        raise ValueError('Unknown headless structure')
 
     @staticmethod
     def get_rel(rel):
@@ -510,26 +518,24 @@ class Decompose():
 
         siblings = grouped[current]
         headchild = Decompose.choose_head(siblings)
-        if headchild == -1:
-            raise ValueError('Did not find a head in {}'.format([s[1] for s in siblings]))
 
         if top_type is None:
             top_type = Type([], self.get_plain_type(current, grouped))
-            # top_type = self.get_plain_type(current, grouped)
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
-        gap = is_gap(headchild)
-        arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
+        if headchild is not None:
+            gap = is_gap(headchild)
+            arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
 
-        if gap:
-            headtype = Type(arglist, top_type, True)
-        else:
-            headtype = Type(arglist, top_type)
-        if Decompose.is_leaf(headchild):
-            lexicon[get_key(headchild)] = headtype
-        else:
-            self.recursive_assignment(headchild, grouped, headtype, lexicon)
+            if gap:
+                headtype = Type(arglist, top_type, True)
+            else:
+                headtype = Type(arglist, top_type)
+            if Decompose.is_leaf(headchild):
+                lexicon[get_key(headchild)] = headtype
+            else:
+                self.recursive_assignment(headchild, grouped, headtype, lexicon)
 
         for sib, rel in siblings:
             if type(rel) == list:
@@ -583,11 +589,12 @@ class Type:
 
     @staticmethod
     def print_arg(arg):
-        return '(' + arg[0] + ', ' + arg[1] + ')'
+        return '(' + arg[0].__str__() + ', ' + arg[1] + ')'
 
     def __str__(self):
         to_print = ''
         if self.arglist:
+            # len check for parentheses
             if len(self.arglist) == 1:
                 argprint = self.print_arg(self.arglist[0])
             else:
@@ -671,23 +678,6 @@ def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
         else:
             # init a new dictionary in the original lexicon, with this type as its only key and a single occurrence
             main_lex[reduced_key] = {new_lex[key]: 1}
-
-
-def get_values(lexicon):
-    return set([key for subdict in lexicon.values() for key in subdict])
-
-
-def count_occurrences(lexicon):
-    def sum_reduce(lex1, lex2):
-        for key in lex2.keys():
-            if key in lex1.keys():
-                lex1[key] = lex1[key] + lex2[key]
-            else:
-                lex1[key] = lex2[key]
-        return lex1
-    unwrapped = [subdict for subdict in lexicon.values()]
-    occurrences = reduce(sum_reduce, unwrapped, dict())
-    return sorted(occurrences.items(), key=lambda x: -x[1])
 
 
 def randomshit():
