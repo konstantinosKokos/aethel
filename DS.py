@@ -230,11 +230,19 @@ class Decompose():
                               'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DETP',
                               'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
                               'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
-                              'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT',
-                              'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'S',
+                              'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'NP', 'punct': 'PUNCT',
+                              'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'SVAN',
                               'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
                               'whrel': 'WHREL', 'whsub': 'WHSUB'}
-            # self.type_dict = {k: Type([], v) for k, v in self.type_dict.items()}
+            # convert to Types
+            self.type_dict = {k: WordType([], v) for k, v in self.type_dict.items()}
+
+            # Type conventions (richard)
+            self.type_dict['det'] = WordType([('NP', 'det')], 'NP')
+            self.type_dict['adj'] = WordType([('NP', 'mod')], 'NP')
+            self.type_dict['ap'] = WordType([('NP', 'mod')], 'NP')
+            self.type_dict['adv'] = WordType([('S', 'mod')], 'S')
+            self.type_dict['advp'] = WordType([('S', 'mod')], 'S')
 
     @staticmethod
     def is_leaf(node):
@@ -537,7 +545,7 @@ class Decompose():
         headchild = Decompose.choose_head(siblings)
 
         if top_type is None:
-            top_type = Type([], self.get_plain_type(current, grouped))
+            top_type = WordType([], self.get_plain_type(current, grouped))
 
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
@@ -546,9 +554,9 @@ class Decompose():
             arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
 
             if gap:
-                headtype = Type(arglist, top_type, True)
+                headtype = WordType(arglist, top_type, True)
             else:
-                headtype = Type(arglist, top_type)
+                headtype = WordType(arglist, top_type)
             if Decompose.is_leaf(headchild):
                 lexicon[get_key(headchild)] = headtype
             else:
@@ -560,15 +568,15 @@ class Decompose():
                     continue
             if Decompose.is_leaf(sib):
                 if is_gap(sib):
-                    sib_type = Type([], self.get_plain_type(sib, grouped), True)
+                    sib_type = WordType([], self.get_plain_type(sib, grouped), True)
                 else:
-                    sib_type = Type([], self.get_plain_type(sib, grouped))
+                    sib_type = WordType([], self.get_plain_type(sib, grouped))
                 if get_key(sib) in lexicon.keys() and lexicon[get_key(sib)] != sib_type:
                     raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}. '
                                    'Trying to assign type {} when type {} was already assigned.'
                                    .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id'],
                                            sib_type, lexicon[get_key(sib)]))
-                lexicon[get_key(sib)] = Type([], sib_type)
+                lexicon[get_key(sib)] = WordType([], sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
@@ -584,10 +592,10 @@ class Decompose():
         return lexicon
 
 
-class Type:
+class WordType:
     def __init__(self, arglist, result, modality=False):
         # make sure that [] -> A -> B is the same as A -> B
-        while type(result) == Type:
+        while type(result) == WordType:
             if not result.arglist:
                 result = result.result
             elif not arglist:
@@ -663,7 +671,7 @@ class Type:
         if type(self.result) != type(other.result):
             print(1)
             return False
-        elif type(self.result) == Type:
+        elif type(self.result) == WordType:
             return True and self.result.wcmp(other.result)
         else:
             return self.result == other.result
@@ -718,7 +726,7 @@ def randomshit():
     for k in MWU:
         local_mwus = list(filter(lambda x: 'MWU' in [y[0] for y in x.arglist], MWU[k]))
         for kk in set(local_mwus):
-            tt = DS.Type(list(map(lambda x: x if x[0] != 'MWU' else ['?', x[1]], [a for a in kk.arglist])), kk.result)
+            tt = DS.WordType(list(map(lambda x: x if x[0] != 'MWU' else ['?', x[1]], [a for a in kk.arglist])), kk.result)
             matches = list(filter(lambda x: x.wcmp(tt) and x != tt, MWU[k]))
             if len(matches) > 1:
                 print('--------------------------------------------------------------')
