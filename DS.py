@@ -244,16 +244,34 @@ class Decompose():
             return False
 
     def majority_vote(self, node, grouped):
-        sibling_types = [self.get_plain_type(n[0], grouped) for n in grouped[node]]
+        sibling_types = [self.get_type_key(n[0], grouped) for n in grouped[node]]
         votes = {c: len([x for x in sibling_types if x == c]) for c in set(sibling_types)}
         votes = sorted(votes, key=lambda x: -votes[x])
         return votes[0]
 
-    def get_plain_type(self, node, grouped):
+    def get_type_key(self, node, grouped):
+        """
+        this will return the pos/cat of a node, performing majority vote on conjunctions
+        :param node:
+        :param grouped:
+        :return:
+        """
         if 'cat' in node.attrib.keys():
             if node.attrib['cat'] == 'conj':
-                # todo this check never passes
                 return self.majority_vote(node, grouped)
+            return node.attrib['cat']
+        return node.attrib['pos']
+
+    def get_plain_type(self, node, grouped):
+        """
+        this will return the plain (i.e. ignoring context) of a node, based on the type_dict of the class
+        :param node:
+        :param grouped:
+        :return:
+        """
+        if 'cat' in node.attrib.keys():
+            if node.attrib['cat'] == 'conj':
+                return self.type_dict[self.majority_vote(node, grouped)]
             return self.type_dict[node.attrib['cat']]
         return self.type_dict[node.attrib['pos']]
 
@@ -457,8 +475,7 @@ class Decompose():
                         nodes = Decompose.order_siblings(grouped[key])
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
-                        # TODO: Essentially I need an inverse map of type_dict
-                        key.attrib['cat'] = self.majority_vote(key, grouped).lower()
+                        key.attrib['cat'] = self.majority_vote(key, grouped)
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
@@ -467,17 +484,15 @@ class Decompose():
         return grouped
 
     @staticmethod
-    def pick_first_conj(children_rels):
+    def pick_first_match(children_rels, cond):
         """
-        ad-hoc function that picks the first sibling as a head
+        ad-hoc function that picks the first sibling matching condition as a head
         :param children_rels:
         :return:
         """
-        a = [x for x in children_rels if x[1] == 'cnj']
+        a = [x for x in children_rels if x[1] == cond]
         if a:
             return a[0][0]
-        else:
-            return children_rels[0][0]
 
 
     @staticmethod
@@ -495,9 +510,11 @@ class Decompose():
                 return candidate
         # cases of expected headless structures should return None
         rels = [x[1] for x in children_rels]
-        if 'cnj' in rels or 'crd' in rels:
-            return None
-        raise ValueError('Unknown headless structure')
+        if 'crd' in rels:
+            return Decompose.pick_first_match(children_rels, 'crd')
+        elif 'cnj' in rels:
+            return Decompose.pick_first_match(children_rels, 'cnj')
+        raise ValueError('Unknown headless structure {}'.format(rels))
 
     @staticmethod
     def get_rel(rel):
@@ -546,9 +563,11 @@ class Decompose():
                     sib_type = Type([], self.get_plain_type(sib, grouped), True)
                 else:
                     sib_type = Type([], self.get_plain_type(sib, grouped))
-                if get_key(sib) in lexicon.keys():
-                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}'
-                                   .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id']))
+                if get_key(sib) in lexicon.keys() and lexicon[get_key(sib)] != sib_type:
+                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}. '
+                                   'Trying to assign type {} when type {} was already assigned.'
+                                   .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id'],
+                                           sib_type, lexicon[get_key(sib)]))
                 lexicon[get_key(sib)] = Type([], sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
