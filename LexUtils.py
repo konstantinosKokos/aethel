@@ -1,5 +1,7 @@
 import numpy as np
 import pickle
+from DS import WordType
+from tqdm import tqdm
 from matplotlib import pyplot as plt
 
 
@@ -33,11 +35,11 @@ def words_to_types(lexicon):
     return sorted(values, key=lambda x: -x[1])
 
 
-def types_to_words(lexicon, types):
+def count_type_occurrences(lexicon, types):
     ttw = {word_type: 0 for word_type in types}
     for key in lexicon:
         for word_type in lexicon[key].keys():
-            ttw[word_type] = ttw[word_type]+1
+            ttw[word_type] = ttw[word_type] + lexicon[key][word_type]
     return sorted(ttw.items(), key=lambda x: -x[1])
 
 
@@ -45,6 +47,53 @@ def fit_occurrences(values):
     values = np.array(values)
     average = np.average(values)
     std = np.std(values)
+    # todo
+
+
+def remove_deps_from_type(wordtype):
+    arglist = []
+    for a in wordtype.arglist:
+        if type(a) == WordType:
+            arglist.append(remove_deps_from_type(a).__str__())
+        else:
+            arglist.append(a[0].__str__())
+    if type(wordtype.result) == WordType:
+        result = remove_deps_from_type(wordtype.result)
+    else:
+        result = wordtype.result
+    return WordType(arglist, result)
+
+
+def remove_deps(lexicon):
+    for key in lexicon:
+        new_assignments = {remove_deps_from_type(k): v for k, v in lexicon[key].items()}
+        lexicon[key] = new_assignments
+    return __main__(lexicon)
+
+
+def reduce_lexicon(lexicon, threshold=1):
+    all_types = get_all_types(lexicon)
+    type_generality = count_type_occurrences(lexicon, all_types)
+    single_occurrence_types = [t[0] for t in type_generality if t[1] <= threshold]
+
+    words_to_remove = []
+    deleted = 0
+    for k in lexicon:
+        types_to_remove = []
+        for kk in lexicon[k]:
+            if kk in single_occurrence_types:
+                deleted += 1
+                types_to_remove.append(kk)
+        for kk in types_to_remove:
+            del lexicon[k][kk]
+        if len(lexicon[k]) == 0:
+            words_to_remove.append(k)
+    for k in words_to_remove:
+        del lexicon[k]
+
+    print('Deleted {} types'.format(deleted))
+
+    return __main__(lexicon)
 
 
 def __main__(lexicon=None):
@@ -62,7 +111,7 @@ def __main__(lexicon=None):
     print('Standard deviation of types per word: {}'.format(np.std(word_ambiguity_values)))
 
 
-    type_generality = types_to_words(lexicon, all_types)
+    type_generality = count_type_occurrences(lexicon, all_types)
     type_generality_values = np.array([v[1] for v in type_generality])
     print('Average words per type: {}'.format(np.average(type_generality_values)))
     print('Standard deviation of words per type: {}'.format(np.std(type_generality_values)))
@@ -78,3 +127,7 @@ def __main__(lexicon=None):
     for ttwt in type_to_word_thresholds:
         print('Types with at least {} occurrences: {}'.format(ttwt,
                                                        len(type_generality_values[type_generality_values >= ttwt])))
+
+    print('-----------------------------------------------------------')
+
+    return lexicon
