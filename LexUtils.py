@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 from DS import WordType
+import spacy
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 
@@ -71,13 +72,20 @@ def remove_deps(lexicon):
     return __main__(lexicon)
 
 
-def reduce_lexicon(lexicon, threshold=1):
+def reduce_lexicon(lexicon, threshold=2):
+    """
+    remove types with occurrence count below the threshold, and all words that end up with no type assignment
+    :param lexicon:
+    :param threshold:
+    :return:
+    """
     all_types = get_all_types(lexicon)
     type_generality = count_type_occurrences(lexicon, all_types)
     single_occurrence_types = [t[0] for t in type_generality if t[1] <= threshold]
 
     words_to_remove = []
     deleted = 0
+
     for k in lexicon:
         types_to_remove = []
         for kk in lexicon[k]:
@@ -91,9 +99,47 @@ def reduce_lexicon(lexicon, threshold=1):
     for k in words_to_remove:
         del lexicon[k]
 
-    print('Deleted {} types'.format(deleted))
+    print('Deleted {} types and {} words'.format(deleted, len(words_to_remove)))
 
     return __main__(lexicon)
+
+
+def convert_to_pdf(lexicon):
+    """
+    converts the type assignment counts to a probability distribution over the entire domain
+    :param lexicon:
+    :return:
+    """
+
+    all_types = get_all_types(lexicon)
+    for word in lexicon:
+        prob_vector = np.zeros(len(all_types))
+        prob_mass = sum([v for v in lexicon[word].values()])
+        for i, word_type in enumerate(all_types):
+            if word_type in lexicon[word].keys():
+                prob_vector[i] = lexicon[word][word_type] / prob_mass
+            else:
+                prob_vector[i] = 0
+        lexicon[word] = prob_vector
+    return lexicon
+
+
+def convert_to_vectors(lexicon):
+    nl = spacy.load('nl_core_news_sm')
+    all_words = list(lexicon.keys())
+    for word in all_words:
+        vector_len = nl(word).vector.shape[0]
+        num_types = lexicon[word].shape[0]
+        break
+    print(vector_len)
+    print(num_types)
+    X = np.zeros([len(lexicon), vector_len])
+    Y = np.zeros([len(lexicon), num_types])
+    for i, word in enumerate(all_words):
+        vector = nl(word).vector
+        X[i] = vector
+        Y[i] = lexicon[word]
+    return X, Y
 
 
 def __main__(lexicon=None):
