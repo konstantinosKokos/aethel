@@ -3,6 +3,9 @@ import pickle
 from DS import WordType
 import spacy
 from tqdm import tqdm
+import string
+import unicodedata
+
 from matplotlib import pyplot as plt
 
 
@@ -72,7 +75,7 @@ def remove_deps(lexicon):
     return __main__(lexicon)
 
 
-def reduce_lexicon(lexicon, threshold=2):
+def reduce_lexicon(lexicon, threshold=4):
     """
     remove types with occurrence count below the threshold, and all words that end up with no type assignment
     :param lexicon:
@@ -124,21 +127,36 @@ def convert_to_pdf(lexicon):
     return lexicon
 
 
-def convert_to_vectors(lexicon):
+def character_encode(character_sequence, character_dict):
+    try:
+        np.array(list(map(lambda x: character_dict[x], character_sequence)))
+    except KeyError:
+        for c in character_sequence:
+            if c not in character_dict.keys():
+                character_dict[c] = len(character_dict) + 1
+        return character_encode(character_sequence, character_dict)
+
+
+def init_char_dict():
+    return {c: i + 1 for i, c in enumerate(string.ascii_letters[:26])}
+
+
+def convert_to_vectors(lexicon, return_words=False):
     nl = spacy.load('nl_core_news_sm')
     all_words = list(lexicon.keys())
     for word in all_words:
         vector_len = nl(word).vector.shape[0]
         num_types = lexicon[word].shape[0]
         break
-    print(vector_len)
-    print(num_types)
+    print('Vector len: '.format(vector_len))
+    print('Num types: '.format(num_types))
     X = np.zeros([len(lexicon), vector_len])
     Y = np.zeros([len(lexicon), num_types])
-    for i, word in enumerate(all_words):
-        vector = nl(word).vector
-        X[i] = vector
+    for i, word in tqdm(enumerate(all_words)):
+        X[i] = nl(word).vector
         Y[i] = lexicon[word]
+    if return_words:
+        return X, Y, all_words
     return X, Y
 
 
