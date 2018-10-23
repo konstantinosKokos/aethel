@@ -16,12 +16,12 @@ class VectorsToTypes(nn.Module):
     """
     Simple network that transforms the vector space and predicts the probability distribution over types
     """
-    def __init__(self, num_types, num_chars, vector_shape=384, embedding_dim=50, vector_transform_dim=100,
-                 rnn_dim=50, device='cpu'):
+    def __init__(self, num_types, num_chars, vector_shape=384, embedding_dim=64, vector_transform_dim=384,
+                 rnn_dim=64, device=torch.device('cpu')):
         self.vector_shape = vector_shape
         self.embedding_dim = embedding_dim
         self.vector_transform_dim = vector_transform_dim
-        self.rnn_dim=rnn_dim
+        self.rnn_dim = rnn_dim
 
         super(VectorsToTypes, self).__init__()
 
@@ -34,12 +34,16 @@ class VectorsToTypes(nn.Module):
 
         self.vector_transformation = nn.Sequential(
             nn.Linear(in_features=vector_shape, out_features=self.vector_transform_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=self.vector_transform_dim, out_features=self.vector_transform_dim),
             nn.ReLU()
         ).to(device)
+
         self.type_prediction = nn.Sequential(
             nn.Linear(in_features=self.vector_transform_dim+self.rnn_dim, out_features=num_types),
-            nn.LogSoftmax(dim=1)
+            nn.Softmax(dim=1)
         ).to(device)
+
         self.device = device
 
     def forward(self, word_vector, character_indices):
@@ -47,14 +51,17 @@ class VectorsToTypes(nn.Module):
         hc = self.init_hidden(batch_shape)
         char_embeddings = self.char_embedding(character_indices)
         # print(char_embeddings.shape) [32, 115, 50] -> [batch, seq_len, dim]
-        _, (char_vector, _) = self.char_rnn(char_embeddings.view(-1, batch_shape, self.embedding_dim), hc)
+        _, (char_vector, _) = self.char_rnn(
+           F.dropout(char_embeddings.view(-1, batch_shape, self.embedding_dim), 0.35), hc)
         char_vector = char_vector[0] + char_vector[1]  # sum over the two directions
         transformed_vector = self.vector_transformation(word_vector)
+        transformed_vector = F.layer_norm(word_vector + transformed_vector, word_vector.size()[1:])
         transformed_vector = torch.cat((transformed_vector, char_vector), dim=1)
         type_prediction = self.type_prediction(transformed_vector)
         return type_prediction
 
     def train_batch(self, batch_inputs_x, batch_inputs_c, batch_outputs, optimizer, criterion):
+        self.train()
         optimizer.zero_grad()
         loss = 0.
         predictions = self.forward(batch_inputs_x, batch_inputs_c)
@@ -64,9 +71,17 @@ class VectorsToTypes(nn.Module):
         return loss.item()
 
     def eval_batch(self, batch_inputs_x, batch_inputs_c, batch_outputs, criterion):
+        self.eval()
         predictions = self.forward(batch_inputs_x, batch_inputs_c)
-        loss = criterion(predictions, batch_outputs)
+        loss = criterion(predictions.view(-1, 1), batch_outputs.view(-1,1))
         return loss.item()
+
+    def top_accuracy(self, batch_inputs_x, batch_inputs_c, batch_outputs):
+        self.eval()
+        predictions = self.forward(batch_inputs_x, batch_inputs_c)
+        predictions = torch.argmax(predictions, dim=1).float()
+        ground_truths = torch.argmax(batch_outputs, dim=1).float()
+        return len(predictions[predictions == ground_truths])/len(batch_inputs_x)
 
     def init_hidden(self, batch_shape):
         return (torch.zeros(2, batch_shape, self.rnn_dim, device=self.device),
@@ -121,28 +136,32 @@ def __main__(filename='test-output/XYW.p'):
         char_indices[i][:len(word)] = encode_word(word, char_dict)
     print('Number of characters: ', len(char_dict))
     char_one_hots = to_categorical(char_indices)
+    x_train, x_val, y_train, y_val, c_train, c_val = train_test_split(x, y, char_one_hots, test_size=0.1)
+    print('Training on {} and validating on {} samples'.format(x_train.shape[0], x_val.shape[0]))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using {}.'.format(device))
 
-    x_train, x_val, y_train, y_val, c_train, c_val = train_test_split(x, y, char_one_hots)
-
     num_train_samples, num_types, num_chars = y_train.shape[0], y_train.shape[1], char_one_hots.shape[2]
     network = VectorsToTypes(num_types, num_chars, device=device)
-    optimizer = torch.optim.Adam(network.parameters(), lr=1e-04, weight_decay=1e-04)
-    criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='sum')
+    optimizer = torch.optim.Adam(network.parameters(), weight_decay=1e-05)
+    # criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='sum')
+    criterion = nn.BCELoss(reduction='elementwise_mean')
     batch_size = 32
     num_epochs = 50
 
     x_val, y_val, c_val = torch.Tensor(x_val).to(device), torch.Tensor(y_val).to(device), torch.Tensor(c_val).to(device)
-    print('C val shape: ', c_val.shape)
 
     val_loss = network.eval_batch(x_val, c_val, y_val, criterion)
     print('Epoch -1 validation loss: {}'.format(val_loss / c_val.shape[0]))
+    print('Epoch -1 validation accuracy: {}'.format(network.top_accuracy(x_val, c_val, y_val)))
+    print('-------------------------------------------------------------------------------------------------------')
 
     for i in range(num_epochs):
+        network.train()
         permutation = np.random.permutation(x_train.shape[0])
         epoch_loss = 0.
+        epoch_accuracy = 0.
         batch_start = 0
 
         while batch_start < num_train_samples:
@@ -153,13 +172,16 @@ def __main__(filename='test-output/XYW.p'):
                 to(device)
             batch_y = torch.Tensor(np.array([y_train[permutation[i]] for i in range(batch_start, batch_end)])).\
                 to(device)
-            # batch loss corresponds to the elementwise mean of the batch
             batch_loss = network.train_batch(batch_x, batch_c, batch_y, optimizer, criterion)
-            # weight each batch by its relative size compared to the normal batch size
+            batch_accuracy = network.top_accuracy(batch_x, batch_c, batch_y) * (batch_end - batch_start) / batch_size
             epoch_loss += batch_loss
+            epoch_accuracy += batch_accuracy
             batch_start = batch_start + batch_size
         # now divide the epoch loss by the total number of batches
         epoch_loss = epoch_loss / x_train.shape[0]
         val_loss = network.eval_batch(x_val, c_val, y_val, criterion) / c_val.shape[0]
         print('Epoch {} training loss: {}'.format(i, epoch_loss))
+        print('Epoch {} training accuracy: {}'.format(i, epoch_accuracy / np.ceil(x_train.shape[0]/batch_size)))
         print('Epoch {} validation loss: {}'.format(i, val_loss))
+        print('Epoch {} validation accuracy: {}'.format(i, network.top_accuracy(x_val, c_val, y_val)))
+        print('-------------------------------------------------------------------------------------------------------')
