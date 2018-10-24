@@ -5,7 +5,7 @@ import spacy
 from tqdm import tqdm
 import string
 import unicodedata
-
+import io
 from matplotlib import pyplot as plt
 
 
@@ -75,11 +75,12 @@ def remove_deps(lexicon):
     return __main__(lexicon)
 
 
-def reduce_lexicon(lexicon, threshold=4):
+def reduce_lexicon(lexicon, threshold=4, store=False):
     """
     remove types with occurrence count below the threshold, and all words that end up with no type assignment
     :param lexicon:
     :param threshold:
+    :param store:
     :return:
     """
     all_types = get_all_types(lexicon)
@@ -104,7 +105,11 @@ def reduce_lexicon(lexicon, threshold=4):
 
     print('Deleted {} types and {} words'.format(deleted, len(words_to_remove)))
 
-    return __main__(lexicon)
+    l = __main__(lexicon)
+    if store:
+        with open('some_dict'+str(threshold)+'.p', 'wb') as f:
+            pickle.dump(l, f)
+    return l
 
 
 def convert_to_pdf(lexicon):
@@ -141,28 +146,54 @@ def init_char_dict():
     return {c: i + 1 for i, c in enumerate(string.ascii_letters[:26])}
 
 
-def convert_to_vectors(lexicon, return_words=False):
-    nl = spacy.load('nl_core_news_sm')
+def load_vectors(fname):
+    fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
+    try:
+        n, d = list(map(int, fin.readline().split()))
+    except ValueError:  # not writing n, d in oov files
+        pass
+    data = {}
+    for line in tqdm(fin):
+        tokens = line.rstrip().split(' ')
+        data[tokens[0]] = np.array(list(map(float, tokens[1:])))
+    return data
+
+
+def write_oov(lexicon, model, out_file):
+    vectors = load_vectors(model)
+    all_words = list(lexicon.keys())
+    oov = []
+    for word in all_words:
+        if word not in vectors.keys():
+            oov.append(word)
+    with open(out_file, 'w') as f:
+        for word in oov:
+            f.write(word+'\n')
+
+
+def convert_to_fasttext_vectors(lexicon, vector_file='wiki.nl/wiki.nl.vec', oov_file='wiki.nl/oov.vec'):
+    vectors = load_vectors(vector_file)
+    oov = load_vectors(oov_file)
+
     all_words = list(lexicon.keys())
     for word in all_words:
-        vector_len = nl(word).vector.shape[0]
         num_types = lexicon[word].shape[0]
         break
-    print('Vector len: '.format(vector_len))
-    print('Num types: '.format(num_types))
+    vector_len = 300
     X = np.zeros([len(lexicon), vector_len])
     Y = np.zeros([len(lexicon), num_types])
     for i, word in tqdm(enumerate(all_words)):
-        X[i] = nl(word).vector
+        try:
+            X[i] = vectors[word]
+        except KeyError:
+            X[i] = oov[word]
         Y[i] = lexicon[word]
-    if return_words:
-        return X, Y, all_words
-    return X, Y
+    return X, Y, all_words
 
 
 def __main__(lexicon=None):
     if lexicon is None:
-        with open('test-output/some_dict.p', 'rb') as f:
+        with open('test-output/some_dict9.p', 'rb') as f:
             lexicon = pickle.load(f)
 
     all_types = get_all_types(lexicon)
