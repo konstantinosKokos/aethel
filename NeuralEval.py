@@ -16,11 +16,10 @@ class VectorsToTypes(nn.Module):
     """
     Simple network that transforms the vector space and predicts the probability distribution over types
     """
-    def __init__(self, num_types, num_chars, vector_shape=384, embedding_dim=64, vector_transform_dim=384,
+    def __init__(self, num_types, num_chars, vector_shape=300, embedding_dim=20,
                  rnn_dim=64, device=torch.device('cpu')):
         self.vector_shape = vector_shape
         self.embedding_dim = embedding_dim
-        self.vector_transform_dim = vector_transform_dim
         self.rnn_dim = rnn_dim
 
         super(VectorsToTypes, self).__init__()
@@ -33,14 +32,14 @@ class VectorsToTypes(nn.Module):
         self.char_rnn = nn.LSTM(input_size=self.embedding_dim, hidden_size=self.rnn_dim, bidirectional=True).to(device)
 
         self.vector_transformation = nn.Sequential(
-            nn.Linear(in_features=vector_shape, out_features=self.vector_transform_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=self.vector_transform_dim, out_features=self.vector_transform_dim),
+            nn.Linear(in_features=self.vector_shape, out_features=self.vector_shape),
             nn.ReLU()
         ).to(device)
 
         self.type_prediction = nn.Sequential(
-            nn.Linear(in_features=self.vector_transform_dim+self.rnn_dim, out_features=num_types),
+            nn.Linear(in_features=self.vector_shape+self.rnn_dim, out_features=self.vector_shape+self.rnn_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=self.vector_shape+self.rnn_dim, out_features=num_types),
             nn.Softmax(dim=1)
         ).to(device)
 
@@ -51,11 +50,11 @@ class VectorsToTypes(nn.Module):
         hc = self.init_hidden(batch_shape)
         char_embeddings = self.char_embedding(character_indices)
         # print(char_embeddings.shape) [32, 115, 50] -> [batch, seq_len, dim]
-        _, (char_vector, _) = self.char_rnn(
-           F.dropout(char_embeddings.view(-1, batch_shape, self.embedding_dim), 0.35), hc)
+        _, (char_vector, _) = self.char_rnn(char_embeddings.view(-1, batch_shape, self.embedding_dim), hc)
+        char_vector = F.layer_norm(char_vector, char_vector.size()[1:])
         char_vector = char_vector[0] + char_vector[1]  # sum over the two directions
         transformed_vector = self.vector_transformation(word_vector)
-        transformed_vector = F.layer_norm(word_vector + transformed_vector, word_vector.size()[1:])
+        transformed_vector = F.layer_norm(transformed_vector, transformed_vector.size()[1:])
         transformed_vector = torch.cat((transformed_vector, char_vector), dim=1)
         type_prediction = self.type_prediction(transformed_vector)
         return type_prediction
@@ -73,7 +72,7 @@ class VectorsToTypes(nn.Module):
     def eval_batch(self, batch_inputs_x, batch_inputs_c, batch_outputs, criterion):
         self.eval()
         predictions = self.forward(batch_inputs_x, batch_inputs_c)
-        loss = criterion(predictions.view(-1, 1), batch_outputs.view(-1,1))
+        loss = criterion(predictions.view(-1, 1), batch_outputs.view(-1, 1))
         return loss.item()
 
     def top_accuracy(self, batch_inputs_x, batch_inputs_c, batch_outputs):
@@ -136,7 +135,7 @@ def __main__(filename='test-output/XYW.p'):
         char_indices[i][:len(word)] = encode_word(word, char_dict)
     print('Number of characters: ', len(char_dict))
     char_one_hots = to_categorical(char_indices)
-    x_train, x_val, y_train, y_val, c_train, c_val = train_test_split(x, y, char_one_hots, test_size=0.1)
+    x_train, x_val, y_train, y_val, c_train, c_val = train_test_split(x, y, char_one_hots, test_size=0.15)
     print('Training on {} and validating on {} samples'.format(x_train.shape[0], x_val.shape[0]))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -144,10 +143,11 @@ def __main__(filename='test-output/XYW.p'):
 
     num_train_samples, num_types, num_chars = y_train.shape[0], y_train.shape[1], char_one_hots.shape[2]
     network = VectorsToTypes(num_types, num_chars, device=device)
-    optimizer = torch.optim.Adam(network.parameters(), weight_decay=1e-05)
-    # criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='sum')
-    criterion = nn.BCELoss(reduction='elementwise_mean')
-    batch_size = 32
+    optimizer = torch.optim.Adam(network.parameters(), lr=1e-03, weight_decay=1e-02)
+    # optimizer = torch.optim.SGD(network.parameters(), momentum=1e-05, lr=1e-03)
+    # criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='elementwise_mean')
+    criterion = nn.BCELoss(reduction='sum')
+    batch_size = 64
     num_epochs = 50
 
     x_val, y_val, c_val = torch.Tensor(x_val).to(device), torch.Tensor(y_val).to(device), torch.Tensor(c_val).to(device)
@@ -158,7 +158,6 @@ def __main__(filename='test-output/XYW.p'):
     print('-------------------------------------------------------------------------------------------------------')
 
     for i in range(num_epochs):
-        network.train()
         permutation = np.random.permutation(x_train.shape[0])
         epoch_loss = 0.
         epoch_accuracy = 0.
