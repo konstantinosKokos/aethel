@@ -581,28 +581,55 @@ class Decompose:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
     @staticmethod
-    def lexicon_to_list(lexicon, grouped):
-        print(lexicon)
+    def lexicon_to_list(sublex, grouped, to_sequences=True):
+        """
+        Take a sublexicon {word : WordType}, partially mapping leaves from the grouped dictionary to types, and convert
+         it to a (word, WordType) list that respects the original linear order of the sentence
+        :param sublex:
+        :param grouped:
+        :param to_sequences: if True, return a list of words and a corresponding list of their types
+        :return:
+        """
         # todo: sorting by keys properly
         all_leaves = list(filter(lambda x: 'word' in x.attrib.keys(),
                                  map(lambda x: x[0], chain.from_iterable(grouped.values()))))
         all_leaves = sorted(all_leaves,
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
+
+        # mapping from linear order to dictionary keys
         enum = {i: l.attrib['word'].lower() + ' ' + l.attrib['id'] for i, l in enumerate(all_leaves)}
-        ret = [[enum[i].split()[0], WordType.remove_deps(lexicon[enum[i]])] for i in range(len(all_leaves))]
+
+        ret = [(enum[i].split()[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
+               if enum[i] in sublex.keys()]
+        if to_sequences:
+            ws = [x[0] for x in ret]  # the word sequence
+            ts = [x[1] for x in ret]  # the type sequence
+            return [ws, ts]
         return ret
 
-    def __call__(self, grouped):
+
+    def __call__(self, grouped, unify=False):
         # ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
-        # init lexicon here
-        lexicon = dict()
+        if not unify:
+            # one dict per disjoint sequence
+            dicts = [dict() for _ in top_nodes]
+            for i, top_node in enumerate(top_nodes):
+                # recursively iterate each
+                self.recursive_assignment(top_node, grouped, None, dicts[i])
+            # return dicts  # return the dicts
+            return list(map(lambda x: Decompose.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
 
-        for top_node in top_nodes:
-            self.recursive_assignment(top_node, grouped, None, lexicon)
-        return lexicon
-        # return Decompose.lexicon_to_list(lexicon, grouped)
+        else:
+            # init lexicon here
+            lexicon = dict()
+
+            # recursively iterate from each top node
+            for top_node in top_nodes:
+                self.recursive_assignment(top_node, grouped, None, lexicon)
+            return lexicon  # return the dict
+            # return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
 
 
 def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
@@ -648,7 +675,7 @@ def main(ignore=False):
                                                                                 'top', 'mod'])],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
-                           lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
+                           lambda x: decomposer(x[1]),  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
     return L0, L, ToGraphViz()
