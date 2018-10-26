@@ -550,6 +550,8 @@ class Decompose:
         if headchild is not None:
             gap = is_gap(headchild)
             arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
+            # todo: AD-HOC ordering of arglist to remove ambiguity in absence of linear order constraints
+            arglist = sorted(arglist, key=lambda x: x[0].__repr__())
 
             if gap:
                 headtype = WordType(arglist, top_type, True)
@@ -599,7 +601,8 @@ class Decompose:
 
         for top_node in top_nodes:
             self.recursive_assignment(top_node, grouped, None, lexicon)
-        return Decompose.lexicon_to_list(lexicon, grouped)
+        return lexicon
+        # return Decompose.lexicon_to_list(lexicon, grouped)
 
 
 def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
