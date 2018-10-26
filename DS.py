@@ -459,6 +459,7 @@ class Decompose:
                     if key.attrib['cat'] == 'mwu':
                         nodes = Decompose.order_siblings(grouped[key])
                         collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
+
                         key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
                         key.attrib['cat'] = self.majority_vote(key, grouped)
                         to_remove.append(key)
@@ -526,7 +527,7 @@ class Decompose:
             :param node:
             :return:
             """
-            return node.attrib['word'].lower() + ' ' + node.attrib['id']
+            return node.attrib['word'].lower() + '↔' + node.attrib['id']
 
         def is_gap(node):
             """
@@ -597,16 +598,15 @@ class Decompose:
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
 
         # mapping from linear order to dictionary keys
-        enum = {i: l.attrib['word'].lower() + ' ' + l.attrib['id'] for i, l in enumerate(all_leaves)}
+        enum = {i: l.attrib['word'].lower() + '↔' + l.attrib['id'] for i, l in enumerate(all_leaves)}
 
-        ret = [(enum[i].split()[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
+        ret = [(enum[i].split('↔')[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
                if enum[i] in sublex.keys()]
         if to_sequences:
             ws = [x[0] for x in ret]  # the word sequence
             ts = [x[1] for x in ret]  # the type sequence
             return [ws, ts]
         return ret
-
 
     def __call__(self, grouped, unify=False):
         # ToGraphViz()(grouped)
