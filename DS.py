@@ -438,8 +438,9 @@ class Decompose:
         """
         if exclude is not None:
             siblings = list(filter(lambda x: x[0] != exclude, siblings))
-        return sorted(siblings, key=lambda x: (int(x[0].attrib['begin']), int(x[0].attrib['end']),
-                                               int(x[0].attrib['id'])))
+        return sorted(siblings,
+                      key=lambda x: tuple(map(int,
+                                              (x[0].attrib['begin'], x[0].attrib['end'], x[0].attrib['id']))))
 
     def collapse_mwu(self, grouped):
         """
@@ -579,10 +580,15 @@ class Decompose:
 
     @staticmethod
     def lexicon_to_list(lexicon, grouped):
+        print(lexicon)
         # todo: sorting by keys properly
-        # sorted(list(map(lambda x: [x[0].split()[0], WordType.remove_deps(x[1])], lexicon.items())),
-        #        key= lambda x: )
-        return list(map(lambda x: [x[0].split()[0], WordType.remove_deps(x[1])], lexicon.items()))
+        all_leaves = list(filter(lambda x: 'word' in x.attrib.keys(),
+                                 map(lambda x: x[0], chain.from_iterable(grouped.values()))))
+        all_leaves = sorted(all_leaves,
+                            key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
+        enum = {i: l.attrib['word'].lower() + ' ' + l.attrib['id'] for i, l in enumerate(all_leaves)}
+        ret = [[enum[i].split()[0], WordType.remove_deps(lexicon[enum[i]])] for i in range(len(all_leaves))]
+        return ret
 
     def __call__(self, grouped):
         # ToGraphViz()(grouped)
