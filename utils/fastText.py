@@ -3,19 +3,23 @@ import pickle
 import io
 import numpy as np
 from tqdm import tqdm
+from functools import reduce
 
 
 def load_vectors(fname):
-    fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
-    try:
-        n, d = list(map(int, fin.readline().split()))
-    except ValueError:  # not writing n, d in oov files
-        pass
-    vectors = {}
-    for line in tqdm(fin):
-        tokens = line.rstrip().split(' ')
-        vectors[tokens[0]] = np.array(list(map(float, tokens[1:])))
-    return vectors
+    if isinstance(fname, list):
+        return reduce(lambda x, y: {**x, **load_vectors(y)}, fname, dict())
+    else:
+        fin = io.open(fname, 'r', encoding='utf-8', newline='\n', errors='ignore')
+        try:
+            n, d = list(map(int, fin.readline().split()))
+        except ValueError:  # not writing n, d in oov files
+            pass
+        vectors = {}
+        for line in tqdm(fin):
+            tokens = line.rstrip().split(' ')
+            vectors[tokens[0]] = np.array(list(map(float, tokens[1:])))
+        return vectors
 
 
 def find_oov(words, vectors):
