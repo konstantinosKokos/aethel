@@ -44,3 +44,8 @@ def vectorize_oov(oov_words_file, oov_vectors_file,
                               stdin=open(oov_words_file), stdout=f)
         ft.wait()
         f.flush()
+
+
+def to_hdf5(vectors):
+    # todo
+    raise NotImplementedError
