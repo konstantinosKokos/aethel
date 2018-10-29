@@ -1,14 +1,15 @@
 from itertools import chain
 import pickle
 from utils import FastText
+from NeuralEval import to_categorical
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Compose
 
 
-def load():
-    with open('test-output/sequences/words-types.p', 'rb') as f:
+def load(file='test-output/sequences/words-types.p'):
+    with open(file, 'rb') as f:
         wss, tss = pickle.load(f)
     return wss, tss
 
@@ -69,13 +70,13 @@ def get_low_len_sequences(word_sequences, type_sequences, max_len):
 
 
 def map_ws_to_vs(word_sequence, vectors):
-    # seq_len x num_features x single batch
-    return torch.Tensor(list(map(lambda x: vectors[x], word_sequence))).view(-1, 300, 1)
+    # seq_len (?) x batch_shape (1) x feature_size (300)
+    return torch.Tensor(list(map(lambda x: vectors[x], word_sequence))).view(-1, 1, 300)
 
 
 class Sequencer(Dataset):
     def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None,
-                 minimum_type_occurrence=None, transform=None):
+                 minimum_type_occurrence=None):
         """
         Necessary in the case of larger data sets that cannot be stored in memory.
         :param word_sequences:
@@ -85,13 +86,11 @@ class Sequencer(Dataset):
         :param minimum_type_occurrence:
         :param transform:
         """
-        super(self, Sequencer)
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
         if minimum_type_occurrence:
             word_sequences, type_sequences = get_high_occurrence_sequences(word_sequences, type_sequences,
                                                                            minimum_type_occurrence)
-        self.transform = transform
         self.word_sequences = word_sequences
         self.type_sequences = type_sequences
         self.max_sentence_length = max_sentence_length
@@ -101,13 +100,24 @@ class Sequencer(Dataset):
         self.len = len(word_sequences)
 
     def __len__(self):
-        return self.__len__()
+        return self.len
 
-    def __getitem__(self, item):
-        if self.transform:
-            return self.transform(self.word_sequences[item], self.type_sequences[item])
-        else:
-            return self.word_sequences[item], self.type_sequences[item]
+    def __getitem__(self, index):
+        try:
+            return (map_ws_to_vs(self.word_sequences[index], self.vectors),
+                    torch.Tensor(to_categorical(
+                        list(map(lambda x: self.types[x], self.type_sequences[index])), len(self.types)+1)))
+        except KeyError:
+            return torch.Tensor(), torch.Tensor(to_categorical([0], len(self.types)+1))
 
-# todo: one-hot type sequences
+
+def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki.nl/wiki.nl.vec',
+         oov_file='wiki.nl/oov.vec'):
+    ws, ts = load(sequence_file)
+    vectors = FastText.load_vectors([inv_file, oov_file])
+    sequencer = Sequencer(ws, ts, vectors, max_sentence_length=10, minimum_type_occurrence=9)
+    return sequencer
+
+
+
 
