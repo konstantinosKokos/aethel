@@ -1,8 +1,9 @@
 import torch.nn as nn
 import torch
-from utils import SeqUtils
-from tqdm import tqdm
 
+from utils import SeqUtils
+
+import numpy as np
 
 class SimpleEncoderDecoder(nn.Module):
     def __init__(self, num_types, device='cuda'):
@@ -24,15 +25,19 @@ class SimpleEncoderDecoder(nn.Module):
         prediction = self.predictor(encoder_output)
         return prediction.view(-1, self.num_types)  # collapse the time dimension
 
-    def train_epoch(self, dataset, batch_size, criterion, optimizer):
-        permutation = torch.randperm(len(dataset))
+    def train_epoch(self, dataset, batch_size, criterion, optimizer, train_indices=None):
+        if train_indices is None:
+            permutation = np.random.permutation(len(dataset))
+        else:
+            permutation = np.random.permutation(train_indices)
+
         loss = 0.
         batch_start = 0
 
         correct_predictions, total_predictions = 0, 0
 
-        while batch_start < dataset.len:
-            batch_end = min([batch_start + batch_size, len(dataset)])
+        while batch_start < len(permutation):
+            batch_end = min([batch_start + batch_size, len(permutation)])
             batch_xy = [dataset[permutation[i]] for i in range(batch_start, batch_end)]
             batch_x = torch.nn.utils.rnn.pad_sequence([xy[0] for xy in batch_xy if xy]).to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xy[1] for xy in batch_xy if xy]).long().to(self.device)
@@ -45,15 +50,17 @@ class SimpleEncoderDecoder(nn.Module):
             batch_start += batch_size
         return loss, correct_predictions/total_predictions
 
-    def eval_epoch(self, dataset, batch_size, criterion):
+    def eval_epoch(self, dataset, batch_size, criterion, val_indices=None):
+        if val_indices is None:
+            val_indices = [i for i in range(len(dataset))]
         loss = 0.
         batch_start = 0
 
         correct_predictions, total_predictions = 0, 0
 
-        while batch_start < dataset.len:
-            batch_end = min([batch_start + batch_size, len(dataset)])
-            batch_xy = [dataset[i] for i in range(batch_start, batch_end)]
+        while batch_start < len(val_indices):
+            batch_end = min([batch_start + batch_size, len(val_indices)])
+            batch_xy = [dataset[val_indices[i]] for i in range(batch_start, batch_end)]
             batch_x = torch.nn.utils.rnn.pad_sequence([xy[0] for xy in batch_xy if xy]).to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xy[1] for xy in batch_xy if xy]).long().to(self.device)
 
@@ -79,7 +86,8 @@ class SimpleEncoderDecoder(nn.Module):
         self.eval()
         prediction = self.forward(batch_x)
         loss = criterion(prediction, batch_y.view(-1))
-        return loss.item()
+        batch_correct, batch_total = self.accuracy(prediction, batch_y.view(-1))
+        return loss.item(), (batch_correct, batch_total)
 
     def accuracy(self, predictions, ground_truth):
         predictions = torch.argmax(predictions, dim=1)
@@ -88,19 +96,31 @@ class SimpleEncoderDecoder(nn.Module):
         non_masked_truths = torch.Tensor.masked_select(ground_truth, mask)
         return len(non_masked_predictions[non_masked_predictions == non_masked_truths]), len(non_masked_truths)
 
+
 def __main__(fake=False):
-    s, dl = SeqUtils.__main__(fake=fake)
+    # construct datasets
+    s = SeqUtils.__main__(fake=fake)
+
+    num_epochs = 100
+    batch_size = 64
+    val_split = 0.25
+
+    indices = [i for i in range(len(s))]
+    splitpoint = int(np.floor(val_split * len(s)))
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[:splitpoint], indices[splitpoint:]
 
     device = ('cuda' if torch.cuda.is_available() else 'cpu')
     ecdc = SimpleEncoderDecoder(len(s.types), device)
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
     optimizer = torch.optim.Adam(ecdc.parameters())
 
-    num_epochs = 100
-    batch_size = 64
-
     for i in range(num_epochs):
-        print('------------------ Epoch {} ------------------'.format(i))
-        l, a = ecdc.train_epoch(s, batch_size, criterion, optimizer)
+        print('================== Epoch {} =================='.format(i))
+        l, a = ecdc.train_epoch(s, batch_size, criterion, optimizer, train_indices)
         print(' Training Loss: {}'.format(l))
         print(' Training Accuracy: {}'.format(a))
+        print('- - - - - - - - - - - - - - - - - - - - - - -')
+        l, a = ecdc.eval_epoch(s, batch_size, criterion, val_indices)
+        print(' Validation Loss: {}'.format(l))
+        print(' Validation Accuracy: {}'.format(a))

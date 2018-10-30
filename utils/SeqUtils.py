@@ -2,9 +2,8 @@ from itertools import chain
 import pickle
 from utils import FastText
 from collections import defaultdict
-
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 import numpy as np
 
@@ -84,7 +83,6 @@ class Sequencer(Dataset):
         :param vectors:
         :param max_sentence_length:
         :param minimum_type_occurrence:
-        :param transform:
         """
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
@@ -99,8 +97,9 @@ class Sequencer(Dataset):
         self.vectors = vectors
         assert len(word_sequences) == len(type_sequences)
         self.len = len(word_sequences)
+
         print('Constructed dataset of {} word sequences with max sentence length {} and a total of {} unique types'.
-              format(self.len, self.max_sentence_length, len(self.types)-1))
+              format(self.len, self.max_sentence_length, len(self.types) - 1))
 
     def __len__(self):
         return self.len
@@ -127,10 +126,10 @@ def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki
         vectors = FastText.load_vectors([inv_file, oov_file])
 
     sequencer = Sequencer(ws, ts, vectors, max_sentence_length=10, minimum_type_occurrence=9)
-    dl = DataLoader(sequencer, batch_size=32,
-                    collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
-                                                    key=lambda y: y[0].shape[0]))
-    return sequencer, dl
+    # dl = DataLoader(sequencer, batch_size=32,
+    #                 collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
+    #                                                 key=lambda y: y[0].shape[0]))
+    return sequencer
 
 
 

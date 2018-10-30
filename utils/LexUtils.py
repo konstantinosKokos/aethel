@@ -1,8 +1,6 @@
 import numpy as np
 import pickle
-from tqdm import tqdm
 import string
-import io
 from WordType import WordType
 
 
