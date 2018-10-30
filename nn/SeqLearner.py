@@ -29,35 +29,51 @@ class SimpleEncoderDecoder(nn.Module):
         loss = 0.
         batch_start = 0
 
+        correct_predictions, total_predictions = 0, 0
+
         while batch_start < dataset.len:
             batch_end = min([batch_start + batch_size, len(dataset)])
             batch_xy = [dataset[permutation[i]] for i in range(batch_start, batch_end)]
             batch_x = torch.nn.utils.rnn.pad_sequence([xy[0] for xy in batch_xy if xy]).to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xy[1] for xy in batch_xy if xy]).long().to(self.device)
-            loss += self.train_batch(batch_x, batch_y, criterion, optimizer)
+
+            batch_loss, (batch_correct, batch_total) = self.train_batch(batch_x, batch_y, criterion, optimizer)
+            loss += batch_loss
+            correct_predictions += batch_correct
+            total_predictions += batch_total
+
             batch_start += batch_size
-        return loss
+        return loss, correct_predictions/total_predictions
 
     def eval_epoch(self, dataset, batch_size, criterion):
         loss = 0.
         batch_start = 0
+
+        correct_predictions, total_predictions = 0, 0
+
         while batch_start < dataset.len:
             batch_end = min([batch_start + batch_size, len(dataset)])
             batch_xy = [dataset[i] for i in range(batch_start, batch_end)]
             batch_x = torch.nn.utils.rnn.pad_sequence([xy[0] for xy in batch_xy if xy]).to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xy[1] for xy in batch_xy if xy]).long().to(self.device)
-            loss += self.eval_batch(batch_x, batch_y, criterion)
+
+            batch_loss, (batch_correct, batch_total) = self.eval_batch(batch_x, batch_y, criterion)
+            loss += batch_loss
+            correct_predictions += batch_correct
+            total_predictions += batch_total
+
             batch_start += batch_size
-        return loss
+        return loss, correct_predictions/total_predictions
 
     def train_batch(self, batch_x, batch_y, criterion, optimizer):
         self.train()
         optimizer.zero_grad()
         prediction = self.forward(batch_x)
         loss = criterion(prediction, batch_y.view(-1))
+        batch_correct, batch_total = self.accuracy(prediction, batch_y.view(-1))
         loss.backward()
         optimizer.step()
-        return loss.item()
+        return loss.item(), (batch_correct, batch_total)
 
     def eval_batch(self, batch_x, batch_y, criterion):
         self.eval()
@@ -66,10 +82,11 @@ class SimpleEncoderDecoder(nn.Module):
         return loss.item()
 
     def accuracy(self, predictions, ground_truth):
-        predictions = torch.argmax(predictions, dim=1).float()
-        # todo
-        raise NotImplementedError
-
+        predictions = torch.argmax(predictions, dim=1)
+        mask = ground_truth.ne(0)
+        non_masked_predictions = torch.Tensor.masked_select(predictions, mask)
+        non_masked_truths = torch.Tensor.masked_select(ground_truth, mask)
+        return len(non_masked_predictions[non_masked_predictions == non_masked_truths]), len(non_masked_truths)
 
 def __main__(fake=False):
     s, dl = SeqUtils.__main__(fake=fake)
@@ -84,4 +101,6 @@ def __main__(fake=False):
 
     for i in range(num_epochs):
         print('------------------ Epoch {} ------------------'.format(i))
-        print(' Training Loss: {}'.format(ecdc.train_epoch(s, batch_size, criterion, optimizer)))
+        l, a = ecdc.train_epoch(s, batch_size, criterion, optimizer)
+        print(' Training Loss: {}'.format(l))
+        print(' Training Accuracy: {}'.format(a))
