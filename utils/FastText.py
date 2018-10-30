@@ -31,6 +31,7 @@ def find_oov(words, vectors):
 
 
 def write_oov(oov, oov_words_file):
+    # todo: mismanagement of MWU
     with open(oov_words_file, 'w') as f:
         for word in oov:
             f.write(word + '\n')

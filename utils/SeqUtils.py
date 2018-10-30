@@ -1,11 +1,12 @@
 from itertools import chain
 import pickle
 from utils import FastText
-from NeuralEval import to_categorical
+from collections import defaultdict
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import Compose
+
+import numpy as np
 
 
 def load(file='test-output/sequences/words-types.p'):
@@ -70,8 +71,7 @@ def get_low_len_sequences(word_sequences, type_sequences, max_len):
 
 
 def map_ws_to_vs(word_sequence, vectors):
-    # seq_len (?) x batch_shape (1) x feature_size (300)
-    return torch.Tensor(list(map(lambda x: vectors[x], word_sequence))).view(-1, 1, 300)
+    return torch.Tensor(list(map(lambda x: vectors[x], word_sequence)))
 
 
 class Sequencer(Dataset):
@@ -95,9 +95,12 @@ class Sequencer(Dataset):
         self.type_sequences = type_sequences
         self.max_sentence_length = max_sentence_length
         self.types = {t: i+1 for i, t in enumerate(get_all_unique(type_sequences))}
+        self.types[None] = 0
         self.vectors = vectors
         assert len(word_sequences) == len(type_sequences)
         self.len = len(word_sequences)
+        print('Constructed dataset of {} word sequences with max sentence length {} and a total of {} unique types'.
+              format(self.len, self.max_sentence_length, len(self.types)-1))
 
     def __len__(self):
         return self.len
@@ -105,18 +108,29 @@ class Sequencer(Dataset):
     def __getitem__(self, index):
         try:
             return (map_ws_to_vs(self.word_sequences[index], self.vectors),
-                    torch.Tensor(to_categorical(
-                        list(map(lambda x: self.types[x], self.type_sequences[index])), len(self.types)+1)))
+                    torch.Tensor(list(map(lambda x: self.types[x], self.type_sequences[index]))))
         except KeyError:
-            return torch.Tensor(), torch.Tensor(to_categorical([0], len(self.types)+1))
+            return None
+
+
+def fake_vectors():
+    return defaultdict(lambda: np.random.random(300))
 
 
 def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki.nl/wiki.nl.vec',
-         oov_file='wiki.nl/oov.vec'):
+         oov_file='wiki.nl/oov.vec', fake=False):
     ws, ts = load(sequence_file)
-    vectors = FastText.load_vectors([inv_file, oov_file])
+
+    if fake:
+        vectors = fake_vectors()
+    else:
+        vectors = FastText.load_vectors([inv_file, oov_file])
+
     sequencer = Sequencer(ws, ts, vectors, max_sentence_length=10, minimum_type_occurrence=9)
-    return sequencer
+    dl = DataLoader(sequencer, batch_size=32,
+                    collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
+                                                    key=lambda y: y[0].shape[0]))
+    return sequencer, dl
 
 
 
