@@ -162,7 +162,8 @@ class Sequencer(Dataset):
             char_sequences = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
                                                   self.word_sequences[index])))
         if self.return_word_distributions:
-            word_distributions = torch.stack(list(map(lambda x: self.tensorize_dict(x), self.word_sequences[index])))
+            word_distributions = torch.stack(list(map(lambda word: self.tensorize_dict(word),
+                                                      self.word_sequences[index])))
 
         if self.return_char_sequences:
             if self.return_word_distributions:
@@ -184,11 +185,11 @@ class Sequencer(Dataset):
                     self.words[w][self.types[t]] = 1
 
     def word_lexicon_to_pdf(self):
-        self.words = {w: self.words[w]/sum(self.words[w].values()) for w in self.words}
+        self.words = {w: {k: v/sum(self.words[w].values())} for w in self.words for k, v in self.words[w].items()}
 
-    def tensorize_dict(self, d):
-        a = torch.zeros(self.num_types)
-        for k,v in d:
+    def tensorize_dict(self, word):
+        a = torch.zeros(len(self.types))
+        for k, v in self.words[word].items():
             a[k] = v
         return a
 
