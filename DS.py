@@ -159,7 +159,7 @@ class Lassy(Dataset):
 
 
 class Decompose:
-    def __init__(self, type_dict = None):
+    def __init__(self, type_dict=None, text_pipeline=lambda x: x.lower(), separation_symbol ='↔'):
         # type_dict: POS → Type
         if not type_dict:
             # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
@@ -181,6 +181,9 @@ class Decompose:
             # self.type_dict['ap'] = WordType([('NP', 'mod')], 'NP')
             # self.type_dict['adv'] = WordType([('S', 'mod')], 'S')
             # self.type_dict['advp'] = WordType([('S', 'mod')], 'S')
+        self.text_pipeline = text_pipeline
+        self.separation_symbol = separation_symbol
+        self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
 
     @staticmethod
     def is_leaf(node):
@@ -521,13 +524,6 @@ class Decompose:
         :param lexicon:
         :return:
         """
-        def get_key(node):
-            """
-            Takes a node and returns a key to represent it in the local lexicon.
-            :param node:
-            :return:
-            """
-            return node.attrib['word'].lower() + '↔' + node.attrib['id']
 
         def is_gap(node):
             """
@@ -559,7 +555,7 @@ class Decompose:
             else:
                 headtype = WordType(arglist, top_type)
             if Decompose.is_leaf(headchild):
-                lexicon[get_key(headchild)] = headtype
+                lexicon[self.get_key(headchild)] = headtype
             else:
                 self.recursive_assignment(headchild, grouped, headtype, lexicon)
 
@@ -572,17 +568,16 @@ class Decompose:
                     sib_type = WordType([], self.get_plain_type(sib, grouped), True)
                 else:
                     sib_type = WordType([], self.get_plain_type(sib, grouped))
-                if get_key(sib) in lexicon.keys() and lexicon[get_key(sib)] != sib_type:
+                if self.get_key(sib) in lexicon.keys() and lexicon[self.get_key(sib)] != sib_type:
                     raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}. '
                                    'Trying to assign type {} when type {} was already assigned.'
-                                   .format(sib.attrib['id'], lexicon[get_key(sib)], current.attrib['id'],
-                                           sib_type, lexicon[get_key(sib)]))
-                lexicon[get_key(sib)] = WordType([], sib_type)
+                                   .format(sib.attrib['id'], lexicon[self.get_key(sib)], current.attrib['id'],
+                                           sib_type, lexicon[self.get_key(sib)]))
+                lexicon[self.get_key(sib)] = WordType([], sib_type)
             else:
                 self.recursive_assignment(sib, grouped, None, lexicon)
 
-    @staticmethod
-    def lexicon_to_list(sublex, grouped, to_sequences=True):
+    def lexicon_to_list(self, sublex, grouped, to_sequences=True):
         """
         Take a sublexicon {word : WordType}, partially mapping leaves from the grouped dictionary to types, and convert
          it to a (word, WordType) list that respects the original linear order of the sentence
@@ -598,9 +593,9 @@ class Decompose:
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
 
         # mapping from linear order to dictionary keys
-        enum = {i: l.attrib['word'].lower() + '↔' + l.attrib['id'] for i, l in enumerate(all_leaves)}
+        enum = {i: self.get_key(l) for i, l in enumerate(all_leaves)}
 
-        ret = [(enum[i].split('↔')[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
+        ret = [(enum[i].split(self.separation_symbol)[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
                if enum[i] in sublex.keys()]
         if to_sequences:
             ws = [x[0] for x in ret]  # the word sequence
@@ -619,7 +614,7 @@ class Decompose:
                 # recursively iterate each
                 self.recursive_assignment(top_node, grouped, None, dicts[i])
             # return dicts  # return the dicts
-            return list(map(lambda x: Decompose.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
+            return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
 
         else:
             # init lexicon here
