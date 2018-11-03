@@ -162,7 +162,7 @@ class Sequencer(Dataset):
             char_sequences = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
                                                   self.word_sequences[index])))
         if self.return_word_distributions:
-            word_distributions = torch.stack(list(map(lambda x: self.words[x], self.word_sequences[index])))
+            word_distributions = torch.stack(list(map(lambda x: self.tensorize_dict(x), self.word_sequences[index])))
 
         if self.return_char_sequences:
             if self.return_word_distributions:
@@ -175,13 +175,22 @@ class Sequencer(Dataset):
             return vectors, types
 
     def build_word_lexicon(self):
-        self.words = {w: torch.zeros(len(self.types)) for w in get_all_unique(self.word_sequences)}
+        self.words = {w: dict() for w in get_all_unique(self.word_sequences)}
         for ws, ts in zip(self.word_sequences, self.type_sequences):
             for w, t in zip(ws, ts):
-                self.words[w][self.types[t]] = self.words[w][self.types[t]] + 1
+                if self.types[t] in self.words[w].keys():
+                    self.words[w][self.types[t]] = self.words[w][self.types[t]] + 1
+                else:
+                    self.words[w][self.types[t]] = 1
 
     def word_lexicon_to_pdf(self):
-        self.words = {w: self.words[w]/torch.sum(self.words[w]) for w in self.words}
+        self.words = {w: self.words[w]/sum(self.words[w].values()) for w in self.words}
+
+    def tensorize_dict(self, d):
+        a = torch.zeros(self.num_types)
+        for k,v in d:
+            a[k] = v
+        return a
 
 
 def fake_vectors():
