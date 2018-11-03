@@ -93,7 +93,8 @@ def map_cs_to_is(char_sequence, char_dict, max_len):
 
 class Sequencer(Dataset):
     def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None,
-                 minimum_type_occurrence=None, return_char_sequences=False, max_word_len=20):
+                 minimum_type_occurrence=None, return_char_sequences=False, return_word_distributions=False,
+                 max_word_len=20):
         """
         Necessary in the case of larger data sets that cannot be stored in memory.
         :param word_sequences:
@@ -103,7 +104,7 @@ class Sequencer(Dataset):
         :param minimum_type_occurrence:
         """
 
-        print('Received {} samples.'.format(len(word_sequences)))
+        print('Received {} samples..'.format(len(word_sequences)))
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
             print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
@@ -121,10 +122,17 @@ class Sequencer(Dataset):
         self.type_sequences = type_sequences
         self.max_sentence_length = max_sentence_length
         self.types = {t: i+1 for i, t in enumerate(get_all_unique(type_sequences))}
+        self.words = {w: torch.zeros(len(self.types)) for i, w in enumerate(get_all_unique(word_sequences))}
         self.types[None] = 0
         self.vectors = vectors
         assert len(word_sequences) == len(type_sequences)
         self.len = len(word_sequences)
+
+        self.return_word_distributions = return_word_distributions
+        if self.return_word_distributions:
+            self.build_word_lexicon()
+            self.word_lexicon_to_pdf()
+
         self.return_char_sequences = return_char_sequences
         if self.return_char_sequences:
             self.chars = {c: i+1 for i, c in enumerate(get_all_chars(self.word_sequences))}
@@ -133,6 +141,7 @@ class Sequencer(Dataset):
 
         print('Constructed dataset of {} word sequences with a total of {} unique types'.
               format(self.len, len(self.types) - 1))
+        print('Average sentence length is {}'.format(np.mean(list(map(len, word_sequences)))))
 
     def __len__(self):
         return self.len
@@ -144,31 +153,60 @@ class Sequencer(Dataset):
         except KeyError:
             return None
 
-    def get_item_with_chars(self, index):
+    def __getitem__(self, index):
         temp = self.get_item_without_chars(index)
         if not temp:
             return None
-        else:
-            vectors, types = temp
+        vectors, types = temp
+        if self.return_char_sequences:
             char_sequences = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
                                                   self.word_sequences[index])))
+        if self.return_word_distributions:
+            word_distributions = torch.stack(list(map(lambda x: self.words[x], self.word_sequences[index])))
 
-            return vectors, char_sequences, types
-
-    def __getitem__(self, index):
         if self.return_char_sequences:
-            return self.get_item_with_chars(index)
+            if self.return_word_distributions:
+                return vectors, char_sequences, word_distributions, types
+            else:
+                return vectors, char_sequences, types
+        elif self.return_word_distributions:
+            return vectors, word_distributions, types
         else:
-            return self.get_item_without_chars(index)
+            return vectors, types
+
+    def build_word_lexicon(self):
+        self.words = {w: torch.zeros(len(self.types)) for w in get_all_unique(self.word_sequences)}
+        for ws, ts in zip(self.word_sequences, self.type_sequences):
+            for w, t in zip(ws, ts):
+                self.words[w][self.types[t]] = self.words[w][self.types[t]] + 1
+
+    def word_lexicon_to_pdf(self):
+        self.words = {w: self.words[w]/torch.sum(self.words[w]) for w in self.words}
 
 
 def fake_vectors():
     return defaultdict(lambda: np.random.random(300))
 
 
+def check_uniqueness(word_sequences, type_sequences):
+    u = dict()
+    bad = 0
+    for ws, ts in zip(word_sequences, type_sequences):
+        ws = ' '.join([w for w in ws])
+        if ws in u.keys():
+            try:
+                assert u[ws] == ts
+            except AssertionError:
+                bad += 1
+        else:
+            u[ws] = ts
+    print('{} sequences are assigned non-singular types'.format(bad))
+
+
 def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki.nl/wiki.nl.vec',
-         oov_file='wiki.nl/oov.vec', return_char_sequences=False, fake=False):
+         oov_file='wiki.nl/oov.vec', return_char_sequences=False, return_word_distributions=False, fake=False):
     ws, ts = load(sequence_file)
+    # check_uniqueness(ws, ts)
 
     if fake:
         vectors = fake_vectors()
@@ -176,12 +214,9 @@ def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki
         vectors = FastText.load_vectors([inv_file, oov_file])
 
     sequencer = Sequencer(ws, ts, vectors, max_sentence_length=10, minimum_type_occurrence=10,
-                          return_char_sequences=return_char_sequences)
+                          return_char_sequences=return_char_sequences,
+                          return_word_distributions=return_word_distributions)
     # dl = DataLoader(sequencer, batch_size=32,
     #                 collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
     #                                                 key=lambda y: y[0].shape[0]))
     return sequencer
-
-
-
-
