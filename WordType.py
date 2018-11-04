@@ -1,4 +1,4 @@
-
+from itertools import permutations
 
 class WordType:
     def __init__(self, arglist, result, modality=False):
@@ -117,3 +117,47 @@ class WordType:
 
     def __main__(self):
         print(self.__str__)
+
+    @staticmethod
+    def collapse(seq):
+
+        def apply(t1, t2):
+            r = apply_left(t1, t2)
+            if r:
+                return r
+            else:
+                return apply_left(t2, t1)
+
+        def apply_left(t1, t2):
+            if not t1.arglist and t1.result in t2.arglist:
+                if isinstance(t2.arglist, list):
+                    return WordType([x for x in t2.arglist if x != t1.result], t2.result)
+                else:
+                    return WordType([], t2.result)
+            return None
+
+        perms = permutations(seq)  # take all permutations of the given type sequence
+        perms_ns = []
+        for p in perms:
+            if p[::-1] not in perms_ns:
+                perms_ns.append(p)  # ignore the symmetric ones
+
+        for p in perms_ns:
+            current = list(p)
+            reduced = True
+            while reduced:
+                print('starting with :', current)
+                reduced = False
+                if len(current) == 1:
+                    return current[0]
+                for t1, t2 in zip(current, current[1:]):
+                    t12 = apply(t1, t2)
+                    if t12:
+                        print('removing ', t1, t2, 'and replacing with ', t12)
+                        current.remove(t1)
+                        current.remove(t2)
+                        current.append(t12)
+                        reduced = True
+                        break
+                if reduced == False:
+                    print('Failed.')
