@@ -268,7 +268,6 @@ class Decompose:
 
     @staticmethod
     def split_dag(grouped, cats_to_remove=('du',), rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--', 'top')):
-        # todo: write this neatly
         """
         Takes a dictionary possibly containing headless structures, and returns multiple dictionaries that don't.
         Essentially splits a parse DAG into a set of disjoint DAGs.
@@ -295,7 +294,7 @@ class Decompose:
                 if c in keys_to_remove:
                     # the child was a cut-off parent; remove the incoming edge
                     children_to_remove.append([c, r])
-                elif r in rels_to_remove:
+                elif Decompose.get_rel(r) in rels_to_remove:
                     # the child has a 'bad' incoming edge; remove it
                     children_to_remove.append([c, r])
             for c in children_to_remove:
@@ -349,7 +348,7 @@ class Decompose:
             if not real_so:
                 continue
 
-            assert type(real_so[0][1] == list)
+            assert isinstance(real_so[0][1], list)
             parent_dep = real_so[0][1][0]
             real_so = real_so[0][0]
 
@@ -589,8 +588,8 @@ class Decompose:
 
         # todo: fix leaves appearing twice
 
-        all_leaves = list(filter(lambda x: 'word' in x.attrib.keys(),
-                                 map(lambda x: x[0], chain.from_iterable(grouped.values()))))
+        all_leaves = set(list(filter(lambda x: 'word' in x.attrib.keys(),
+                                 map(lambda x: x[0], chain.from_iterable(grouped.values())))))
         # try:
         #     assert (len(set(all_leaves)) == len(all_leaves))
         # except AssertionError:
@@ -639,12 +638,12 @@ class Decompose:
             return dicts  # or return the dicts
 
 
-def main(ignore=False):
+def main(ignore=False, return_lists=False):
     # a non-processed dataset for comparisons
     L0 = Lassy(ignore=ignore)
 
     # a processed dataset that yields a lexicon
-    decomposer = Decompose(return_lists=True)
+    decomposer = Decompose(return_lists=return_lists)
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
                            lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
@@ -655,7 +654,7 @@ def main(ignore=False):
                                                                                 'top', 'mod'])],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
-                           lambda x: decomposer(x[1]),  # decompose into a lexicon
+                           lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
     return L0, L, ToGraphViz()
