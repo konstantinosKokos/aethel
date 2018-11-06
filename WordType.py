@@ -24,7 +24,7 @@ class WordType:
             self.arity = result_arity
         else:
             arglist_arity = self.find_arglist_arity(arglist)
-            self.arity = result_arity + arglist_arity
+            self.arity = result_arity + arglist_arity + 1
 
     def find_arglist_arity(self, arglist):
         arglist_arity = 0
@@ -35,7 +35,7 @@ class WordType:
 
     @staticmethod
     def print_arg(arg):
-        if type(arg) == list: # case of item w/ dep
+        if type(arg) == list:  # case of item w/ dep
             return '(' + arg[0].__str__() + ', ' + arg[1] + ')'
         elif type(arg) == str:  # case of item w/o dep
             return arg
