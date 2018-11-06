@@ -286,35 +286,31 @@ class Decompose:
                         keys_to_remove.append(key)
 
         for key in keys_to_remove:
-            del grouped[key]  # here we delete the node from being a parent
+            del grouped[key]  # here we delete the node from being a parent (outgoing edges)
 
         # here we remove children
         for key in grouped.keys():
             children_to_remove = list()
             for c, r in grouped[key]:
                 if c in keys_to_remove:
+                    # the child was a cut-off parent; remove the incoming edge
                     children_to_remove.append([c, r])
                 elif r in rels_to_remove:
+                    # the child has a 'bad' incoming edge; remove it
                     children_to_remove.append([c, r])
             for c in children_to_remove:
                 grouped[key].remove(c)
 
-        repeat = 1
-        while repeat:
-            empty_keys = list()
-            repeat = 0
-
-            for key in grouped.keys():
-                if not grouped[key]:
-                    repeat = 1
-                    empty_keys.append(key)
+        # check the parse tree for parent nodes with zero children
+        empty_keys = [key for key in grouped.keys() if not grouped[key]]
+        while len(empty_keys):
             for key in empty_keys:
                 del grouped[key]
             for key in grouped.keys():
                 for c, r in grouped[key]:
                     if c in empty_keys:
-                        repeat = 1
                         grouped[key].remove([c, r])
+            empty_keys = [key for key in grouped.keys() if not grouped[key]]
 
         return grouped
 
