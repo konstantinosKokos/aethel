@@ -159,7 +159,8 @@ class Lassy(Dataset):
 
 
 class Decompose:
-    def __init__(self, type_dict=None, text_pipeline=lambda x: x.lower(), separation_symbol ='↔'):
+    def __init__(self, type_dict=None, unify=False, return_lists=True, text_pipeline=lambda x: x.lower(),
+                 separation_symbol='↔'):
         # type_dict: POS → Type
         if not type_dict:
             # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
@@ -181,8 +182,11 @@ class Decompose:
             # self.type_dict['ap'] = WordType([('NP', 'mod')], 'NP')
             # self.type_dict['adv'] = WordType([('S', 'mod')], 'S')
             # self.type_dict['advp'] = WordType([('S', 'mod')], 'S')
-        self.text_pipeline = text_pipeline
-        self.separation_symbol = separation_symbol
+        self.unify = unify  # whether to return a single lexicon from a sentence, or a lexicon for each subunit
+        self.return_lists = return_lists  # whether to convert lexicons to word and type sequences
+        self.text_pipeline = text_pipeline  # the function applied on the text before adding a word to the lexicon
+        self.separation_symbol = separation_symbol  # the separation symbol between a node's text content and its id
+        # the function applied to convert the processed text of a node into a dictionary key
         self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
 
     @staticmethod
@@ -192,10 +196,7 @@ class Decompose:
         :param node: the node to decide
         :return True | False:
         """
-        if 'word' in node.attrib.keys():
-            return True
-        else:
-            return False
+        return True if 'word' in node.attrib.keys() else False
 
     def majority_vote(self, node, grouped):
         """
@@ -325,8 +326,9 @@ class Decompose:
         :param grouped:
         :return:
         """
-        all_keys = set(grouped.keys())
-        all_children = set([x[0] for k in all_keys for x in grouped[k]])
+        all_keys = set(grouped.keys())  # all parents
+        all_children = set([x[0] for k in all_keys for x in grouped[k]])  # all children
+        # sanity check: make sure that {all_children} - {all_parents} == all_leaves
         assert(all(map(lambda x: Decompose.is_leaf(x), all_children.difference(all_keys))))
         return all_keys.difference(all_children)
 
@@ -408,6 +410,7 @@ class Decompose:
         """
         for parent in grouped.keys():
             if parent.attrib['cat'] != 'ppart' and parent.attrib['cat'] != 'inf':
+                # this is a proper secondary edge (non-abstract) and should not be removed
                 continue
             for child, rel in grouped[parent]:
                 if type(rel) != list:
@@ -587,71 +590,57 @@ class Decompose:
         :return:
         """
         # todo: sorting by keys properly
+
+        # todo: fix leaves appearing twice
+
         all_leaves = list(filter(lambda x: 'word' in x.attrib.keys(),
                                  map(lambda x: x[0], chain.from_iterable(grouped.values()))))
+        # try:
+        #     assert (len(set(all_leaves)) == len(all_leaves))
+        # except AssertionError:
+        #     print(grouped)
+        #     raise AssertionError
         all_leaves = sorted(all_leaves,
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
 
         # mapping from linear order to dictionary keys
         enum = {i: self.get_key(l) for i, l in enumerate(all_leaves)}
 
-        ret = [(enum[i].split(self.separation_symbol)[0], WordType.remove_deps(sublex[enum[i]])) for i in range(len(all_leaves))
-               if enum[i] in sublex.keys()]
+        ret = [(enum[i].split(self.separation_symbol)[0], WordType.remove_deps(sublex[enum[i]]))
+               for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
         if to_sequences:
             ws = [x[0] for x in ret]  # the word sequence
             ts = [x[1] for x in ret]  # the type sequence
             return [ws, ts]
         return ret
 
-    def __call__(self, grouped, unify=False):
+    def __call__(self, grouped):
         # ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
-        if not unify:
-            # one dict per disjoint sequence
-            dicts = [dict() for _ in top_nodes]
-            for i, top_node in enumerate(top_nodes):
-                # recursively iterate each
-                self.recursive_assignment(top_node, grouped, None, dicts[i])
-            # return dicts  # return the dicts
-            return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
+        top_node_types = map(lambda x: self.get_plain_type(x, grouped), top_nodes)
 
-        else:
+        if self.unify:
             # init lexicon here
             lexicon = dict()
 
             # recursively iterate from each top node
             for top_node in top_nodes:
                 self.recursive_assignment(top_node, grouped, None, lexicon)
-            return lexicon  # return the dict
-            # return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
+            if self.return_lists:
+                return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
+            return lexicon  # or return the dict
 
-
-def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
-    """
-
-    :param main_lex:
-    :param new_lex:
-    :param key_reducer:
-    :return:
-    """
-    # for each word of the new lexicon
-    for key in new_lex:
-        # remove the internal id
-        reduced_key = key_reducer(key)
-        # if the word exists in the original lexicon
-        if reduced_key in main_lex.keys():
-            # if the assigned type has already been assigned to the word in the original lexicon
-            if new_lex[key] in main_lex[reduced_key].keys():
-                # increase each occurrence count
-                main_lex[reduced_key][new_lex[key]] += 1
-            else:
-                # otherwise add it to the lexicon
-                main_lex[reduced_key][new_lex[key]] = 1
-        # if the word does not exist in the original lexicon
         else:
-            # init a new dictionary in the original lexicon, with this type as its only key and a single occurrence
-            main_lex[reduced_key] = {new_lex[key]: 1}
+            # one dict per disjoint sequence
+            dicts = [dict() for _ in top_nodes]
+            for i, top_node in enumerate(top_nodes):
+                # recursively iterate each
+                self.recursive_assignment(top_node, grouped, None, dicts[i])
+
+            if self.return_lists:
+                return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
+            return dicts  # or return the dicts
 
 
 def main(ignore=False):
@@ -659,7 +648,7 @@ def main(ignore=False):
     L0 = Lassy(ignore=ignore)
 
     # a processed dataset that yields a lexicon
-    decomposer = Decompose()
+    decomposer = Decompose(return_lists=True)
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
                            lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
@@ -674,71 +663,6 @@ def main(ignore=False):
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
     return L0, L, ToGraphViz()
-
-    # # # # # # Example pipelines
-    # ### Gather all lemmas/pos/cat/...
-    # # lemma_transform = Compose([lambda x: x[2],
-    # #                            lambda x: Lassy.get_property_set(x, 'cat')])
-    # # L = Lassy(transform=lemma_transform)
-    # # lemmatizer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=Lassy.reduce_property)
-    # # lemmas = Lassy.reduce_property([batch for batch in tqdm(lemmatizer)])
-    # # return L, lemmatizer, lemmas
-    # #
-    # # ## Gather all trees. remove modifiers and punct and convert to DAGs
-    # tree_transform = Compose([lambda x: x])
-    #                          # lambda x: Lassy.remove_subtree(x, {'pos': 'punct', 'rel': 'mod'}),
-    #                          # lambda x: Lassy.remove_abstract_so(x),
-    #                          # Lassy.tree_to_dag])
-    # L0 = Lassy(transform=tree_transform, ignore=False)
-    # # forester = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-    # # trees = list(chain(*[batch for batch in tqdm(forester)]))
-    # # return L, forester, trees
-    #
-    # ### Gather all sentences
-    # # text_transform = Compose([lambda x: x[2].getroot().find('sentence')])
-    # # L = Lassy(transform=text_transform)
-    # # sentencer = DataLoader(L, batch_size=256, shuffle=False, num_workers=8, collate_fn=lambda x: list(chain(x)))
-    # # sentences = list(chain(*[batch for batch in sentencer]))
-    #
-    # ### Find all same-level dependencies without a head
-    # # find_non_head = Compose([lambda x: [x[0], x[2]],
-    # #                          lambda x: [x[0], Lassy.remove_subtree(x[1], {'pos': 'punct', 'rel': 'mod'})],
-    # #                          lambda x: [x[0], Lassy.remove_abstract_so(x[1])],
-    # #                          lambda x: [x[0], Lassy.tree_to_dag(x[1])],
-    # #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
-    # #                          lambda x: [x[0], Decompose.find_non_head(x[1])]])
-    # # L = Lassy(transform=find_non_head)
-    # # finder = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-    # #                     collate_fn=lambda y: set(chain.from_iterable(filter(lambda x: x[1], y))))
-    # # non_heads = set()
-    # # for batch in tqdm(finder):
-    # #     non_heads |= batch
-    # # return L, finder, non_heads
-    #
-    # ### Assert the grouping by parent
-    # decomposer = Decompose()
-    # find_non_head = Compose([lambda x: [x[0], x[2]],
-    #                          # lambda x: [x[0], Lassy.remove_abstract_so(x[1], inline=False)],
-    #                          lambda x: [x[0], Lassy.tree_to_dag(x[1], inline=False)],
-    #                          lambda x: [x[0], Decompose.group_by_parent(x[1])],
-    #                          # lambda x: [x[0], Decompose.sanitize(x[1])],
-    #                          lambda x: [x[0], Decompose.collapse_mwu(x[1])],
-    #                          lambda x: [x[0], Decompose.split_dag(x[1],
-    #                                                               cats_to_remove=['du'],
-    #                                                               rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
-    #                                                                               'top', 'mod'])],
-    #                          lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],
-    #                          lambda x: [x[0], Decompose.remove_abstract_so(x[1])],
-    #                          #lambda x: [x[0], Decompose.get_disconnected(x[1])]])
-    #                          lambda x: [x[0], decomposer(x[1])]
-    #                          #lambda x: [x[0], Decompose.test_iter_group(x[1])]])
-    #                          ])
-    # L = Lassy(transform=find_non_head, ignore=False)
-    # asserter = DataLoader(L, batch_size=256, shuffle=False, num_workers=8,
-    #                       collate_fn=lambda y: list(chain(y)))
-    # #                      collate_fn=lambda y: list((filter(lambda x: x[1] != [], y))))
-    # #bad_groups = list(chain.from_iterable(filter(lambda x: x != [], [i for i in tqdm(asserter)])))
-    # return L0, L, asserter #, bad_groups
 
 
 class ToGraphViz:
@@ -797,7 +721,7 @@ class ToGraphViz:
     def grouped_to_gv(self, grouped):
 
         graph = graphviz.Digraph()
-        reduced_sentence = ''.join([x.attrib['word'] + ' ' for x in sorted(
+        reduced_sentence = ' '.join([x.attrib['word'] for x in sorted(
             set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
             key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
 
@@ -819,3 +743,29 @@ class ToGraphViz:
             graph = self.grouped_to_gv(parse)
         if output:
             graph.render(output, view=view)
+
+# def reduce_lexicon(main_lex, new_lex, key_reducer=lambda x: x.split(' ')[0]):
+#     """
+#
+#     :param main_lex:
+#     :param new_lex:
+#     :param key_reducer:
+#     :return:
+#     """
+#     # for each word of the new lexicon
+#     for key in new_lex:
+#         # remove the internal id
+#         reduced_key = key_reducer(key)
+#         # if the word exists in the original lexicon
+#         if reduced_key in main_lex.keys():
+#             # if the assigned type has already been assigned to the word in the original lexicon
+#             if new_lex[key] in main_lex[reduced_key].keys():
+#                 # increase each occurrence count
+#                 main_lex[reduced_key][new_lex[key]] += 1
+#             else:
+#                 # otherwise add it to the lexicon
+#                 main_lex[reduced_key][new_lex[key]] = 1
+#         # if the word does not exist in the original lexicon
+#         else:
+#             # init a new dictionary in the original lexicon, with this type as its only key and a single occurrence
+#             main_lex[reduced_key] = {new_lex[key]: 1}

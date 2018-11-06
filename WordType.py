@@ -13,8 +13,8 @@ class WordType:
                 break
         self.arglist = arglist
         self.result = result
-
         self.modality = modality
+
         # todo: arglist arity is ignored
         if type(self.result) == WordType:
             result_arity = result.arity
@@ -84,6 +84,7 @@ class WordType:
         :param other:
         :return:
         """
+        # fuck python
         if len(self.arglist) != len(other.arglist):
             return False
         for i, a in enumerate(self.arglist):
@@ -113,51 +114,61 @@ class WordType:
             result = WordType.remove_deps(wordtype.result)
         else:
             result = wordtype.result
-        return WordType(arglist, result)
+        return WordType(arglist, result, wordtype.modality)
 
     def __main__(self):
         print(self.__str__)
 
-    @staticmethod
-    def collapse(seq):
 
-        def apply(t1, t2):
-            r = apply_left(t1, t2)
-            if r:
-                return r
+def collapse(seq, verbose=False):
+    # todo: intractable
+    def apply(t1, t2):
+        r = apply_left(t1, t2)
+        if r:
+            return r
+        else:
+            return apply_left(t2, t1)
+
+    def apply_left(t1, t2):
+        if not t1.arglist and t1.result in t2.arglist:
+            if isinstance(t2.arglist, list):
+                return WordType([x for x in t2.arglist if x != t1.result], t2.result)
             else:
-                return apply_left(t2, t1)
+                return WordType([], t2.result)
+        return None
 
-        def apply_left(t1, t2):
-            if not t1.arglist and t1.result in t2.arglist:
-                if isinstance(t2.arglist, list):
-                    return WordType([x for x in t2.arglist if x != t1.result], t2.result)
-                else:
-                    return WordType([], t2.result)
-            return None
+    perms = permutations(seq)  # take all permutations of the given type sequence
+    perms_ns = perms
+    # for p in perms:
+    #     if p[::-1] not in perms_ns:
+    #         perms_ns.append(p)  # ignore the symmetric ones
 
-        perms = permutations(seq)  # take all permutations of the given type sequence
-        perms_ns = []
-        for p in perms:
-            if p[::-1] not in perms_ns:
-                perms_ns.append(p)  # ignore the symmetric ones
+    precomputed = dict()
 
-        for p in perms_ns:
-            current = list(p)
-            reduced = True
-            while reduced:
+    for p in perms_ns:
+        current = list(p)
+        reduced = True
+        while reduced:
+            if verbose:
                 print('starting with :', current)
-                reduced = False
-                if len(current) == 1:
-                    return current[0]
-                for t1, t2 in zip(current, current[1:]):
+            reduced = False
+            if len(current) == 1:
+                return current
+            for t1, t2 in zip(current, current[1:]):
+                if tuple([t1, t2]) in precomputed.keys():
+                    t12 = precomputed[tuple([t1, t2])]
+                else:
                     t12 = apply(t1, t2)
-                    if t12:
+                    precomputed[tuple([t1, t2])] = t12
+                    precomputed[tuple([t2, t1])] = t12
+                if t12:
+                    if verbose:
                         print('removing ', t1, t2, 'and replacing with ', t12)
-                        current.remove(t1)
-                        current.remove(t2)
-                        current.append(t12)
-                        reduced = True
-                        break
-                if reduced == False:
-                    print('Failed.')
+                    current.remove(t1)
+                    current.remove(t2)
+                    current.append(t12)
+                    reduced = True
+                    break
+            if reduced==False and verbose:
+                print('Failed.')
+    return None
