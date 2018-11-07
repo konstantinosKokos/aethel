@@ -19,6 +19,9 @@ class WordType:
             warn('Implicit conversion from str to WordType.')
         elif isinstance(arglist, list) or isinstance(arglist, tuple):
             # if iterable, assert all items are WordTypes (also covers the case of empty iterable)
+            if all(map(lambda t: isinstance(t, str), arglist)) and len(arglist):
+                warn('Implicit conversion from (str,) to (WordType,).')
+                arglist = tuple([WordType((), a) for a in arglist])
             if not all(map(lambda t: isinstance(t, WordType), arglist)):
                 raise TypeError('Expected an iterable of WordTypes, received {} instead.'.
                                 format(list(map(type, arglist))))
@@ -29,8 +32,8 @@ class WordType:
 
         # normalize the result
         if isinstance(result, str):
-            # if str, simply store it
-            pass
+            if not len(result):
+                raise TypeError('Received empty result type.')
         elif isinstance(result, list) or isinstance(result, tuple):
             # if iterable, try to convert to WordType
             if len(result) == 1:
@@ -48,7 +51,7 @@ class WordType:
         while isinstance(result, WordType):
             # final sanity check
             if not result.arglist:
-                # rxemove empty internal arglist
+                # remove empty internal arglist
                 result = result.result
             elif not arglist:
                 # remove empty external arglist
@@ -113,6 +116,22 @@ class WordType:
         if isinstance(other, WordType):
             return self.arglist == other.arglist and self.result == other.result and self.modality == other.modality
         return False
+
+
+class ColouredType(WordType):
+    def __init__(self, arglist, result, colours, modality=False):
+        super(ColouredType, self).__init__(arglist, result, modality)
+        if isinstance(colours, str):
+            warn('Implicit conversion from str to tuple')
+            colours = [colours]
+        if isinstance(colours, list) or isinstance(colours, tuple):
+            if len(colours) != len(self.arglist):
+                raise TypeError('Expected {} colours, received {} instead.'.format(len(self.arglist), len(colours)))
+            if not all(map(lambda x: isinstance(x, str), colours)):
+                raise TypeError('Colours must be an iterable of strings')
+            self.colours = tuple(colours)
+        else:
+            raise TypeError('Colours must be an iterable of strings')
 
 #     def wcmp(self, other):
 #         """
