@@ -3,16 +3,14 @@ import xml.etree.cElementTree as ET
 from glob import glob
 from copy import deepcopy
 import graphviz
-from warnings import warn
 from pprint import pprint as print
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Compose
 
 from itertools import groupby, chain
-from functools import reduce
 
-from WordType import WordType
+from WordType import *
 
 
 class Lassy(Dataset):
@@ -173,7 +171,7 @@ class Decompose:
                               'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
                               'whrel': 'WHREL', 'whsub': 'WHSUB'}
             # convert to Types
-            self.type_dict = {k: WordType([], v) for k, v in self.type_dict.items()}
+            self.type_dict = {k: AtomicType(v) for k, v in self.type_dict.items()}
 
             # Type conventions (richard)
             # # todo: need to change the direction of headedness before applying
@@ -188,6 +186,8 @@ class Decompose:
         self.separation_symbol = separation_symbol  # the separation symbol between a node's text content and its id
         # the function applied to convert the processed text of a node into a dictionary key
         self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
+        self.head_candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
+
 
     @staticmethod
     def is_leaf(node):
@@ -482,27 +482,25 @@ class Decompose:
         if a:
             return a[0][0]
 
-
-    @staticmethod
-    def choose_head(children_rels):
+    def choose_head(self, children_rels):
         """
         Takes a list of siblings and selects their head.
         :param children_rels: a list of [node, rel] lists
         :return:
-            if a head is found, return the head
-            if structure is headless, return None
+            if a head is found, return the head and the rel
+            if structure is headless, return None, None
             if unspecified case, raise ValueError
         """
-        candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
         for i, (candidate, rel) in enumerate(children_rels):
-            if Decompose.get_rel(rel) in candidates:
-                return candidate
+            # todo: secondary heads
+            if Decompose.get_rel(rel) in self.head_candidates:
+                return candidate, rel
         # cases of expected headless structures should return None
         rels = [x[1] for x in children_rels]
         if 'crd' in rels:
-            return Decompose.pick_first_match(children_rels, 'crd')
+            return Decompose.pick_first_match(children_rels, 'crd'), 'crd'
         elif 'cnj' in rels:
-            return Decompose.pick_first_match(children_rels, 'cnj')
+            return Decompose.pick_first_match(children_rels, 'cnj'), 'cnj'
         raise ValueError('Unknown headless structure {}'.format(rels))
 
     @staticmethod
@@ -522,58 +520,130 @@ class Decompose:
         :param lexicon:
         :return:
         """
+        def is_copy_gap(node):
+            all_incoming_edges = list(node.attrib['rel'].values())
+            if len(all_incoming_edges) > 1:
+                # this node is involved in some sort of magic trickery if it has more than one incoming edges
+                is_copy = all([self.get_rel(x) == self.get_rel(all_incoming_edges[0]) for x in all_incoming_edges])
+                if is_copy:
+                    return True, False  # all the incoming edges are the same, its a copy!
+                else:
+                    return False, True  # if you're not a copy, but you have secondary edges you can only be .. a gap!
+            return False, False  # just a good old node
 
-        def is_gap(node):
-            """
-            Takes a node and returns True if 'secondary' is found within the node's dependencies. This should indicate
-            whether this node is partaking in long-distance dependencies (gaps).
-            :param node:
-            :return:
-            """
-            if list(filter(lambda x: x[1] == 'secondary', [x for x in node.attrib['rel'].values()
-                                                           if type(x) == list])):
-                return True
-            return False
+        # find all of the node's siblings
         siblings = grouped[current]
-        headchild = Decompose.choose_head(siblings)
+        # pick a head
+        headchild, headrel = self.choose_head(siblings)
 
+        # if no type given from above, assign one now (no nested types)
         if top_type is None:
-            top_type = WordType([], self.get_plain_type(current, grouped))
+            top_type = self.get_plain_type(current, grouped)
 
+        # pose some linear order and exclude the picked head
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
-        if headchild is not None:
-            gap = is_gap(headchild)
-            arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
-            # todo: AD-HOC ordering of arglist to remove ambiguity in absence of linear order constraints
-            arglist = sorted(arglist, key=lambda x: x[0].__repr__())
+        copy, gap = is_copy_gap(headchild)
 
-            if gap:
-                headtype = WordType(arglist, top_type, True)
-            else:
-                headtype = WordType(arglist, top_type)
-            if Decompose.is_leaf(headchild):
-                lexicon[self.get_key(headchild)] = headtype
-            else:
-                self.recursive_assignment(headchild, grouped, headtype, lexicon)
+        # pick all the arguments and sort them (arbitrary, todo)
+        arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
+        arglist = tuple(sorted(arglist, key=lambda x: x[0].__repr__()))
+        # convert the arglist to coloured arglist
+        if arglist:
+            argtypes, argdeps = list(zip(*arglist))
+        else:
+            argtypes, argdeps = tuple(), tuple()
 
+        # case management
+        if not any([gap, copy]):
+            # standard type assignment
+            headtype = compose(argtypes, argdeps, top_type)
+        elif gap:
+            # case of gap: project self within arglist
+            assert len(argtypes) == 1
+            internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
+                             if self.get_rel(r) != self.get_rel(headrel)]
+            try:
+                assert len(internal_edge) == 1
+            except:
+                print(internal_edge)
+                print(headchild.attrib['id'])
+                print(current.attrib['id'])
+                raise AssertionError
+            internal_type = ColoredType(argument=self.get_plain_type(headchild, grouped), result=argtypes[0],
+                                        color=internal_edge[0])
+            headtype = ColoredType(argument=internal_type, result=top_type, color=argdeps[0])
+        else:
+            # case of copy
+            headtype = compose(argtypes, argdeps, top_type)
+            headtype = ModalType(headtype, modality='!')
+
+        if Decompose.is_leaf(headchild):
+            # assign the type to the lexicon
+            lexicon[self.get_key(headchild)] = headtype
+        else:
+            # .. or iterate down
+            self.recursive_assignment(headchild, grouped, headtype, lexicon)
+
+        # now deal with the siblings
         for sib, rel in siblings:
-            if type(rel) == list:
-                if rel[1] == 'secondary':
-                    continue
-            if Decompose.is_leaf(sib):
-                if is_gap(sib):
-                    sib_type = WordType([], self.get_plain_type(sib, grouped), True)
+            copy, gap = is_copy_gap(sib)
+            if not any([copy, gap]):
+                # simple type
+                sib_type = self.get_plain_type(sib, grouped)
+                if Decompose.is_leaf(sib):
+                    # assign to lexicon
+                    lexicon[self.get_key(sib)] = sib_type
                 else:
-                    sib_type = WordType([], self.get_plain_type(sib, grouped))
-                if self.get_key(sib) in lexicon.keys() and lexicon[self.get_key(sib)] != sib_type:
-                    raise KeyError('{} already in local lexicon keys with type {}..\nNow iterating with parent {}. '
-                                   'Trying to assign type {} when type {} was already assigned.'
-                                   .format(sib.attrib['id'], lexicon[self.get_key(sib)], current.attrib['id'],
-                                           sib_type, lexicon[self.get_key(sib)]))
-                lexicon[self.get_key(sib)] = WordType([], sib_type)
+                    # .. or iterate down
+                    self.recursive_assignment(sib, grouped, None, lexicon)
+            elif copy:
+                # case of copying
+                # since its copying, it shouldn't matter if we only let the primary edge assign types ..
+                sib_type = ModalType(self.get_plain_type(sib, grouped), modality='!')
+                if rel[1] == 'primary':  # BRAVERY: this shouldn't raise an error since it must be a list
+                    if Decompose.is_leaf(sib):
+                        # assign to lexicon
+                        lexicon[self.get_key(sib)] = sib_type
+                    else:
+                        self.recursive_assignment(sib, grouped, sib_type, lexicon)
+                        # raise NotImplementedError('Case of copying of non-terminal node.')
+                # .. right?
+                else:
+                    # just paranoid parrot underneath here
+                    # assert that either no type previously assigned, or if assigned it is the same as the
+                    # one we would be assigning now
+                    if Decompose.is_leaf(sib):
+                        if self.get_key(sib) in lexicon.keys():
+                            assert lexicon[self.get_key(sib)] == sib_type
             else:
-                self.recursive_assignment(sib, grouped, None, lexicon)
+                # todo case of gap
+                # do I still need to treat this case? it should be managed by primary head edge
+                # .. unless there is a primary non-head edge that is not being managed already
+                # this should already cover modifiers, assuming that they play a head role elsewhere?
+                assert any(map(lambda x: self.get_rel(x) in self.head_candidates,
+                               filter(lambda x: x[1] == 'primary', sib.attrib['rel'].values())))
+
+        # for sib, rel in siblings:
+        #     if is_gap_n(sib):
+        #         # is this sibling being pointed by any secondary edge?
+        #         all_incoming_edges = sib.attrib['rel'].values()
+        #         if all(map(lambda x: self.get_rel(x) == self.get_rel(rel), all_incoming_edges)):
+        #             # are all of the incoming edges the same? case of copying...
+        #             sib_type = WordType((), self.get_plain_type(sib, grouped), modality=True)
+        #         else:
+        #             # are they different? case of gap...
+        #             raise NotImplementedError('Case of gap.')
+        #     else:
+        #         sib_type = WordType((), self.get_plain_type(sib, grouped))
+        #     if Decompose.is_leaf(sib):
+        #         if self.get_key(sib) not in lexicon.keys():
+        #             lexicon[self.get_key(sib)] = sib_type
+        #         else:
+        #             raise NotImplementedError('Trying to assign {} to {}.'.format(sib_type, lexicon[self.get_key(sib)]))
+        #     elif not is_gap_r(rel):
+        #         # only flow downwards primary edges
+        #         self.recursive_assignment(sib, grouped, None, lexicon)
 
     def lexicon_to_list(self, sublex, grouped, to_sequences=True):
         """
@@ -585,8 +655,6 @@ class Decompose:
         :return:
         """
         # todo: sorting by keys properly
-
-        # todo: fix leaves appearing twice
 
         all_leaves = set(list(filter(lambda x: 'word' in x.attrib.keys(),
                                  map(lambda x: x[0], chain.from_iterable(grouped.values())))))
