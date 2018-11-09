@@ -150,4 +150,6 @@ class ColoredType(ComplexType):
 def compose(base_types, base_colors, result):
     if len(base_types) != len(base_colors):
         raise ValueError('Uneven number of types ({}) and colors ({}).'.format(len(base_types), len(base_colors)))
-    return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]) , zip(base_types, base_colors), result)
+    return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]),
+                  zip(base_types[::-1], base_colors[::-1]),
+                  result)

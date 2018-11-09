@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Compose
 
 from itertools import groupby, chain
+from collections import Counter
 
 from WordType import *
 
@@ -521,15 +522,18 @@ class Decompose:
         :return:
         """
         def is_copy_gap(node):
-            all_incoming_edges = list(node.attrib['rel'].values())
-            if len(all_incoming_edges) > 1:
-                # this node is involved in some sort of magic trickery if it has more than one incoming edges
-                is_copy = all([self.get_rel(x) == self.get_rel(all_incoming_edges[0]) for x in all_incoming_edges])
-                if is_copy:
-                    return True, False  # all the incoming edges are the same, its a copy!
+            all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
+            # this node is involved in some sort of magic trickery if it has more than one incoming edges
+            if len(all_incoming_edges) == 1:
+                return False, False
+            else:
+                count = Counter(all_incoming_edges)
+                if len(count.keys()) == 1:
+                    return True, False  # all the incoming edges are the same, its a copy
+                elif max(count.values()) == 1:
+                    return False, True  # no two edges of the same type, its a gap
                 else:
-                    return False, True  # if you're not a copy, but you have secondary edges you can only be .. a gap!
-            return False, False  # just a good old node
+                    return True, True  # .. bad news
 
         # find all of the node's siblings
         siblings = grouped[current]
