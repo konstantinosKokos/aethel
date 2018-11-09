@@ -4,23 +4,22 @@ from functools import reduce
 
 
 class WordType:
-    def __init__(self, arglist, result, modality=False):
+    def __init__(self, arglist, result, modality=False, sanitize=True):
         """
         Constructor for WordType.
         :param arglist:
         :param result:
         :param modality:
         """
-
         # normalize the arglist
         if isinstance(arglist, str):
             # if str, assume singular type argument and convert it to tuple of WordType
             arglist = (WordType((), arglist),)
-            warn('Implicit conversion from str to WordType.')
+            warn('Implicit conversion of arglist from str to WordType.')
         elif isinstance(arglist, list) or isinstance(arglist, tuple):
             # if iterable, assert all items are WordTypes (also covers the case of empty iterable)
             if all(map(lambda t: isinstance(t, str), arglist)) and len(arglist):
-                warn('Implicit conversion from (str,) to (WordType,).')
+                warn('Implicit conversion of arglist from (str,) to (WordType,).')
                 arglist = tuple([WordType((), a) for a in arglist])
             if not all(map(lambda t: isinstance(t, WordType), arglist)):
                 raise TypeError('Expected an iterable of WordTypes, received {} instead.'.
@@ -31,9 +30,10 @@ class WordType:
             arglist = (arglist,)
 
         # normalize the result
+        if not result:
+            raise TypeError('Received empty result type.')
         if isinstance(result, str):
-            if not len(result):
-                raise TypeError('Received empty result type.')
+            pass
         elif isinstance(result, list) or isinstance(result, tuple):
             # if iterable, try to convert to WordType
             if len(result) == 1:
@@ -47,24 +47,26 @@ class WordType:
                 raise TypeError('A WordType cannot have a sequence as a result.')
         elif not isinstance(result, WordType):
             raise TypeError('WordType result must be str or WordType, received {} instead.'.format(type(result)))
-
-        while isinstance(result, WordType):
-            # final sanity check
-            if not result.arglist:
-                # remove empty internal arglist
-                result = result.result
-            elif not arglist:
-                # remove empty external arglist
-                arglist = result.arglist
-                result = result.result
-            else:
-                break
-
-        self.arglist = arglist
         self.result = result
+        self.arglist = arglist
+        if sanitize:
+            self.sanitize()
         self.modality = modality
         self.arity = WordType.get_arity(result) if not self.arglist else self.find_arglist_arity() + 1 + \
                                                                 WordType.get_arity(self.result)
+
+    def sanitize(self):
+        # final sanity check
+        while isinstance(self.result, WordType):
+            if not self.result.arglist:
+                # remove empty internal arglist
+                self.result = self.result.result
+            elif not self.arglist:
+                # remove empty external arglist
+                self.arglist = self.result.arglist
+                self.result = self.result.result
+            else:
+                break
 
     @staticmethod
     def get_arity(item):
@@ -84,7 +86,7 @@ class WordType:
         :return:
         """
         def print_args(args):
-            if isinstance(args, tuple) or isinstance(args, list):
+            if isinstance(args, tuple):
                 if len(args) > 1:
                     return '(' + ', '.join([a.__str__() for a in args]) + ') → '
                 elif len(args) == 1:
@@ -119,19 +121,56 @@ class WordType:
 
 
 class ColouredType(WordType):
-    def __init__(self, arglist, result, colours, modality=False):
-        super(ColouredType, self).__init__(arglist, result, modality)
-        if isinstance(colours, str):
-            warn('Implicit conversion from str to tuple')
-            colours = [colours]
-        if isinstance(colours, list) or isinstance(colours, tuple):
-            if len(colours) != len(self.arglist):
-                raise TypeError('Expected {} colours, received {} instead.'.format(len(self.arglist), len(colours)))
-            if not all(map(lambda x: isinstance(x, str), colours)):
-                raise TypeError('Colours must be an iterable of strings')
-            self.colours = tuple(colours)
+    def __init__(self, arglist, result, colors, modality=False):
+        super(ColouredType, self).__init__(arglist, result, modality, sanitize=False)
+        if isinstance(colors, str):
+            warn('Implicit conversion of colors from str to tuple')
+            colors = [colors]
+        if isinstance(colors, list) or isinstance(colors, tuple):
+            if len(colors) != len(self.arglist):
+                raise TypeError('Expected {} colors, received {} instead.'.format(len(self.arglist), len(colors)))
+            if not all(map(lambda x: isinstance(x, str), colors)):
+                raise TypeError('Colors must be an iterable of strings')
+            self.colors = tuple(colors)
         else:
-            raise TypeError('Colours must be an iterable of strings')
+            raise TypeError('Colors must be an iterable of strings')
+        self.sanitize()
+
+    def sanitize(self):
+        # final sanity check
+        while isinstance(self.result, WordType):
+            if not self.result.arglist:
+                # remove empty internal arglist
+                self.result = self.result.result
+            elif not self.arglist:
+                # remove empty external arglist
+                self.arglist = self.result.arglist
+                self.colors = self.result.colors
+                self.result = self.result.result
+            else:
+                break
+
+    def __str__(self):
+        # todo: just pprint this part a bit, otherwise we gucci
+        castr = '(' + ', '.join([str(ca) for ca in zip(self.arglist, self.colors)]) + ') → ' if self.arglist else ''
+
+        if isinstance(self.result, WordType):
+            s = castr + self.result.__str__()
+            return '!' + s if self.modality else s
+        elif isinstance(self.result, str):
+            s = castr + self.result
+            return '!' + s if self.modality else s
+
+    def remove_colors(self):
+        return WordType(tuple(map(lambda x: x.remove_colors if isinstance(x, ColouredType) else x, self.arglist)),
+                        self.result, self.modality)
+
+    def __eq__(self, other):
+        if isinstance(other, ColouredType):
+            return self.colors == other.colors and self.remove_colors() == other.remove_colors()
+        elif isinstance(other, WordType):
+            return self.remove_colors() == other and not self.colors
+
 
 #     def wcmp(self, other):
 #         """
