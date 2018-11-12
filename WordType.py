@@ -153,3 +153,13 @@ def compose(base_types, base_colors, result):
     return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]),
                   zip(base_types[::-1], base_colors[::-1]),
                   result)
+
+def decolor(colored_type):
+    if not isinstance(colored_type, WordType):
+        raise TypeError('Expected input of type WordType, received {} instead.'.format(type(colored_type)))
+    if isinstance(colored_type, ColoredType) or isinstance(colored_type, ComplexType):
+        return ComplexType(decolor(colored_type.argument), decolor(colored_type.result))
+    elif isinstance(colored_type, ModalType):
+        return ModalType(decolor(colored_type.result), modality=colored_type.modality)
+    elif isinstance(colored_type, AtomicType):
+        return colored_type
