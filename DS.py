@@ -13,6 +13,8 @@ from collections import Counter
 
 from WordType import *
 
+from warnings import warn
+
 
 class Lassy(Dataset):
     """
@@ -288,6 +290,8 @@ class Decompose:
         for key in keys_to_remove:
             del grouped[key]  # here we delete the node from being a parent (outgoing edges)
 
+        # TODO: remove internal information here for consistency
+
         # here we remove children
         for key in grouped.keys():
             children_to_remove = list()
@@ -295,9 +299,15 @@ class Decompose:
                 if c in keys_to_remove:
                     # the child was a cut-off parent; remove the incoming edge
                     children_to_remove.append([c, r])
-                elif Decompose.get_rel(r) in rels_to_remove:
+                elif r in rels_to_remove:
                     # the child has a 'bad' incoming edge; remove it
                     children_to_remove.append([c, r])
+                elif (len(c.attrib['rel'].values()) and
+                      all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
+                    # explicit treatment of modifiers
+                    warn('Child {} has multiple modifier edges.'.format(c.attrib['id']))
+                    children_to_remove.append([c, r])
+
             for c in children_to_remove:
                 grouped[key].remove(c)
 
@@ -342,7 +352,7 @@ class Decompose:
 
             parent = main_parent
 
-            if main_parent.attrib['cat'] not in ['ssub', 'smain', 'sv1']:
+            if main_parent.attrib['cat'] not in ('ssub', 'smain', 'sv1'):
                 continue
             real_so = list(filter(lambda x: (x[1] == ['su', 'secondary'] or x[1] == ['obj1', 'secondary']),
                                   [x for x in grouped[main_parent]]))
@@ -364,7 +374,8 @@ class Decompose:
             if not ppart:
                 continue
             ppart = ppart[0][0]
-            abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
+            abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']
+                                                 or x[1] == ['sup', 'primary']) and
                                                     (x[0].attrib['index'] == real_so.attrib['index']),
                                       [x for x in grouped[ppart] if 'index' in x[0].attrib]))
 
@@ -374,7 +385,8 @@ class Decompose:
                              [x for x in grouped[ppart] if 'cat' in x[0].attrib]))
                 if ppart:
                     ppart = ppart[0][0]
-                    abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']) and
+                    abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']
+                                                 or x[1] == ['sup', 'primary']) and
                                                         (x[0].attrib['index'] == real_so.attrib['index']),
                                               [x for x in grouped[ppart] if 'index' in x[0].attrib]))
             if not abstract_so:
@@ -397,7 +409,7 @@ class Decompose:
         return grouped
 
     @staticmethod
-    def remove_abstract_so(grouped):
+    def remove_abstract_so(grouped, candidates=('su', 'obj', 'obj1', 'obj2', 'sup')):
         """
         Takes a dictionary containing abstract subjects/objects and removes them. The main subject/object must have
         been properly assigned before.
@@ -409,24 +421,26 @@ class Decompose:
                 # this is a proper secondary edge (non-abstract) and should not be removed
                 continue
             for child, rel in grouped[parent]:
-                if type(rel) != list:
+                if not isinstance(rel, list):
                     # ignore non-coindexed
                     continue
-                if rel[0] == 'su' or rel[0] == 'obj1':
-                    if rel[1] == 'secondary':
-                        # # # Dictionary changes
-                        # remove the abstract s/o from being a child of the ppart/inf
-                        grouped[parent].remove([child, rel])
-                        # # # Internal node changes (for consistency) # todo redundant
-                        del child.attrib['rel'][parent.attrib['id']]
-                    else:
-                        # Trying to remove main coindex
-                        if 'index' in child.keys():
-                            # todo
-                            continue
-                            # raise ValueError('Found primary object between {} and {}'.format(parent.attrib['id'],
-                            #                                                    child.attrib['id']))
-                        #ToGraphViz()(grouped, output='abc')
+                red_rel = Decompose.get_rel(rel)
+                if red_rel not in candidates:
+                    continue
+                if rel[1] == 'secondary':
+                    # # # Dictionary changes
+                    # remove the abstract s/o from being a child of the ppart/inf
+                    grouped[parent].remove([child, rel])
+                    # # # Internal node changes (for consistency) # todo redundant
+                    del child.attrib['rel'][parent.attrib['id']]
+                else:
+                    # Trying to remove main coindex
+                    if 'index' in child.keys():
+                        # todo?
+                        continue
+                        # raise ValueError('Found primary object between {} and {}'.format(parent.attrib['id'],
+                        #                                                    child.attrib['id']))
+                    #ToGraphViz()(grouped, output='abc')
 
         return grouped
 
@@ -527,13 +541,22 @@ class Decompose:
             if len(all_incoming_edges) == 1:
                 return False, False
             else:
-                count = Counter(all_incoming_edges)
-                if len(count.keys()) == 1:
-                    return True, False  # all the incoming edges are the same, its a copy
-                elif max(count.values()) == 1:
-                    return False, True  # no two edges of the same type, its a gap
+                if not any(map(lambda x: x in self.head_candidates, all_incoming_edges)):
+                    return False, False  # do not treat conjunctions
+                elif all(map(lambda x: x in self.head_candidates, all_incoming_edges)):
+                    return False, False  # case of head-conjunction
                 else:
-                    return True, True  # .. bad news
+                    return False, True
+
+            # else:
+            #     count = Counter(all_incoming_edges)
+            #     if len(count.keys()) == 1:
+            #         return True, False  # all the incoming edges are the same, its a copy
+            #     elif max(count.values()) == 1:
+            #         return False, True  # no two edges of the same type, its a gap
+            #     else:
+            #         assert any(map(lambda x: x in self.head_candidates, all_incoming_edges))
+            #         return True, True  # .. bad news
 
         # find all of the node's siblings
         siblings = grouped[current]
@@ -562,18 +585,22 @@ class Decompose:
         if not any([gap, copy]):
             # standard type assignment
             headtype = compose(argtypes, argdeps, top_type)
-        elif gap:
-            # case of gap: project self within arglist
-            assert len(argtypes) == 1
+        elif all([gap, copy]):
+            # case of gap and copy
             internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
                              if self.get_rel(r) != self.get_rel(headrel)]
+            assert len(set(internal_edge)) == 1
+            internal_type = ModalType(result=self.get_plain_type(headchild, grouped), modality='!')
+            internal_type = ColoredType(argument=internal_type, result=argtypes[0], color=internal_edge[0])
+            headtype = ColoredType(argument=internal_type, result=top_type, color=argdeps[0])
+        elif gap:
+            # case of gap: project self within arglist
             try:
-                assert len(internal_edge) == 1
-            except:
-                print(internal_edge)
-                print(headchild.attrib['id'])
-                print(current.attrib['id'])
-                raise AssertionError
+                assert len(argtypes) == 1
+            except AssertionError:
+                raise NotImplementedError('Case of non-terminal gap with 1 headchild.')
+            internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
+                             if self.get_rel(r) != self.get_rel(headrel)]
             internal_type = ColoredType(argument=self.get_plain_type(headchild, grouped), result=argtypes[0],
                                         color=internal_edge[0])
             headtype = ColoredType(argument=internal_type, result=top_type, color=argdeps[0])
@@ -601,6 +628,10 @@ class Decompose:
                 else:
                     # .. or iterate down
                     self.recursive_assignment(sib, grouped, None, lexicon)
+            elif all([copy, gap]):
+                # case of both copy and gap
+                # should be assigned by the head rel
+                pass
             elif copy:
                 # case of copying
                 # since its copying, it shouldn't matter if we only let the primary edge assign types ..
@@ -621,12 +652,23 @@ class Decompose:
                         if self.get_key(sib) in lexicon.keys():
                             assert lexicon[self.get_key(sib)] == sib_type
             else:
-                # todo case of gap
                 # do I still need to treat this case? it should be managed by primary head edge
                 # .. unless there is a primary non-head edge that is not being managed already
                 # this should already cover modifiers, assuming that they play a head role elsewhere?
-                assert any(map(lambda x: self.get_rel(x) in self.head_candidates,
-                               filter(lambda x: x[1] == 'primary', sib.attrib['rel'].values())))
+                if rel[1] == 'secondary':
+                    pass
+                else:
+                    sib_type = ModalType(self.get_plain_type(sib, grouped), modality='!')
+                    if Decompose.is_leaf(sib):
+                        if self.get_key(sib) in lexicon.keys():
+                            print(lexicon[self.get_key(sib)])
+                            print(sib_type)
+                            raise KeyError('Case of already assigned type.')
+                        else:
+                            lexicon[self.get_key(sib)] = sib_type
+                    else:
+                        self.recursive_assignment(sib, grouped, sib_type, lexicon)
+
 
         # for sib, rel in siblings:
         #     if is_gap_n(sib):
@@ -676,13 +718,11 @@ class Decompose:
         ret = [(enum[i].split(self.separation_symbol)[0], WordType.remove_deps(sublex[enum[i]]))
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
         if to_sequences:
-            ws = [x[0] for x in ret]  # the word sequence
-            ts = [x[1] for x in ret]  # the type sequence
-            return [ws, ts]
+            return list(zip(*ret))
         return ret
 
     def __call__(self, grouped):
-        # ToGraphViz()(grouped)
+        ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
         top_node_types = map(lambda x: self.get_plain_type(x, grouped), top_nodes)
@@ -721,9 +761,9 @@ def main(ignore=False, return_lists=False):
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
                            lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
-                                                                cats_to_remove=['du'],
-                                                                rels_to_remove=['dp', 'sat', 'nucl', 'tag', '--',
-                                                                                'top', 'mod'])],
+                                                                cats_to_remove=('du',),
+                                                                rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--',
+                                                                                'top', 'mod'))],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
@@ -753,7 +793,7 @@ class ToGraphViz:
         return label
 
     def construct_edge_label(self, rel):
-        if type(rel) == list:
+        if isinstance(rel, list):
             return rel[0] + ' ' + rel[1]
         else:
             return rel
