@@ -166,7 +166,7 @@ class Decompose:
         if not type_dict:
             # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
             self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADVP', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
-                              'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DETP',
+                              'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DET',
                               'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
                               'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
                               'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'NP', 'punct': 'PUNCT',
@@ -189,7 +189,7 @@ class Decompose:
         self.separation_symbol = separation_symbol  # the separation symbol between a node's text content and its id
         # the function applied to convert the processed text of a node into a dictionary key
         self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
-        self.head_candidates = ['hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink']
+        self.head_candidates = ('hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink')
 
 
     @staticmethod
@@ -290,8 +290,6 @@ class Decompose:
         for key in keys_to_remove:
             del grouped[key]  # here we delete the node from being a parent (outgoing edges)
 
-        # TODO: remove internal information here for consistency
-
         # here we remove children
         for key in grouped.keys():
             children_to_remove = list()
@@ -299,14 +297,19 @@ class Decompose:
                 if c in keys_to_remove:
                     # the child was a cut-off parent; remove the incoming edge
                     children_to_remove.append([c, r])
+                    if key is not None:
+                        del c.attrib['rel'][key.attrib['id']]
                 elif r in rels_to_remove:
                     # the child has a 'bad' incoming edge; remove it
                     children_to_remove.append([c, r])
+                    if key is not None:
+                        del c.attrib['rel'][key.attrib['id']]
                 elif (len(c.attrib['rel'].values()) and
                       all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
                     # explicit treatment of modifiers
-                    warn('Child {} has multiple modifier edges.'.format(c.attrib['id']))
                     children_to_remove.append([c, r])
+                    if key is not None:
+                        del c.attrib['rel'][key.attrib['id']]
 
             for c in children_to_remove:
                 grouped[key].remove(c)
@@ -320,6 +323,8 @@ class Decompose:
                 for c, r in grouped[key]:
                     if c in empty_keys:
                         grouped[key].remove([c, r])
+                        if key is not None:
+                            del c.attrib['rel'][key.attrib['id']]
             empty_keys = [key for key in grouped.keys() if not grouped[key]]
 
         return grouped
@@ -455,8 +460,7 @@ class Decompose:
         if exclude is not None:
             siblings = list(filter(lambda x: x[0] != exclude, siblings))
         return sorted(siblings,
-                      key=lambda x: tuple(map(int,
-                                              (x[0].attrib['begin'], x[0].attrib['end'], x[0].attrib['id']))))
+                      key=lambda x: tuple(map(int, (x[0].attrib['begin'], x[0].attrib['end'], x[0].attrib['id']))))
 
     def collapse_mwu(self, grouped):
         """
@@ -485,18 +489,6 @@ class Decompose:
             del (grouped[key])
         return grouped
 
-    @staticmethod
-    def pick_first_match(children_rels, cond):
-        """
-        Ad-hoc function that returns the first child matching a dependency condition.
-        :param children_rels:
-        :param cond:
-        :return:
-        """
-        a = [x for x in children_rels if x[1] == cond]
-        if a:
-            return a[0][0]
-
     def choose_head(self, children_rels):
         """
         Takes a list of siblings and selects their head.
@@ -512,18 +504,14 @@ class Decompose:
                 return candidate, rel
         # cases of expected headless structures should return None
         rels = [x[1] for x in children_rels]
-        if 'crd' in rels:
-            return Decompose.pick_first_match(children_rels, 'crd'), 'crd'
-        elif 'cnj' in rels:
-            return Decompose.pick_first_match(children_rels, 'cnj'), 'cnj'
-        raise ValueError('Unknown headless structure {}'.format(rels))
+        return None, None
+        # if 'cnj' in rels:
+        #     return Decompose.pick_first_match(children_rels, 'cnj'), 'cnj'
+        # raise ValueError('Unknown headless structure {}'.format(rels))
 
     @staticmethod
     def get_rel(rel):
-        if type(rel) == list:
-            return rel[0]
-        else:
-            return rel
+        return rel[0] if isinstance(rel, list) else rel
 
     def recursive_assignment(self, current, grouped, top_type, lexicon):
         """
@@ -570,51 +558,69 @@ class Decompose:
         # pose some linear order and exclude the picked head
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
-        copy, gap = is_copy_gap(headchild)
+        if headchild is not None:
+            # classify the headchild
+            copy, gap = is_copy_gap(headchild)
 
-        # pick all the arguments and sort them (arbitrary, todo)
-        arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
-        arglist = tuple(sorted(arglist, key=lambda x: x[0].__repr__()))
-        # convert the arglist to coloured arglist
-        if arglist:
-            argtypes, argdeps = list(zip(*arglist))
-        else:
-            argtypes, argdeps = tuple(), tuple()
+            # pick all the arguments
+            arglist = [[self.get_plain_type(sib, grouped), Decompose.get_rel(rel)] for sib, rel in siblings]
+            # convert the arglist to coloured arglist
+            if arglist:
+                argtypes, argdeps = list(zip(*arglist))
+            else:
+                # siblings must have been removed by processing, so non-terminal node corresponding to a word
+                if self.get_key(headchild) not in lexicon.keys():
+                    lexicon[self.get_key(headchild)] = top_type
+                elif lexicon[self.get_key(headchild)] != top_type:
+                    raise KeyError('Trying to assign {} to node {}, when already assigned {}. '
+                                   'Now iterating from parent {}.'.format(top_type, headchild.attrib['id'],
+                                                                          lexicon[self.get_key(headchild)],
+                                                                          current.attrib['id']))
+                return lexicon
 
-        # case management
-        if not any([gap, copy]):
-            # standard type assignment
-            headtype = compose(argtypes, argdeps, top_type)
-        elif all([gap, copy]):
-            # case of gap and copy
-            internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
-                             if self.get_rel(r) != self.get_rel(headrel)]
-            assert len(set(internal_edge)) == 1
-            internal_type = ModalType(result=self.get_plain_type(headchild, grouped), modality='!')
-            internal_type = ColoredType(argument=internal_type, result=argtypes[0], color=internal_edge[0])
-            headtype = ColoredType(argument=internal_type, result=top_type, color=argdeps[0])
-        elif gap:
-            # case of gap: project self within arglist
-            try:
-                assert len(argtypes) == 1
-            except AssertionError:
-                raise NotImplementedError('Case of non-terminal gap with 1 headchild.')
-            internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
-                             if self.get_rel(r) != self.get_rel(headrel)]
-            internal_type = ColoredType(argument=self.get_plain_type(headchild, grouped), result=argtypes[0],
-                                        color=internal_edge[0])
-            headtype = ColoredType(argument=internal_type, result=top_type, color=argdeps[0])
-        else:
-            # case of copy
-            headtype = compose(argtypes, argdeps, top_type)
-            headtype = ModalType(headtype, modality='!')
 
-        if Decompose.is_leaf(headchild):
-            # assign the type to the lexicon
-            lexicon[self.get_key(headchild)] = headtype
-        else:
-            # .. or iterate down
-            self.recursive_assignment(headchild, grouped, headtype, lexicon)
+            # case management
+            if not any([gap, copy]):
+                # standard type assignment
+                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+            elif all([gap, copy]):
+                # case of gap and copy
+                internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
+                                 if self.get_rel(r) != self.get_rel(headrel)]
+                assert len(set(internal_edge)) == 1
+                internal_type = ModalType(result=self.get_plain_type(headchild, grouped), modality='!')
+                internal_type = ColoredType(arguments=internal_type, result=argtypes[0], colors=internal_edge[0])
+                headtype = ColoredType(arguments=internal_type, result=top_type, colors=argdeps[0])
+            elif gap:
+                # case of gap: project self within arglist
+                try:
+                    assert len(argtypes) == 1
+                except AssertionError:
+                    raise NotImplementedError('Case of non-terminal gap with many arguments.')
+                # find the dependency which does not match the head
+                internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
+                                 if self.get_rel(r) != self.get_rel(headrel)]
+                internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped),), result=argtypes[0],
+                                            colors=(internal_edge[0],))
+                headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+            else:
+                # case of copy
+                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+                headtype = ModalType(headtype, modality='!')
+
+            if Decompose.is_leaf(headchild):
+                # assign the type to the lexicon
+                if self.get_key(headchild) in lexicon.keys():
+                    if lexicon[self.get_key(headchild)] != headtype:
+                        raise KeyError('Trying to assign {} to node {}, when already assigned {}. '
+                                       'Now iterating from parent {}.'.format(headtype, headchild.attrib['id'],
+                                                                              lexicon[self.get_key(headchild)],
+                                                                              current.attrib['id']))
+
+                lexicon[self.get_key(headchild)] = headtype
+            else:
+                # .. or iterate down
+                self.recursive_assignment(headchild, grouped, headtype, lexicon)
 
         # now deal with the siblings
         for sib, rel in siblings:
@@ -763,7 +769,7 @@ def main(ignore=False, return_lists=False):
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
                                                                 cats_to_remove=('du',),
                                                                 rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--',
-                                                                                'top', 'mod'))],
+                                                                                'top', 'mod',))],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
