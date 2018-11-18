@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from functools import reduce
+from collections import Counter
+
 
 class WordType(ABC):
-
     @abstractmethod
     def __str__(self):
         pass
@@ -75,7 +76,7 @@ class ModalType(WordType):
         return self.__str__()
 
     def __hash__(self):
-        return self.__str__()
+        return self.__str__().__hash__()
 
     def get_arity(self):
         return self.result.get_arity()
@@ -91,28 +92,32 @@ class ModalType(WordType):
 
 
 class ComplexType(WordType):
-    def __init__(self, argument, result):
+    def __init__(self, arguments, result):
         if not isinstance(result, WordType):
             raise TypeError('Expected result to be of type WordType, received {} instead.'.format(type(result)))
         self.result = result
-        if not isinstance(argument, WordType):
-            raise TypeError('Expected argument to be of type WordType, received {} instead.'.format(type(argument)))
-        self.argument = argument
+        if not isinstance(arguments, list) and not isinstance(arguments, tuple):
+            raise TypeError('Expected arguments to be a tuple of WordTypes, received {} instead.'.
+                            format(type(arguments)))
+        if not all(map(lambda x: isinstance(x, WordType), arguments)) or len(arguments) == 0:
+            raise TypeError('Expected arguments to be a non-empty tuple of WordTypes, '
+                            'received a tuple containing {} instead.'.format(list(map(type, arguments))))
+        self.arguments = sorted(arguments, key=lambda x: x.__repr__())
 
     def __str__(self):
-        if self.argument.get_arity():
-            return '(' + str(self.argument) + ')' + ' → ' + str(self.result)
+        if len(self.arguments) > 1:
+            return '(' + ', '.join(map(str, self.arguments)) + ') → ' + str(self.result)
         else:
-            return str(self.argument) + ' → ' + str(self.result)
+            return str(self.arguments[0]) + ' → ' + str(self.result)
 
     def __repr__(self):
         return self.__str__()
 
     def __hash__(self):
-        return self.__str__()
+        return self.__str__().__hash__()
 
     def get_arity(self):
-        return self.argument.get_arity() + 1 + self.result.get_arity()
+        return max(map(lambda x: x.get_arity(), self.arguments)) + 1 + self.result.get_arity()
 
     def __call__(self):
         return self.__str__()
@@ -121,44 +126,57 @@ class ComplexType(WordType):
         if not isinstance(other, ComplexType):
             return False
         else:
-            return self.argument == other.argument and self.result == other.result
+            return self.arguments == other.arguments and self.result == other.result
 
 
 class ColoredType(ComplexType):
-    def __init__(self, argument, result, color):
-        super(ColoredType, self).__init__(argument, result)
-        if not isinstance(color, str):
-            raise TypeError('Expected color to be of type str, received {} instead.'.format(type(color)))
-        self.color = color
+    def __init__(self, arguments, result, colors):
+        if not isinstance(colors, list) and not isinstance(colors, tuple):
+            raise TypeError('Expected color to be  a tuple of strings, received {} instead.'.format(type(colors)))
+        if not all(map(lambda x: isinstance(x, str), colors)) or len(colors) == 0:
+            raise TypeError('Expected arguments to be a non-empty tuple of strings,'
+                            ' received a tuple containing {} instead.'.
+                            format(list(map(type, colors))))
+        if len(colors) != len(arguments):
+            raise ValueError('Uneven amount of arguments ({}) and colors ({}).'.format(len(arguments), len(colors)))
+        sorted_ac = sorted([ac for ac in zip(arguments, colors)], key=lambda x: x[0].__repr__() + x[1].__repr__())
+        arguments, colors = list(zip(*sorted_ac))
+        super(ColoredType, self).__init__(arguments, result)
+        self.colors = colors
 
     def __str__(self):
-        return '{' + str(self.argument) + ': ' + self.color + '} → ' + str(self.result)
+        if len(self.arguments) > 1:
+            return '(' + ', '.join(map(lambda x: '{' + x[0].__repr__() + ': ' + x[1].__repr__() + '}',
+                                       zip(self.arguments, self.colors))) + ') → ' + str(self.result)
+        else:
+            return '{' + str(self.arguments[0]) + ': ' + self.colors[0] + '} → ' + str(self.result)
 
     def __repr__(self):
         return self.__str__()
 
     def __hash__(self):
-        return self.__str__()
+        return self.__str__().__hash__()
 
     def __eq__(self, other):
         if not isinstance(other, ColoredType):
             return False
         else:
-            return self.color == other.color and self.argument == other.argument and self.result == other.result
+            return (self.arguments, self.colors) == (other.arguments, other.colors) and self.result == other.result
 
 
 def compose(base_types, base_colors, result):
     if len(base_types) != len(base_colors):
         raise ValueError('Uneven number of types ({}) and colors ({}).'.format(len(base_types), len(base_colors)))
-    return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]),
+    return reduce(lambda x, y: ColoredType(result=x, arguments=y[0], colors=y[1]),
                   zip(base_types[::-1], base_colors[::-1]),
                   result)
+
 
 def decolor(colored_type):
     if not isinstance(colored_type, WordType):
         raise TypeError('Expected input of type WordType, received {} instead.'.format(type(colored_type)))
     if isinstance(colored_type, ColoredType) or isinstance(colored_type, ComplexType):
-        return ComplexType(decolor(colored_type.argument), decolor(colored_type.result))
+        return ComplexType(tuple(map(decolor, colored_type.arguments)), decolor(colored_type.result))
     elif isinstance(colored_type, ModalType):
         return ModalType(decolor(colored_type.result), modality=colored_type.modality)
     elif isinstance(colored_type, AtomicType):
