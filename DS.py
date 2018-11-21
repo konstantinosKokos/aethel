@@ -606,22 +606,28 @@ class Decompose:
 
                 # assert that there is one argument to project into
                 if len(argtypes) != 1:
-                    raise NotImplementedError('Case of non-terminal gap with many arguments.')
+                    print(argtypes)
+                    raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
+                                              format(headchild.attrib['id'], current.attrib['id']))
 
                 # find the dependency which does not match the head
                 internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
                                  if self.get_rel(r) != self.get_rel(headrel)]
 
                 # assert that there is just one (class) of those
-                if len(set(internal_edge)) != 1:
-                    raise NotImplementedError('Case of multiple external dependencies {}.'.
-                                              format(headchild.attrib['id']))
-
-                # constuct the internal type (which includes a hypothesis for the gap)
-                internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, internal_edge),),
-                                            result=argtypes[0], colors=(internal_edge[0],))
-                # construct the external type (which takes the internal type back to the top type)
-                headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                if len(set(internal_edge)) == 1:
+                    # construct the internal type (which includes a hypothesis for the gap)
+                    internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, internal_edge),),
+                                                result=argtypes[0], colors=(internal_edge[0],))
+                    # construct the external type (which takes the internal type back to the top type)
+                    headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                else:
+                    types = []
+                    for it in set(internal_edge):
+                        internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, it),),
+                                                    result=argtypes[0], colors=(it,))
+                        types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
+                        headtype = CombinatorType(tuple(types), combinator='⊗')
 
             if Decompose.is_leaf(headchild):
                 # assign the type to the lexicon
@@ -629,10 +635,6 @@ class Decompose:
                     old_value = lexicon[self.get_key(headchild)]
                     if old_value != headtype:
                         headtype = CombinatorType((headtype, old_value), combinator='⊗')
-                        # raise KeyError('[2] Trying to assign {} to node {}, when already assigned {}. '
-                        #                'Now iterating from parent {}.'.format(headtype, headchild.attrib['id'],
-                        #                                                       lexicon[self.get_key(headchild)],
-                        #                                                       current.attrib['id']))
                 lexicon[self.get_key(headchild)] = headtype
             else:
                 # .. or iterate down
