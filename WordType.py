@@ -28,6 +28,10 @@ class WordType(ABC):
     def __eq__(self, other):
         pass
 
+    @abstractmethod
+    def decolor(self):
+        pass
+
 
 class AtomicType(WordType):
     def __init__(self, result):
@@ -55,6 +59,9 @@ class AtomicType(WordType):
             return False
         else:
             return self.result == other.result
+
+    def decolor(self):
+        return self
 
 
 class ModalType(WordType):
@@ -89,6 +96,9 @@ class ModalType(WordType):
             return False
         else:
             return self.modality == other.modality and self.result == other.result
+
+    def decolor(self):
+        return ModalType(result=(self.result.decolor()))
 
 
 class ComplexType(WordType):
@@ -128,6 +138,9 @@ class ComplexType(WordType):
         else:
             return self.arguments == other.arguments and self.result == other.result
 
+    def decolor(self):
+        return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+
 
 class ColoredType(ComplexType):
     def __init__(self, arguments, result, colors):
@@ -162,11 +175,15 @@ class ColoredType(ComplexType):
         else:
             return (self.arguments, self.colors) == (other.arguments, other.colors) and self.result == other.result
 
+    def decolor(self):
+        return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+
+
 class CombinatorType(WordType):
     def __init__(self, types, combinator):
         if not isinstance(types, tuple):
             raise TypeError('Expected types to be  a tuple of WordTypes, received {} instead.'.format(type(types)))
-        if not all(map(lambda x: isinstance(x, WordType)), types) or len(types) < 1:
+        if not all(map(lambda x: isinstance(x, WordType), types)) or len(types) < 1:
             raise TypeError('Expected types to be a non-empty tuple of WordTypes,'
                             ' received a tuple containing {} instead.'.format(list(map(type, types))))
         if not isinstance(combinator, str):
@@ -189,11 +206,13 @@ class CombinatorType(WordType):
     def __call__(self):
         return self.__str__()
 
-    @abstractmethod
     def __eq__(self, other):
         if isinstance(other, CombinatorType) and self.types == other.types and self.combinator == other.combinator:
                 return True
         return False
+
+    def decolor(self):
+        return CombinatorType(types=tuple(map(lambda x: x.decolor(), self.types)), combinator=self.combinator)
 
 
 def compose(base_types, base_colors, result):
@@ -205,11 +224,4 @@ def compose(base_types, base_colors, result):
 
 
 def decolor(colored_type):
-    if not isinstance(colored_type, WordType):
-        raise TypeError('Expected input of type WordType, received {} instead.'.format(type(colored_type)))
-    if isinstance(colored_type, ColoredType) or isinstance(colored_type, ComplexType):
-        return ComplexType(tuple(map(decolor, colored_type.arguments)), decolor(colored_type.result))
-    elif isinstance(colored_type, ModalType):
-        return ModalType(decolor(colored_type.result), modality=colored_type.modality)
-    elif isinstance(colored_type, AtomicType):
-        return colored_type
+    return colored_type.decolor()
