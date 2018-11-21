@@ -1,12 +1,15 @@
-from itertools import chain
 import pickle
 from utils import FastText
-from collections import defaultdict
+from collections import defaultdict, Counter
 from functools import reduce
+from itertools import chain
+from WordType import decolor
+
 import torch
 from torch.utils.data import Dataset
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 def load(file='test-output/sequences/words-types.p'):
@@ -33,12 +36,7 @@ def make_oov_files(input_file='test-output/sequences/words-types.p', iv_vectors_
 
 
 def get_type_occurrences(type_sequences):
-    all_types = get_all_unique(type_sequences)
-    counts = {t: 0 for t in all_types}
-    for ts in type_sequences:
-        for t in ts:
-            counts[t] = counts[t] + 1
-    return counts
+    return Counter(list(chain(*type_sequences)))
 
 
 def get_all_chars(word_sequences):
@@ -84,6 +82,7 @@ def get_low_len_words(word_sequences, type_sequences, max_word_len):
 def map_ws_to_vs(word_sequence, vectors):
     return torch.Tensor(list(map(lambda x: vectors[x], word_sequence)))
 
+
 def map_cs_to_is(char_sequence, char_dict, max_len):
     a = torch.zeros(max_len)
     b = torch.Tensor(list(map(lambda x: char_dict[x], char_sequence)))
@@ -91,10 +90,21 @@ def map_cs_to_is(char_sequence, char_dict, max_len):
     return a
 
 
+def cdf(sequences):
+    x = np.sort([len(x) for x in sequences])
+    f = np.array(range(len(sequences)))/float(len(sequences))
+    plt.plot(x, f)
+    plt.show()
+
+
+def decolor_sequences(type_sequences):
+    return list(map(lambda x: tuple(map(decolor, x)), type_sequences))
+
+
 class Sequencer(Dataset):
     def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None,
                  minimum_type_occurrence=None, return_char_sequences=False, return_word_distributions=False,
-                 max_word_len=20):
+                 max_word_len=20, decolor=False):
         """
         Necessary in the case of larger data sets that cannot be stored in memory.
         :param word_sequences:
@@ -103,8 +113,10 @@ class Sequencer(Dataset):
         :param max_sentence_length:
         :param minimum_type_occurrence:
         """
-
         print('Received {} samples..'.format(len(word_sequences)))
+        if decolor:
+            type_sequences = decolor_sequences(type_sequences)
+
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
             print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
@@ -214,19 +226,20 @@ def check_uniqueness(word_sequences, type_sequences):
 
 
 def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki.nl/wiki.nl.vec',
-         oov_file='wiki.nl/oov.vec', return_char_sequences=False, return_word_distributions=False, fake=False):
+             oov_file='wiki.nl/oov.vec', return_char_sequences=False, return_word_distributions=False, fake=False,
+             max_sentence_length=10, minimum_type_occurrence=10, decolor=False):
     ws, ts = load(sequence_file)
     # check_uniqueness(ws, ts)
-
     if fake:
         vectors = fake_vectors()
     else:
         vectors = FastText.load_vectors([inv_file, oov_file])
 
-    sequencer = Sequencer(ws, ts, vectors, max_sentence_length=10, minimum_type_occurrence=10,
-                          return_char_sequences=return_char_sequences,
-                          return_word_distributions=return_word_distributions)
+    sequencer = Sequencer(ws, ts, vectors, max_sentence_length=max_sentence_length,
+                          minimum_type_occurrence=minimum_type_occurrence, return_char_sequences=return_char_sequences,
+                          return_word_distributions=return_word_distributions, decolor=decolor)
     # dl = DataLoader(sequencer, batch_size=32,
     #                 collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
     #                                                 key=lambda y: y[0].shape[0]))
+
     return sequencer
