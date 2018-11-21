@@ -505,10 +505,39 @@ class Decompose:
                 return candidate, rel
         return None, None
 
-
     @staticmethod
     def get_rel(rel):
         return rel[0] if isinstance(rel, list) else rel
+
+    @staticmethod
+    def collapse_single_non_terminals(grouped):
+        # list of nodes containing a single child
+        intermediate_nodes = [k for k in grouped.keys() if len(grouped[k]) == 1]
+        if not intermediate_nodes:
+            return grouped
+
+        # for each intermediate node
+        for k in intermediate_nodes:
+            # find its only child
+            points_to, old_rel = grouped[k][0]
+            # for each other node
+            for kk in grouped.keys():
+                # find its dependencies pointing to the intermediate node
+                rels = [r for n, r in grouped[kk] if n == k]
+                # for each such dependency
+                if not rels:
+                    continue
+                grouped[kk].remove([k, rels[0]])
+                if isinstance(old_rel, list):
+                    grouped[kk].append([points_to, [rels[0], old_rel[1]]])
+                    points_to.attrib['rel'][kk] = [rels[0], old_rel[1]]
+                else:
+                    grouped[kk].append([points_to, old_rel])
+                    points_to.attrib['rel'][kk] = old_rel
+            del points_to.attrib['rel'][k.attrib['id']]
+        for k in intermediate_nodes:
+            del(grouped[k])
+        return Decompose.collapse_single_non_terminals(grouped)
 
     def recursive_assignment(self, current, grouped, top_type, lexicon):
         """
@@ -544,7 +573,7 @@ class Decompose:
 
         if headchild is not None:
             # pick all the arguments
-            arglist = [[self.get_plain_type(sib, grouped, rel), Decompose.get_rel(rel)] for sib, rel in siblings]
+            arglist = [[self.get_plain_type(sib, grouped, rel), self.get_rel(rel)] for sib, rel in siblings]
             # convert the arglist to coloured arglist
             if arglist:
                 argtypes, argdeps = list(zip(*arglist))
@@ -597,11 +626,13 @@ class Decompose:
             if Decompose.is_leaf(headchild):
                 # assign the type to the lexicon
                 if self.get_key(headchild) in lexicon.keys():
-                    if lexicon[self.get_key(headchild)] != headtype:
-                        raise KeyError('[2] Trying to assign {} to node {}, when already assigned {}. '
-                                       'Now iterating from parent {}.'.format(headtype, headchild.attrib['id'],
-                                                                              lexicon[self.get_key(headchild)],
-                                                                              current.attrib['id']))
+                    old_value = lexicon[self.get_key(headchild)]
+                    if old_value != headtype:
+                        headtype = CombinatorType((headtype, old_value), combinator='⊗')
+                        # raise KeyError('[2] Trying to assign {} to node {}, when already assigned {}. '
+                        #                'Now iterating from parent {}.'.format(headtype, headchild.attrib['id'],
+                        #                                                       lexicon[self.get_key(headchild)],
+                        #                                                       current.attrib['id']))
                 lexicon[self.get_key(headchild)] = headtype
             else:
                 # .. or iterate down
@@ -639,7 +670,7 @@ class Decompose:
         # mapping from linear order to dictionary keys
         enum = {i: self.get_key(l) for i, l in enumerate(all_leaves)}
 
-        ret = [(enum[i].split(self.separation_symbol)[0], decolor(sublex[enum[i]]))
+        ret = [(enum[i].split(self.separation_symbol)[0], sublex[enum[i]])
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
         if to_sequences:
             return list(zip(*ret))
@@ -691,6 +722,7 @@ def main(ignore=False, return_lists=False, viz=False):
                                                                                 'top', 'mod', 'predm',))],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
+                           lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
