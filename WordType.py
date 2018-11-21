@@ -42,7 +42,7 @@ class AtomicType(WordType):
         return self.__str__()
 
     def __hash__(self):
-        return self.__str__()
+        return self.__str__.__hash__()
 
     def get_arity(self):
         return 0
