@@ -12,6 +12,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
+def all_atomic(type_sequences):
+    atomic = set()
+    for ts in type_sequences:
+        atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
+    return sorted(list(atomic), key=lambda x: len(x))
+
+
 def load(file='test-output/sequences/words-types.p'):
     with open(file, 'rb') as f:
         wss, tss = pickle.load(f)

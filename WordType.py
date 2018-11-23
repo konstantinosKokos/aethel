@@ -32,6 +32,10 @@ class WordType(ABC):
     def decolor(self):
         pass
 
+    @abstractmethod
+    def retrieve_atomic(self):
+        pass
+
 
 class AtomicType(WordType):
     def __init__(self, result):
@@ -62,6 +66,9 @@ class AtomicType(WordType):
 
     def decolor(self):
         return self
+
+    def retrieve_atomic(self):
+        return {self.__repr__()}
 
 
 class ModalType(WordType):
@@ -99,6 +106,9 @@ class ModalType(WordType):
 
     def decolor(self):
         return ModalType(result=(self.result.decolor()))
+
+    def retrieve_atomic(self):
+        return self.result.retrieve_atomic()
 
 
 class ComplexType(WordType):
@@ -140,6 +150,12 @@ class ComplexType(WordType):
 
     def decolor(self):
         return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+
+    def retrieve_atomic(self):
+        if len(self.arguments) == 1:
+            return set.union(self.arguments[0].retrieve_atomic(), self.result.retrieve_atomic())
+        else:
+            return reduce(set.union, [a.retrieve_atomic() for a in self.arguments])
 
 
 class ColoredType(ComplexType):
@@ -225,3 +241,10 @@ def compose(base_types, base_colors, result):
 
 def decolor(colored_type):
     return colored_type.decolor()
+
+
+def retrieve_atomic(something):
+    if isinstance(something, tuple):
+        return reduce(set.union, [retrieve_atomic(s) for s in something])
+    else:
+        return something.retrieve_atomic()
