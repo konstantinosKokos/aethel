@@ -3,7 +3,7 @@ from utils import FastText
 from collections import defaultdict, Counter
 from functools import reduce
 from itertools import chain
-from WordType import decolor
+from WordType import decolor, ColoredType
 
 import torch
 from torch.utils.data import Dataset
@@ -16,7 +16,19 @@ def all_atomic(type_sequences):
     atomic = set()
     for ts in type_sequences:
         atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
-    return sorted(list(atomic), key=lambda x: len(x))
+    return {i+1: k for i, k in enumerate(sorted(list(atomic), key=lambda x: -len(x)))}
+
+
+def convert_type_to_vector(wt, int_to_atomic_type):
+    wt = wt.__repr__()
+    to_return = []
+    for subpart in wt.split():
+        for k in sorted(int_to_atomic_type.keys()):
+            if subpart == int_to_atomic_type[k]:
+                to_return.append(k)
+                break
+    to_return.append(0)
+    return to_return
 
 
 def load(file='test-output/sequences/words-types.p'):
@@ -136,6 +148,105 @@ class Sequencer(Dataset):
         if return_char_sequences:
             word_sequences, type_sequences = get_low_len_words(word_sequences, type_sequences, max_word_len)
             print(' .. of which {} are ≤ the minimum word length ({}).'.format(len(word_sequences), max_word_len))
+
+        self.word_sequences = word_sequences
+        self.type_sequences = type_sequences
+        self.max_sentence_length = max_sentence_length
+        self.types = {t: i+1 for i, t in enumerate(get_all_unique(type_sequences))}
+        self.words = {w: torch.zeros(len(self.types)) for i, w in enumerate(get_all_unique(word_sequences))}
+        self.types[None] = 0
+        self.vectors = vectors
+        assert len(word_sequences) == len(type_sequences)
+        self.len = len(word_sequences)
+
+        self.return_word_distributions = return_word_distributions
+        if self.return_word_distributions:
+            self.build_word_lexicon()
+            self.word_lexicon_to_pdf()
+
+        self.return_char_sequences = return_char_sequences
+        if self.return_char_sequences:
+            self.chars = {c: i+1 for i, c in enumerate(get_all_chars(self.word_sequences))}
+            self.chars[None] = 0
+            self.max_word_len = max_word_len
+
+        print('Constructed dataset of {} word sequences with a total of {} unique types'.
+              format(self.len, len(self.types) - 1))
+        print('Average sentence length is {}'.format(np.mean(list(map(len, word_sequences)))))
+
+    def __len__(self):
+        return self.len
+
+    def get_item_without_chars(self, index):
+        try:
+            return (map_ws_to_vs(self.word_sequences[index], self.vectors),
+                    torch.Tensor(list(map(lambda x: self.types[x], self.type_sequences[index]))))
+        except KeyError:
+            return None
+
+    def __getitem__(self, index):
+        temp = self.get_item_without_chars(index)
+        if not temp:
+            return None
+        vectors, types = temp
+        if self.return_char_sequences:
+            char_sequences = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
+                                                  self.word_sequences[index])))
+        if self.return_word_distributions:
+            word_distributions = torch.stack(list(map(lambda word: self.tensorize_dict(word),
+                                                      self.word_sequences[index])))
+
+        if self.return_char_sequences:
+            if self.return_word_distributions:
+                return vectors, char_sequences, word_distributions, types
+            else:
+                return vectors, char_sequences, types
+        elif self.return_word_distributions:
+            return vectors, word_distributions, types
+        else:
+            return vectors, types
+
+    def build_word_lexicon(self):
+        self.words = {w: dict() for w in get_all_unique(self.word_sequences)}
+        for ws, ts in zip(self.word_sequences, self.type_sequences):
+            for w, t in zip(ws, ts):
+                if self.types[t] in self.words[w].keys():
+                    self.words[w][self.types[t]] = self.words[w][self.types[t]] + 1
+                else:
+                    self.words[w][self.types[t]] = 1
+
+    def word_lexicon_to_pdf(self):
+        self.words = {w: {k: v/sum(self.words[w].values())} for w in self.words for k, v in self.words[w].items()}
+
+    def tensorize_dict(self, word):
+        a = torch.zeros(len(self.types))
+        for k, v in self.words[word].items():
+            a[k] = v
+        return a
+
+
+class ConstructiveSequencer(Dataset):
+    def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None,
+                 return_char_sequences=False, max_word_len=20):
+        """
+        ...
+        """
+        print('Received {} samples..'.format(len(word_sequences)))
+        if any(list(map(lambda x: isinstance(x, ColoredType), type_sequences))):
+            type_sequences = decolor_sequences(type_sequences)
+        if max_sentence_length:
+            word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
+            print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
+                                                                                     max_sentence_length))
+        if return_char_sequences:
+            word_sequences, type_sequences = get_low_len_words(word_sequences, type_sequences, max_word_len)
+            print(' .. of which {} are ≤ the minimum word length ({}).'.format(len(word_sequences), max_word_len))
+
+        self.atomic_dict = all_atomic(type_sequences)
+        self.type_vectors = list(map(lambda x: tuple(map(lambda y: convert_type_to_vector(y, self.atomic_dict), x)),
+                                     type_sequences))
+
+        # todo
 
         self.word_sequences = word_sequences
         self.type_sequences = type_sequences
