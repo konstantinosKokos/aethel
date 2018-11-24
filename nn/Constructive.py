@@ -7,19 +7,27 @@ from utils import SeqUtils
 import numpy as np
 
 
-def accuracy(predictions, ground_truth, ignore_index=0):
-    predictions = torch.argmax(predictions, dim=-1)
+def accuracy(predictions, ground_truth):
+    seq_len = ground_truth.shape[0]
+    batch_shape = ground_truth.shape[1]
+    num_atomic = predictions.shape[-1]
 
-    correct_sentences = torch.ones(predictions.size())
-    correct_sentences[predictions != ground_truth] = 0
-    correct_sentences[ground_truth == ignore_index] = 1
-    correct_sentences = torch.prod(correct_sentences, dim=0)
+    predictions = predictions.view(seq_len, batch_shape, -1, num_atomic)  # seq_len, batch_shape, timesteps, num_atomic
+    predictions = torch.argmax(predictions, dim=-1)  # seq_len, batch_shape, timesteps
 
-    mask = ground_truth.ne(ignore_index)
-    non_masked_predictions = torch.Tensor.masked_select(predictions, mask)
-    non_masked_truths = torch.Tensor.masked_select(ground_truth, mask)
-    return (len(non_masked_predictions[non_masked_predictions == non_masked_truths]), len(non_masked_truths)), \
-           (len(correct_sentences[correct_sentences == 1]), predictions.size()[1])
+    correct_steps = torch.ones(predictions.size()).to('cuda')  # every timestep is correct
+    correct_steps[predictions != ground_truth] = 0  # except the ones are that aren't
+    correct_steps[ground_truth == 0] = 1  # .. except the ones we don't care about
+    # for a word to be correct, it must be correct on all timesteps
+    correct_words = correct_steps.prod(dim=-1)  # seq_len, batch_shape
+    # for a sentence to be correct, it must be correct on all words
+    correct_sentences = correct_words.prod(dim=0)  # batch_shape
+
+    # mask all words whose timesteps sum to zero
+    word_mask = ground_truth.sum(dim=-1).ne(0)  # seq_len, batch_shape
+    non_masked_correct_words = torch.Tensor.masked_select(correct_words, word_mask)
+    return (torch.sum(non_masked_correct_words).item(), torch.sum(word_mask).item()), \
+           (torch.sum(correct_sentences).item(), batch_shape)
 
 
 class DecodingSupertagger(nn.Module):
@@ -36,7 +44,7 @@ class DecodingSupertagger(nn.Module):
         h_t = torch.zeros(1, batch_shape, self.body.hidden_size).to(self.device)
         c_t = torch.zeros(1, batch_shape, self.body.hidden_size).to(self.device)
         o_t = encoder_output
-        predicted = torch.zeros(50, batch_shape, self.predictor.out_features).to(self.device)
+        predicted = torch.zeros(self.max_steps, batch_shape, self.predictor.out_features).to(self.device)
         for t in range(self.max_steps):
             o_t, (h_t, c_t) = self.body.forward(o_t, (h_t, c_t))
             p_t = self.predictor(o_t)
@@ -45,7 +53,7 @@ class DecodingSupertagger(nn.Module):
 
 
 class EncoderDecoderWithWordDistributions(nn.Module):
-    def __init__(self, num_atomic, num_chars, char_embedding_dim, char_rnn_dim, device):
+    def __init__(self, num_atomic, num_chars, char_embedding_dim, char_rnn_dim, max_steps, device):
         super(EncoderDecoderWithWordDistributions, self).__init__()
         self.device = device
         self.num_atomic = num_atomic
@@ -62,7 +70,7 @@ class EncoderDecoderWithWordDistributions(nn.Module):
         self.word_encoder = nn.LSTM(input_size=300+self.char_rnn_dim, hidden_size=300+self.char_rnn_dim,
                                     bidirectional=True, num_layers=2, dropout=0.5).to(device)
         self.type_decoder = DecodingSupertagger(num_atomic=num_atomic, hidden_size=300 + self.char_rnn_dim,
-                                                device=self.device, max_steps=25).to(device)
+                                                device=self.device, max_steps=max_steps).to(device)
 
     def forward(self, word_vectors, char_indices):
         seq_len = word_vectors.shape[0]
@@ -85,9 +93,7 @@ class EncoderDecoderWithWordDistributions(nn.Module):
         encoder_o = encoder_o.view(seq_len, batch_shape, 2, self.word_encoder.hidden_size)
         encoder_o = encoder_o[:, :, 0, :] + encoder_o[:, :, 1, :]
         encoder_o = encoder_o.view(1, seq_len*batch_shape, self.word_encoder.hidden_size)
-        print('E o: ', encoder_o.shape)
         prediction = self.type_decoder(encoder_o)
-        print(prediction.shape)
         return prediction
 
     def train_epoch(self, dataset, batch_size, criterion, optimizer, train_indices=None):
@@ -148,8 +154,8 @@ class EncoderDecoderWithWordDistributions(nn.Module):
     def train_batch(self, batch_x, batch_c, batch_y, criterion, optimizer):
         self.train()
         optimizer.zero_grad()
-        prediction = self.forward(batch_x, batch_c)
-        loss = criterion(prediction.view(-1, self.type_decoder.max_steps), batch_y.view(-1))
+        prediction = self.forward(batch_x, batch_c).view(-1, self.num_atomic)
+        loss = criterion(prediction, batch_y.view(-1))
         (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy(prediction, batch_y)
         loss.backward()
         optimizer.step()
@@ -157,8 +163,8 @@ class EncoderDecoderWithWordDistributions(nn.Module):
 
     def eval_batch(self, batch_x, batch_c, batch_y, criterion):
         self.eval()
-        prediction = self.forward(batch_x, batch_c)
-        loss = criterion(prediction.view(-1, self.type_decoder.max_steps), batch_y.view(-1))
+        prediction = self.forward(batch_x, batch_c).view(-1, self.num_atomic)
+        loss = criterion(prediction, batch_y.view(-1))
         (batch_correct, batch_total), (sentence_correct, sentence_total) = \
             accuracy(prediction, batch_y)
         return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
@@ -185,7 +191,8 @@ def __main__(fake=False):
     device = ('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using {}'.format(device))
     ecdc = EncoderDecoderWithWordDistributions(num_atomic=len(s.atomic_dict), num_chars=len(s.chars),
-                                               char_embedding_dim=32, char_rnn_dim=64, device=device)
+                                               char_embedding_dim=32, char_rnn_dim=64, device=device,
+                                               max_steps=s.max_type_len)
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
     optimizer = torch.optim.Adam(ecdc.parameters(), weight_decay=1e-03)
 
