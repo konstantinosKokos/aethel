@@ -94,12 +94,14 @@ def all_atomic(type_sequences):
     atomic = set()
     for ts in type_sequences:
         atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
-    return {i: k for i, k in enumerate([''] + sorted(list(atomic), key=lambda x: -len(x)))}
+    return {**{i+1: k for i, k in enumerate(sorted([',', '(', ')', '→'] + list(atomic), key=lambda x: -len(x)))},
+            **{0: ''}}
 
 
 def convert_type_to_vector(wt, int_to_atomic_type):
     wt = wt.__repr__()
     to_return = []
+    wt = wt.replace(',', ' ,').replace('(', '( ').replace(')', ' )')
     for subpart in wt.split():
         for k in sorted(int_to_atomic_type.keys()):
             if subpart == int_to_atomic_type[k]:
@@ -109,8 +111,12 @@ def convert_type_to_vector(wt, int_to_atomic_type):
     return to_return
 
 
-def convert_tensor_to_type(tv, atomic_type_to_int):
-    return ' '.join([atomic_type_to_int[t] for t in tv])
+def convert_vector_to_type(ts, atomic_type_to_int):
+    to_return = []
+    for tv in ts:
+        to_return.append(' '.join([atomic_type_to_int[t] for t in tv])[:-1].
+                         replace(' ,', ',').replace('( ', '(').replace(' )', ')'))
+    return tuple(to_return)
 
 
 def map_tv_to_is(type_vector, max_len):
@@ -242,8 +248,7 @@ class ConstructiveSequencer(Dataset):
         ...
         """
         print('Received {} samples..'.format(len(word_sequences)))
-        if any(list(map(lambda x: isinstance(x, ColoredType), type_sequences))):
-            type_sequences = decolor_sequences(type_sequences)
+        type_sequences = decolor_sequences(type_sequences)
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
             print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
@@ -255,7 +260,7 @@ class ConstructiveSequencer(Dataset):
         num_types = len(get_all_unique(type_sequences))
         self.type_vectors = list(map(lambda x: tuple(map(lambda y: convert_type_to_vector(y, self.atomic_dict), x)),
                                      type_sequences))
-        self.max_type_len = max(list(map(lambda x: max(list(map(len, x))), self.type_vectors)))
+        self.max_type_len = max(list(map(lambda x: max(list(map(len, x))), self.type_vectors))) + 1
         self.word_sequences = word_sequences
         self.max_sentence_length = max_sentence_length
         self.vectors = vectors
@@ -269,6 +274,22 @@ class ConstructiveSequencer(Dataset):
               format(self.len, num_types, len(self.atomic_dict)))
         print('Average sentence length is {}'.format(np.mean(list(map(len, word_sequences)))))
         print('Maximum type length is {}'.format(self.max_type_len))
+        self.assert_sanity(type_sequences)
+
+    def assert_sanity(self, type_sequences):
+        for i, sample in enumerate(self.type_vectors):
+            recovered = convert_vector_to_type(sample, self.atomic_dict)
+            original = tuple(map(str, type_sequences[i]))
+            try:
+                assert recovered == original
+            except AssertionError:
+                print(i)
+                print(sample)
+                print(recovered)
+                print(original)
+                break
+
+
 
     def __len__(self):
         return self.len
