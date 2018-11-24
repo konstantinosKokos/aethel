@@ -12,25 +12,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 
-def all_atomic(type_sequences):
-    atomic = set()
-    for ts in type_sequences:
-        atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
-    return {i+1: k for i, k in enumerate(sorted(list(atomic), key=lambda x: -len(x)))}
-
-
-def convert_type_to_vector(wt, int_to_atomic_type):
-    wt = wt.__repr__()
-    to_return = []
-    for subpart in wt.split():
-        for k in sorted(int_to_atomic_type.keys()):
-            if subpart == int_to_atomic_type[k]:
-                to_return.append(k)
-                break
-    to_return.append(0)
-    return to_return
-
-
 def load(file='test-output/sequences/words-types.p'):
     with open(file, 'rb') as f:
         wss, tss = pickle.load(f)
@@ -105,6 +86,36 @@ def map_ws_to_vs(word_sequence, vectors):
 def map_cs_to_is(char_sequence, char_dict, max_len):
     a = torch.zeros(max_len)
     b = torch.Tensor(list(map(lambda x: char_dict[x], char_sequence)))
+    a[:len(b)] = b
+    return a
+
+
+def all_atomic(type_sequences):
+    atomic = set()
+    for ts in type_sequences:
+        atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
+    return {i: k for i, k in enumerate([''] + sorted(list(atomic), key=lambda x: -len(x)))}
+
+
+def convert_type_to_vector(wt, int_to_atomic_type):
+    wt = wt.__repr__()
+    to_return = []
+    for subpart in wt.split():
+        for k in sorted(int_to_atomic_type.keys()):
+            if subpart == int_to_atomic_type[k]:
+                to_return.append(k)
+                break
+    to_return.append(0)
+    return to_return
+
+
+def convert_tensor_to_type(tv, atomic_type_to_int):
+    return ' '.join([atomic_type_to_int[t] for t in tv])
+
+
+def map_tv_to_is(type_vector, max_len):
+    a = torch.zeros(max_len)
+    b = torch.Tensor(type_vector)
     a[:len(b)] = b
     return a
 
@@ -226,8 +237,7 @@ class Sequencer(Dataset):
 
 
 class ConstructiveSequencer(Dataset):
-    def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None,
-                 return_char_sequences=False, max_word_len=20):
+    def __init__(self, word_sequences, type_sequences, vectors, max_sentence_length=None, max_word_len=20):
         """
         ...
         """
@@ -238,90 +248,38 @@ class ConstructiveSequencer(Dataset):
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
             print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
                                                                                      max_sentence_length))
-        if return_char_sequences:
-            word_sequences, type_sequences = get_low_len_words(word_sequences, type_sequences, max_word_len)
-            print(' .. of which {} are ≤ the minimum word length ({}).'.format(len(word_sequences), max_word_len))
-
+        word_sequences, type_sequences = get_low_len_words(word_sequences, type_sequences, max_word_len)
+        print(' .. of which {} are ≤ the minimum word length ({}).'.format(len(word_sequences), max_word_len))
         self.atomic_dict = all_atomic(type_sequences)
+        self.inverse_atomic_dict = {v: k for k, v in self.atomic_dict.items()}
+        num_types = len(get_all_unique(type_sequences))
         self.type_vectors = list(map(lambda x: tuple(map(lambda y: convert_type_to_vector(y, self.atomic_dict), x)),
                                      type_sequences))
-
-        # todo
-
+        self.max_type_len = max(list(map(lambda x: max(list(map(len, x))), self.type_vectors)))
         self.word_sequences = word_sequences
-        self.type_sequences = type_sequences
         self.max_sentence_length = max_sentence_length
-        self.types = {t: i+1 for i, t in enumerate(get_all_unique(type_sequences))}
-        self.words = {w: torch.zeros(len(self.types)) for i, w in enumerate(get_all_unique(word_sequences))}
-        self.types[None] = 0
         self.vectors = vectors
-        assert len(word_sequences) == len(type_sequences)
+        assert len(self.word_sequences) == len(self.type_vectors)
         self.len = len(word_sequences)
+        self.chars = {c: i+1 for i, c in enumerate(get_all_chars(self.word_sequences))}
+        self.chars[None] = 0
+        self.max_word_len = max_word_len
 
-        self.return_word_distributions = return_word_distributions
-        if self.return_word_distributions:
-            self.build_word_lexicon()
-            self.word_lexicon_to_pdf()
-
-        self.return_char_sequences = return_char_sequences
-        if self.return_char_sequences:
-            self.chars = {c: i+1 for i, c in enumerate(get_all_chars(self.word_sequences))}
-            self.chars[None] = 0
-            self.max_word_len = max_word_len
-
-        print('Constructed dataset of {} word sequences with a total of {} unique types'.
-              format(self.len, len(self.types) - 1))
+        print('Constructed dataset of {} word sequences with a total of {} unique types built from {} atomic symbols'.
+              format(self.len, num_types, len(self.atomic_dict)))
         print('Average sentence length is {}'.format(np.mean(list(map(len, word_sequences)))))
+        print('Maximum type length is {}'.format(self.max_type_len))
 
     def __len__(self):
         return self.len
 
-    def get_item_without_chars(self, index):
-        try:
-            return (map_ws_to_vs(self.word_sequences[index], self.vectors),
-                    torch.Tensor(list(map(lambda x: self.types[x], self.type_sequences[index]))))
-        except KeyError:
-            return None
-
     def __getitem__(self, index):
-        temp = self.get_item_without_chars(index)
-        if not temp:
-            return None
-        vectors, types = temp
-        if self.return_char_sequences:
-            char_sequences = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
-                                                  self.word_sequences[index])))
-        if self.return_word_distributions:
-            word_distributions = torch.stack(list(map(lambda word: self.tensorize_dict(word),
-                                                      self.word_sequences[index])))
-
-        if self.return_char_sequences:
-            if self.return_word_distributions:
-                return vectors, char_sequences, word_distributions, types
-            else:
-                return vectors, char_sequences, types
-        elif self.return_word_distributions:
-            return vectors, word_distributions, types
-        else:
-            return vectors, types
-
-    def build_word_lexicon(self):
-        self.words = {w: dict() for w in get_all_unique(self.word_sequences)}
-        for ws, ts in zip(self.word_sequences, self.type_sequences):
-            for w, t in zip(ws, ts):
-                if self.types[t] in self.words[w].keys():
-                    self.words[w][self.types[t]] = self.words[w][self.types[t]] + 1
-                else:
-                    self.words[w][self.types[t]] = 1
-
-    def word_lexicon_to_pdf(self):
-        self.words = {w: {k: v/sum(self.words[w].values())} for w in self.words for k, v in self.words[w].items()}
-
-    def tensorize_dict(self, word):
-        a = torch.zeros(len(self.types))
-        for k, v in self.words[word].items():
-            a[k] = v
-        return a
+        char_vectors = torch.stack(list(map(lambda x: map_cs_to_is(x, self.chars, self.max_word_len),
+                                            self.word_sequences[index])))
+        word_vectors = map_ws_to_vs(self.word_sequences[index], self.vectors)
+        type_vectors = torch.stack(list(map(lambda x: map_tv_to_is(x, self.max_type_len),
+                                            self.type_vectors[index])))
+        return word_vectors, char_vectors, type_vectors
 
 
 def fake_vectors():
@@ -345,7 +303,7 @@ def check_uniqueness(word_sequences, type_sequences):
 
 def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki.nl/wiki.nl.vec',
              oov_file='wiki.nl/oov.vec', return_char_sequences=False, return_word_distributions=False, fake=False,
-             max_sentence_length=10, minimum_type_occurrence=10, decolor=False):
+             max_sentence_length=10, minimum_type_occurrence=10, constructive=False):
     ws, ts = load(sequence_file)
     # check_uniqueness(ws, ts)
     if fake:
@@ -353,11 +311,11 @@ def __main__(sequence_file='test-output/sequences/words-types.p', inv_file='wiki
     else:
         vectors = FastText.load_vectors([inv_file, oov_file])
 
-    sequencer = Sequencer(ws, ts, vectors, max_sentence_length=max_sentence_length,
-                          minimum_type_occurrence=minimum_type_occurrence, return_char_sequences=return_char_sequences,
-                          return_word_distributions=return_word_distributions, decolor=decolor)
-    # dl = DataLoader(sequencer, batch_size=32,
-    #                 collate_fn=lambda batch: sorted(filter(lambda x: x is not None, batch),
-    #                                                 key=lambda y: y[0].shape[0]))
-
+    if constructive:
+        sequencer = ConstructiveSequencer(ws, ts, vectors, max_sentence_length=max_sentence_length)
+    else:
+        sequencer = Sequencer(ws, ts, vectors, max_sentence_length=max_sentence_length,
+                              minimum_type_occurrence=minimum_type_occurrence,
+                              return_char_sequences=return_char_sequences,
+                              return_word_distributions=return_word_distributions)
     return sequencer
