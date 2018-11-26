@@ -10,7 +10,7 @@ import numpy as np
 def accuracy(predictions, ground_truth):
     seq_len = ground_truth.shape[0]
     batch_shape = ground_truth.shape[1]
-    num_atomic = predictions.shape[-1]
+    num_atomic = predictions.shape[1]
 
     predictions = predictions.view(seq_len, batch_shape, -1, num_atomic)  # seq_len, batch_shape, timesteps, num_atomic
     predictions = torch.argmax(predictions, dim=-1)  # seq_len, batch_shape, timesteps
@@ -30,30 +30,72 @@ def accuracy(predictions, ground_truth):
            (torch.sum(correct_sentences).item(), batch_shape)
 
 
+def accuracy_old(predictions, ground_truth, ignore_index=0):
+    predictions = torch.argmax(predictions, dim=-1)
+
+    correct_sentences = torch.ones(predictions.size())
+    correct_sentences[predictions != ground_truth] = 0
+    correct_sentences[ground_truth == ignore_index] = 1
+    correct_sentences = torch.prod(correct_sentences, dim=0)
+
+    mask = ground_truth.ne(ignore_index)
+    non_masked_predictions = torch.Tensor.masked_select(predictions, mask)
+    non_masked_truths = torch.Tensor.masked_select(ground_truth, mask)
+    return (len(non_masked_predictions[non_masked_predictions == non_masked_truths]), len(non_masked_truths)), \
+           (len(correct_sentences[correct_sentences == 1]), predictions.size()[1])
+
+
 class DecodingSupertagger(nn.Module):
-    def __init__(self, num_atomic, hidden_size, device, max_steps=50):
+    def __init__(self, encoder_output_size, num_atomic, hidden_size, device, sos, max_steps=50, embedding_size=50):
         super(DecodingSupertagger, self).__init__()
+        self.sos = sos
         self.device = device
         self.max_steps = max_steps
-        self.body = nn.LSTM(input_size=hidden_size, hidden_size=hidden_size,).to(device)
-        self.predictor = nn.Linear(in_features=self.body.hidden_size, out_features=num_atomic).to(device)
+        self.num_atomic = num_atomic
+        self.hidden_size = hidden_size
+        self.encoder_output_size = encoder_output_size
+        self.embedding_size = embedding_size
+        self.body = nn.GRUCell(input_size=embedding_size, hidden_size=hidden_size,).to(device)
+        self.predictor = nn.Sequential(
+            nn.Linear(in_features=hidden_size, out_features=num_atomic),
+            nn.LogSoftmax(dim=-1)).to(device)
+        self.embedding = nn.Sequential(
+            nn.Linear(in_features=num_atomic, out_features=embedding_size),
+            nn.ReLU()).to(device)
+        self.encoder_to_h0 = nn.Sequential(
+            nn.Linear(in_features=encoder_output_size, out_features=hidden_size),
+            nn.Tanh()
+        ).to(device)
+        self.encoder_to_input = nn.Sequential(
+            nn.Linear(in_features=encoder_output_size, out_features=embedding_size),
+            nn.ReLU()
+        ).to(device)
+        self.y_to_h = nn.Sequential(
+            nn.Linear(in_features=num_atomic, out_features=hidden_size),
+            nn.ReLU()
+        )
 
-    def forward(self, encoder_output):
-        batch_shape = encoder_output.shape[1]
+    def forward(self, encoder_output, oracle=None):
+        batch_shape = encoder_output.shape[0]  # batch_shape, encoder_hidden_size
+        h_t = self.encoder_to_h0(encoder_output)
 
-        h_t = torch.zeros(1, batch_shape, self.body.hidden_size).to(self.device)
-        c_t = torch.zeros(1, batch_shape, self.body.hidden_size).to(self.device)
-        o_t = encoder_output
-        predicted = torch.zeros(self.max_steps, batch_shape, self.predictor.out_features).to(self.device)
+        e_t = torch.zeros(batch_shape, 50).to(self.device)
+        predicted = [torch.zeros(batch_shape, self.num_atomic).to(self.device)]
+
         for t in range(self.max_steps):
-            o_t, (h_t, c_t) = self.body.forward(o_t, (h_t, c_t))
-            p_t = self.predictor(o_t)
-            predicted[t, :, :] = p_t
-        return predicted
+            h_t = self.body.forward(e_t, h_t)  # at t=0, predicted : (b, a)
+            if self.training:
+                h_t = F.dropout(h_t, 0.35)
+            y_t = self.predictor(h_t)  # y_t ~ probability distribution over atomic types
+            predicted.append(y_t)
+            h_t = h_t + self.y_to_h(y_t)
+            e_t = self.encoder_to_input(encoder_output) + self.embedding(y_t)
+
+        return torch.stack(predicted[1::])
 
 
 class EncoderDecoderWithWordDistributions(nn.Module):
-    def __init__(self, num_atomic, num_chars, char_embedding_dim, char_rnn_dim, max_steps, device):
+    def __init__(self, num_atomic, num_chars, char_embedding_dim, char_rnn_dim, max_steps, device, sos, num_types=None):
         super(EncoderDecoderWithWordDistributions, self).__init__()
         self.device = device
         self.num_atomic = num_atomic
@@ -67,12 +109,18 @@ class EncoderDecoderWithWordDistributions(nn.Module):
         ).to(device)
         self.char_encoder = nn.LSTM(input_size=self.char_embedding_dim, hidden_size=self.char_rnn_dim,
                                     bidirectional=True).to(device)
+
         self.word_encoder = nn.LSTM(input_size=300+self.char_rnn_dim, hidden_size=300+self.char_rnn_dim,
                                     bidirectional=True, num_layers=2, dropout=0.5).to(device)
-        self.type_decoder = DecodingSupertagger(num_atomic=num_atomic, hidden_size=300 + self.char_rnn_dim,
-                                                device=self.device, max_steps=max_steps).to(device)
+        self.num_types = num_types
+        self.utility_predictor = nn.Linear(in_features=300+self.char_rnn_dim, out_features=num_types).to(device)
 
-    def forward(self, word_vectors, char_indices):
+        self.type_decoder = DecodingSupertagger(encoder_output_size=300+self.char_rnn_dim, num_atomic=num_atomic,
+                                                hidden_size=512, device=self.device, max_steps=max_steps,
+                                                sos=sos).to(device)
+        self.mode = None
+
+    def forward_core(self, word_vectors, char_indices):
         seq_len = word_vectors.shape[0]
         batch_shape = word_vectors.shape[1]
 
@@ -87,14 +135,32 @@ class EncoderDecoderWithWordDistributions(nn.Module):
         # reshape from (1, seq_len * batch_shape, e_c) ↦ (seq_len, batch_shape, e_c)
         char_embeddings = char_embeddings.view(seq_len, batch_shape, self.char_rnn_dim)
         # concatenate with word vectors and get (seq_len, batch_shape, e_w + e_c)
-        word_vectors = torch.cat([word_vectors, char_embeddings], dim=-1)
+        word_vectors = torch.cat([word_vectors, char_embeddings], dim=-1)  # seq_len, batch_shape, 300 + char_rnn_dim
 
-        encoder_o, _ = self.word_encoder(word_vectors)
-        encoder_o = encoder_o.view(seq_len, batch_shape, 2, self.word_encoder.hidden_size)
-        encoder_o = encoder_o[:, :, 0, :] + encoder_o[:, :, 1, :]
-        encoder_o = encoder_o.view(1, seq_len*batch_shape, self.word_encoder.hidden_size)
-        prediction = self.type_decoder(encoder_o)
-        return prediction
+        encoder_o, _ = self.word_encoder(word_vectors)  # seq_len, batch_shape, 2 * hidden_size
+        encoder_o = encoder_o.view(seq_len, batch_shape, 2, self.word_encoder.hidden_size)  # s, b, 2, h
+        encoder_o = encoder_o[:, :, 0, :] + encoder_o[:, :, 1, :]  # s, b, h
+        encoder_o = encoder_o + word_vectors  # s, b, h
+        return encoder_o, seq_len, batch_shape
+
+    def forward_constructive(self, encoder_o, seq_len, batch_shape, oracle):
+        # encoder_o = encoder_o.view(seq_len * batch_shape, self.word_encoder.hidden_size)
+        construction = self.type_decoder(encoder_o.view(seq_len * batch_shape, -1), oracle).view(
+            seq_len, self.num_atomic, batch_shape, -1)
+        return construction
+
+    def forward_predictive(self, encoder_o, seq_len, batch_shape):
+        encoder_o = encoder_o.view(seq_len * batch_shape, self.word_encoder.hidden_size)
+        return self.utility_predictor(encoder_o).view(seq_len, batch_shape, -1)
+
+    def forward(self, word_vectors, char_indices, oracle=None):
+        encoder_output, s, b = self.forward_core(word_vectors, char_indices)
+        if self.mode == 'predictive':
+            return self.forward_predictive(encoder_output, s, b)
+        elif self.mode == 'constructive':
+            return self.forward_constructive(encoder_output, s, b, oracle)
+        else:
+            raise ValueError('Mode not set.')
 
     def train_epoch(self, dataset, batch_size, criterion, optimizer, train_indices=None):
         if train_indices is None:
@@ -113,9 +179,17 @@ class EncoderDecoderWithWordDistributions(nn.Module):
             batch_x = torch.nn.utils.rnn.pad_sequence([xcy[0] for xcy in batch_xcy if xcy]).to(self.device)
             batch_c = torch.nn.utils.rnn.pad_sequence([xcy[1] for xcy in batch_xcy if xcy]).long().to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xcy[2] for xcy in batch_xcy if xcy]).long().to(self.device)
+            batch_t = torch.nn.utils.rnn.pad_sequence([xcy[3] for xcy in batch_xcy if xcy]).long().to(self.device)
 
-            batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) = \
-                self.train_batch(batch_x, batch_c, batch_y, criterion, optimizer)
+            if self.mode == 'predictive':
+                batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) = \
+                    self.train_batch(batch_x, batch_c, batch_t, criterion, optimizer)
+            elif self.mode == 'constructive':
+                batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) = \
+                    self.train_batch(batch_x, batch_c, batch_y, criterion, optimizer)
+            else:
+                raise ValueError('Mode not set.')
+
             loss += batch_loss
             correct_predictions += batch_correct
             total_predictions += batch_total
@@ -139,10 +213,18 @@ class EncoderDecoderWithWordDistributions(nn.Module):
             batch_x = torch.nn.utils.rnn.pad_sequence([xcy[0] for xcy in batch_xcy if xcy]).to(self.device)
             batch_c = torch.nn.utils.rnn.pad_sequence([xcy[1] for xcy in batch_xcy if xcy]).long().to(self.device)
             batch_y = torch.nn.utils.rnn.pad_sequence([xcy[2] for xcy in batch_xcy if xcy]).long().to(self.device)
+            batch_t = torch.nn.utils.rnn.pad_sequence([xcy[3] for xcy in batch_xcy if xcy]).long().to(self.device)
 
-            batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) =\
-                self.eval_batch(batch_x, batch_c, batch_y, criterion)
-            loss += loss
+            if self.mode == 'predictive':
+                batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) =\
+                    self.eval_batch(batch_x, batch_c, batch_t, criterion)
+            elif self.mode == 'constructive':
+                batch_loss, (batch_correct, batch_total), (sentence_correct, sentence_total) = \
+                    self.eval_batch(batch_x, batch_c, batch_y, criterion)
+            else:
+                raise ValueError('Mode not set.')
+
+            loss += batch_loss
             correct_predictions += batch_correct
             total_predictions += batch_total
             correct_sentences += sentence_correct
@@ -154,20 +236,40 @@ class EncoderDecoderWithWordDistributions(nn.Module):
     def train_batch(self, batch_x, batch_c, batch_y, criterion, optimizer):
         self.train()
         optimizer.zero_grad()
-        prediction = self.forward(batch_x, batch_c).view(-1, self.num_atomic)
-        loss = criterion(prediction, batch_y.view(-1))
-        (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy(prediction, batch_y)
+        prediction = self.forward(batch_x, batch_c, batch_y)
+
+        if self.mode == 'predictive':
+            loss = criterion(prediction.view(prediction.shape[0] * prediction.shape[1], -1), batch_y.view(-1))
+            (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_old(prediction, batch_y)
+        elif self.mode == 'constructive':
+            loss = criterion(prediction, batch_y)  # sequence_length, batch_shape, timesteps
+            # loss = torch.sum(loss, dim=1)  # sum over the batch
+            # loss = loss.view(-1)
+            # for i in range(len(loss)-1):
+            #     loss[i].backward(retain_graph=True)
+            # loss[-1].backward()
+            (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy(prediction, batch_y)
+        else:
+            raise ValueError('Mode not set.')
+
         loss.backward()
         optimizer.step()
-        return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
+        return torch.sum(loss).item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
 
     def eval_batch(self, batch_x, batch_c, batch_y, criterion):
         self.eval()
-        prediction = self.forward(batch_x, batch_c).view(-1, self.num_atomic)
-        loss = criterion(prediction, batch_y.view(-1))
-        (batch_correct, batch_total), (sentence_correct, sentence_total) = \
-            accuracy(prediction, batch_y)
-        return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
+        prediction = self.forward(batch_x, batch_c)
+
+        if self.mode == 'predictive':
+            loss = criterion(prediction.view(prediction.shape[0] * prediction.shape[1], -1), batch_y.view(-1))
+            (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_old(prediction, batch_y)
+        elif self.mode == 'constructive':
+            loss = criterion(prediction.view(-1, self.num_atomic), batch_y.view(-1))
+            (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy(prediction, batch_y)
+        else:
+            raise ValueError('Mode not set.')
+
+        return torch.sum(loss).item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
 
     def predict(self, x, c):
         # todo
@@ -176,10 +278,15 @@ class EncoderDecoderWithWordDistributions(nn.Module):
 
 
 def __main__(fake=False):
-    s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types.p')
+    s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types.p',
+                          return_types=True)
+    print(s.atomic_dict)
+
+    if fake:
+        print('Warning! You are using fake data!')
 
     num_epochs = 100
-    batch_size = 64
+    batch_size = 32
     val_split = 0.25
 
     indices = [i for i in range(len(s))]
@@ -192,23 +299,34 @@ def __main__(fake=False):
     print('Using {}'.format(device))
     ecdc = EncoderDecoderWithWordDistributions(num_atomic=len(s.atomic_dict), num_chars=len(s.chars),
                                                char_embedding_dim=32, char_rnn_dim=64, device=device,
-                                               max_steps=s.max_type_len)
-    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction='sum')
-    optimizer = torch.optim.Adam(ecdc.parameters(), weight_decay=1e-03)
+                                               max_steps=s.max_type_len,
+                                               num_types=len(s.types),
+                                               sos=s.inverse_atomic_dict['<SOS>'])
+    ecdc.mode = 'predictive'
 
-    print('================== Epoch -1 ==================')
-    l, a, b = ecdc.eval_epoch(s, batch_size, criterion, val_indices)
-    print(' Validation Loss: {}'.format(l))
-    print(' Validation Accuracy: {}'.format(a))
-    print(' Validation Sentence Accuracy : {}'.format(b))
+    criterion = nn.NLLLoss(reduction='sum', ignore_index=0)
+    # if utility_output:
+    #     criterion = (criterion, nn.CrossEntropyLoss(reduction='sum', ignore_index=0))
+    optimizer = torch.optim.Adam(ecdc.parameters())
+
+    # print('================== Epoch -1 ==================')
+    # l, a, b = ecdc.eval_epoch(s, batch_size, criterion, val_indices)
+    # print(' Validation Loss: {}'.format(l))
+    # print(' Validation Accuracy: {}'.format(a))
+    # print(' Validation Sentence Accuracy : {}'.format(b))
     for i in range(num_epochs):
+        if i == 0:
+            ecdc.mode = 'constructive'
+            batch_size = 16
+            print('Switching to constructive.')
+
         print('================== Epoch {} =================='.format(i))
         l, a, b = ecdc.train_epoch(s, batch_size, criterion, optimizer, train_indices)
         print(' Training Loss: {}'.format(l))
         print(' Training Accuracy: {}'.format(a))
         print(' Training Sentence Accuracy : {}'.format(b))
         print('- - - - - - - - - - - - - - - - - - - - - - -')
-        l, a, b = ecdc.eval_epoch(s, batch_size, criterion, val_indices)
+        l, a, b = ecdc.eval_epoch(s, 128, criterion, val_indices)
         print(' Validation Loss: {}'.format(l))
         print(' Validation Accuracy: {}'.format(a))
         print(' Validation Sentence Accuracy : {}'.format(b))
