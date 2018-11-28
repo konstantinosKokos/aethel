@@ -230,6 +230,9 @@ class CombinatorType(WordType):
     def decolor(self):
         return CombinatorType(types=tuple(map(lambda x: x.decolor(), self.types)), combinator=self.combinator)
 
+    def retrieve_atomic(self):
+        return reduce(set.union, [a.retrieve_atomic() for a in self.types])
+
 
 def compose(base_types, base_colors, result):
     if len(base_types) != len(base_colors):
