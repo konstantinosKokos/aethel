@@ -165,7 +165,7 @@ class Decompose:
         # type_dict: POS → Type
         if not type_dict:
             # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
-            self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADVP', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
+            self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
                               'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DET',
                               'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
                               'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
@@ -510,7 +510,7 @@ class Decompose:
         return rel[0] if isinstance(rel, list) else rel
 
     @staticmethod
-    def collapse_single_non_terminals(grouped):
+    def collapse_single_non_terminals(grouped, depth=0):
         # list of nodes containing a single child
         intermediate_nodes = [k for k in grouped.keys() if len(grouped[k]) == 1]
         if not intermediate_nodes:
@@ -524,20 +524,24 @@ class Decompose:
             for kk in grouped.keys():
                 # find its dependencies pointing to the intermediate node
                 rels = [r for n, r in grouped[kk] if n == k]
-                # for each such dependency
                 if not rels:
                     continue
-                grouped[kk].remove([k, rels[0]])
+                if len(rels) > 1:
+                    ToGraphViz()(grouped)
+                    raise ValueError('Many rels @ non-terminal node {}.'.format(k.attrib['id']))
+                new_rel = rels[0]
+                grouped[kk].remove([k, new_rel])
+                new_rel = new_rel[0] if isinstance(new_rel, list) else new_rel
                 if isinstance(old_rel, list):
                     grouped[kk].append([points_to, [rels[0], old_rel[1]]])
                     points_to.attrib['rel'][kk] = [rels[0], old_rel[1]]
                 else:
-                    grouped[kk].append([points_to, old_rel])
-                    points_to.attrib['rel'][kk] = old_rel
+                    grouped[kk].append([points_to, new_rel])
+                    points_to.attrib['rel'][kk] = new_rel
             del points_to.attrib['rel'][k.attrib['id']]
         for k in intermediate_nodes:
             del(grouped[k])
-        return Decompose.collapse_single_non_terminals(grouped)
+        return Decompose.collapse_single_non_terminals(grouped, depth=depth+1)
 
     def recursive_assignment(self, current, grouped, top_type, lexicon):
         """
@@ -607,6 +611,7 @@ class Decompose:
                 # assert that there is one argument to project into
                 if len(argtypes) != 1:
                     print(argtypes)
+                    ToGraphViz()(grouped)
                     raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
                                               format(headchild.attrib['id'], current.attrib['id']))
 
@@ -622,19 +627,22 @@ class Decompose:
                     # construct the external type (which takes the internal type back to the top type)
                     headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
                 else:
+                    assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
                     for it in set(internal_edge):
                         internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, it),),
                                                     result=argtypes[0], colors=(it,))
-                        types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
-                        headtype = CombinatorType(tuple(types), combinator='⊗')
+                        types.append(internal_type)
+                        # types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
+                    headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
+                                           result=top_type,  colors=(argdeps[0],))
 
             if Decompose.is_leaf(headchild):
                 # assign the type to the lexicon
                 if self.get_key(headchild) in lexicon.keys():
                     old_value = lexicon[self.get_key(headchild)]
                     if old_value != headtype:
-                        headtype = CombinatorType((headtype, old_value), combinator='⊗')
+                        headtype = CombinatorType((headtype, old_value), combinator='&')
                 lexicon[self.get_key(headchild)] = headtype
             else:
                 # .. or iterate down
@@ -728,6 +736,13 @@ def main(ignore=False, return_lists=False, viz=False):
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
+
+    # X, Y = [], []
+    # for i in range(len(L)):
+    #     l = L[i][1]
+    #     X.extend([x[0] for x in l])
+    #     Y.extend([x[1] for x in l])
+
     return L0, L, ToGraphViz()
 
 
