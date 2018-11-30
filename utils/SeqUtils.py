@@ -86,18 +86,19 @@ def map_ws_to_vs(word_sequence, vectors):
 
 
 def map_cs_to_is(char_sequence, char_dict, max_len):
-    a = torch.zeros(max_len)
-    b = torch.Tensor(list(map(lambda x: char_dict[x], char_sequence)))
-    a[:len(b)] = b
-    return a
+    return torch.Tensor(list(map(lambda x: char_dict[x], char_sequence)))
+    # a = torch.zeros(max_len)
+    # b = torch.Tensor(list(map(lambda x: char_dict[x], char_sequence)))
+    # a[:len(b)] = b
+    # return a
 
 
 def all_atomic(type_sequences):
     atomic = set()
     for ts in type_sequences:
         atomic = atomic.union(reduce(set.union, [t.retrieve_atomic() for t in ts]))
-    atomic_dict = {i+1: k for i, k in enumerate(sorted([',', '(', ')', '→'] + list(atomic), key=lambda x: -len(x)))}
-    atomic_dict[len(atomic_dict) + 1] = '<SOS>'
+    atomic_dict = {i+1: k for i, k in enumerate(sorted([',', '(', ')', '→', '&'] + list(atomic), key=lambda x: -len(x)))}
+    # atomic_dict[len(atomic_dict) + 1] = '<SOS>'
     atomic_dict[len(atomic_dict) + 1] = '<EOS>'
     atomic_dict[0] = ''
     return atomic_dict
@@ -105,7 +106,8 @@ def all_atomic(type_sequences):
 
 def convert_type_to_vector(wt, int_to_atomic_type, atomic_type_to_int):
     wt = wt.__repr__()
-    to_return = [atomic_type_to_int['<SOS>']]
+    # to_return = [atomic_type_to_int['<SOS>']]
+    to_return = []
     wt = wt.replace(',', ' ,').replace('(', '( ').replace(')', ' )')
     for subpart in wt.split():
         for k in sorted(int_to_atomic_type.keys()):
@@ -116,19 +118,36 @@ def convert_type_to_vector(wt, int_to_atomic_type, atomic_type_to_int):
     return to_return
 
 
-def convert_vector_to_type(ts, atomic_type_to_int):
+def convert_vector_sequence_to_type_sequence(ts, int_to_atomic_type):
+    """
+    Takes a sequence of type_vectors and gives back a tuple of strings. Go figure..
+    :param ts:
+    :param int_to_atomic_type:
+    :return:
+    """
     to_return = []
     for tv in ts:
-        to_return.append(' '.join([atomic_type_to_int[t] for t in tv[1::] if atomic_type_to_int[t] != '<EOS>']).
-                         replace(' ,', ',').replace('( ', '(').replace(' )', ')'))
+        local = []
+        for t in tv:
+            if int_to_atomic_type[t] == '<EOS>':
+                break
+            if t == 0:
+                continue
+            local.append(int_to_atomic_type[t])
+        to_return.append(' '.join(local).replace(' ,', ',').replace('( ', '(').replace(' )', ')'))
     return tuple(to_return)
 
 
+def convert_many_vector_sequences_to_type_sequences(many_vector_sequences, int_to_atomic_type):
+    return list(map(lambda x: convert_vector_sequence_to_type_sequence(x, int_to_atomic_type), many_vector_sequences))
+
+
 def map_tv_to_is(type_vector, max_len):
-    a = torch.zeros(max_len)
-    b = torch.Tensor(type_vector)[1::]
-    a[:len(b)] = b
-    return a
+    return torch.Tensor(type_vector).long()
+    # a = torch.zeros(max_len).long()
+    # b = torch.Tensor(type_vector).long()
+    # a[:len(b)] = b
+    # return a
 
 
 def cdf(sequences):
@@ -254,13 +273,14 @@ class ConstructiveSequencer(Dataset):
         ...
         """
         print('Received {} samples..'.format(len(word_sequences)))
-        type_sequences = decolor_sequences(type_sequences)
         if max_sentence_length:
             word_sequences, type_sequences = get_low_len_sequences(word_sequences, type_sequences, max_sentence_length)
             print(' .. of which {} are ≤ the maximum sentence length ({}).'.format(len(word_sequences),
                                                                                      max_sentence_length))
         word_sequences, type_sequences = get_low_len_words(word_sequences, type_sequences, max_word_len)
         print(' .. of which {} are ≤ the minimum word length ({}).'.format(len(word_sequences), max_word_len))
+        self.colored_type_sequences = type_sequences
+        type_sequences = decolor_sequences(type_sequences)
         self.atomic_dict = all_atomic(type_sequences)
         self.inverse_atomic_dict = {v: k for k, v in self.atomic_dict.items()}
         num_types = len(get_all_unique(type_sequences))
@@ -291,7 +311,7 @@ class ConstructiveSequencer(Dataset):
 
     def assert_sanity(self, type_sequences):
         for i, sample in enumerate(self.type_vectors):
-            recovered = convert_vector_to_type(sample, self.atomic_dict)
+            recovered = convert_vector_sequence_to_type_sequence(sample, self.atomic_dict)
             original = tuple(map(str, type_sequences[i]))
             try:
                 assert recovered == original
