@@ -25,8 +25,9 @@ def load_vectors(fname):
 def find_oov(words, vectors):
     oov = []
     for word in words:
-        if word not in vectors.keys():
-            oov.append(word)
+        for subword in word.split(' '):  # dirty hack for collapsed mwu
+            if subword not in vectors.keys():
+                oov.append(subword)
     return oov
 
 
