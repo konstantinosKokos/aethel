@@ -72,7 +72,7 @@ class Decoder(nn.Module):
             embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
             h_0 = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
             h_t, _ = self.body.forward(embeddings, h_0)
-            repeated_encoder_output = encoder_output.repeat(self.max_steps, 1, 1, 1)
+            repeated_encoder_output = encoder_output.expand(self.max_steps, msl, bs, self.encoder_output_size)
             h_t = h_t.reshape(self.max_steps, msl, bs, self.hidden_size)
             h_t = torch.cat([h_t, repeated_encoder_output], dim=-1).reshape(self.max_steps, msl*bs,
                                                                             self.hidden_size + self.encoder_output_size)
