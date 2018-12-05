@@ -66,6 +66,8 @@ class Decoder(nn.Module):
     def forward(self, encoder_output, batch_y=None):
         # training -- fast mode
         if batch_y is not None:
+            import pdb
+            pdb.set_trace()
             embeddings = self.embedder(batch_y)
             msl, bs, mtl, = embeddings.shape[0:3]
             embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
@@ -91,6 +93,14 @@ class Decoder(nn.Module):
             p_t = y_t.argmax(dim=-1)
             e_t = self.embedder(p_t).unsqueeze(0)
         return torch.stack(Y).reshape(self.max_steps, msl, bs, self.num_atomic)[:-1]
+
+
+class Attention(nn.Module):
+    def __init__(self):
+        pass
+
+    def forward(self, *input):
+        pass
 
 
 class Model(nn.Module):
@@ -195,6 +205,7 @@ class Model(nn.Module):
         loss = loss.sum(dim=0)  # sl, bs
         loss = loss[loss != 0.].mean()
         (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_new(prediction, batch_y)
+
         return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
 
 
@@ -248,8 +259,7 @@ def __main__(fake=False, mini=False):
         scheduler.step(l)
 
 
-
-def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv'):
+def eval_and_store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv'):
 
     texts = []
     t_types = []
@@ -257,6 +267,7 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
 
     batch_start = 0
     while batch_start < len(indices):
+
         batch_end = min([batch_start + batch_size, len(indices)])
 
         batch_indices = [indices[i] for i in range(batch_start, batch_end)]
@@ -264,7 +275,7 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         batch_all = [dataset[i] for i in batch_indices]
         batch_x = pad_sequence([x[0] for x in batch_all]).to(device)
 
-        batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all]).to(device)[:, :, 1:].permute(1, 0, 2)
+        batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all])[:, :, 1:].permute(1, 0, 2)
         batch_y = batch_y.to('cpu').numpy().tolist()
         prediction = network.forward(batch_x).argmax(dim=-1).permute(2, 1, 0)
         prediction = prediction.to('cpu').numpy().tolist()
@@ -272,7 +283,8 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         texts.extend([dataset.word_sequences[i] for i in batch_indices])
 
         batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
-        t_types.extend([[t for t in batch_t_types[i] if t] for i in range(len(batch_t_types))])
+        batch_t_types = [[t for t in batch_t_types[i] if t] for i in range(len(batch_t_types))]
+        t_types.extend(batch_t_types)
 
         batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
         p_types.extend([[batch_p_types[i][j] for j in range(len(batch_t_types[i]))] for i in range(len(batch_t_types))])
