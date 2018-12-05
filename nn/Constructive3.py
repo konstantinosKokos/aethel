@@ -229,36 +229,59 @@ def __main__(fake=False, mini=False):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True, threshold=0.001,
                                                            threshold_mode='rel', cooldown=0, min_lr=1e-08, eps=1e-08)
 
+    val_history = []
     for i in range(num_epochs):
         print('================== Epoch {} =================='.format(i))
-        if i % 5 == 0 and i != 0:
-            l, a, b = ecdc.iter_epoch(s, batch_size, criterion, optimizer, val_indices, mode='eval')
-            print(' Validation Loss: {}'.format(l))
-            print(' Validation Word Accuracy: {}'.format(a))
-            print(' Validation Phrase Accuracy : {}'.format(b))
-            print('- - - - - - - - - - - - - - - - - - - - - - - - - ')
-            # print(show_samples(ecdc, s, np.random.choice(val_indices, 5), 'cuda'))
         l, a, b = ecdc.iter_epoch(s, batch_size, criterion, optimizer, train_indices)
         print(' Training Loss: {}'.format(l))
         print(' Training Word Accuracy: {}'.format(a))
         print(' Training Phrase Accuracy : {}'.format(b))
+        if i % 5 == 0 and i != 0:
+            l, a, b = ecdc.iter_epoch(s, 256, criterion, optimizer, val_indices, mode='eval')
+            print(' Validation Loss: {}'.format(l))
+            print(' Validation Word Accuracy: {}'.format(a))
+            print(' Validation Phrase Accuracy : {}'.format(b))
+            print('- - - - - - - - - - - - - - - - - - - - - - - - - ')
+            val_history.append(l)
+            if i % 10 == 0:
+                store_samples(ecdc, s, val_indices)
         scheduler.step(l)
 
 
-def show_samples(network, dataset, indices, device):
-    batch_all = [dataset[i] for i in indices]
-    batch_x = pad_sequence([x[0] for x in batch_all]).to(device)
-    batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all]).to(device)
-    prediction = network.forward(batch_x).permute(0, 2, 1)
 
-    prediction = prediction[:-1, :, :].argmax(dim=1).to('cpu')
-    import pdb
-    pdb.set_trace()
-    batch_y = batch_y.permute(1, 0, 2).contiguous().view(prediction.shape[0], -1).to('cpu')
+def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv'):
 
-    batch_y = torch.cat([batch_y, torch.zeros(batch_y.shape[0], prediction.shape[1] - batch_y.shape[1]).long()], dim=1)
-    prediction = prediction.numpy().tolist()
-    batch_y = batch_y.numpy().tolist()
-    p_types = SeqUtils.convert_vector_sequence_to_type_sequence(prediction, dataset.atomic_dict)
-    t_types = SeqUtils.convert_vector_sequence_to_type_sequence(batch_y, dataset.atomic_dict)
-    return list(zip(p_types, t_types))
+    texts = []
+    t_types = []
+    p_types = []
+
+    batch_start = 0
+    while batch_start < len(indices):
+        batch_end = min([batch_start + batch_size, len(indices)])
+
+        batch_indices = [indices[i] for i in range(batch_start, batch_end)]
+
+        batch_all = [dataset[i] for i in batch_indices]
+        batch_x = pad_sequence([x[0] for x in batch_all]).to(device)
+
+        batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all]).to(device)[:, :, 1:].permute(1, 0, 2)
+        batch_y = batch_y.to('cpu').numpy().tolist()
+        prediction = network.forward(batch_x).argmax(dim=-1).permute(2, 1, 0)
+        prediction = prediction.to('cpu').numpy().tolist()
+
+        texts.extend([dataset.word_sequences[i] for i in batch_indices])
+
+        batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
+        t_types.extend([[t for t in batch_t_types[i] if t] for i in range(len(batch_t_types))])
+
+        batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
+        p_types.extend([[batch_p_types[i][j] for j in range(len(batch_t_types[i]))] for i in range(len(batch_t_types))])
+
+        batch_start += batch_size
+
+    with open(log_file, 'w') as f:
+        for i in range(len(texts)):
+            f.write('\t'.join(texts[i]) + '\n')
+            f.write('\t'.join(t_types[i]) + '\n')
+            f.write('\t'.join(p_types[i]) + '\n')
+            f.write('\n')
