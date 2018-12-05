@@ -57,7 +57,7 @@ class Decoder(nn.Module):
         self.body = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=2).to(device)
         self.embedder = nn.Embedding(num_embeddings=self.num_atomic, embedding_dim=self.embedding_size, padding_idx=0)
         self.hidden_to_output = nn.Sequential(
-            nn.Linear(in_features=hidden_size, out_features=num_atomic)).to(device)
+            nn.Linear(in_features=hidden_size+encoder_output_size, out_features=num_atomic)).to(device)
         self.encoder_to_h0 = nn.Sequential(
             nn.Linear(in_features=encoder_output_size, out_features=self.body.num_layers*hidden_size),
             nn.Tanh()
@@ -66,13 +66,16 @@ class Decoder(nn.Module):
     def forward(self, encoder_output, batch_y=None):
         # training -- fast mode
         if batch_y is not None:
-            import pdb
-            pdb.set_trace()
+
             embeddings = self.embedder(batch_y)
             msl, bs, mtl, = embeddings.shape[0:3]
             embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
             h_0 = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
             h_t, _ = self.body.forward(embeddings, h_0)
+            repeated_encoder_output = encoder_output.repeat(self.max_steps, 1, 1, 1)
+            h_t = h_t.reshape(self.max_steps, msl, bs, self.hidden_size)
+            h_t = torch.cat([h_t, repeated_encoder_output], dim=-1).reshape(self.max_steps, msl*bs,
+                                                                            self.hidden_size + self.encoder_output_size)
             y_t = self.hidden_to_output(h_t)
             y_t = F.log_softmax(y_t, dim=-1)
             y_t = y_t[:-1, :, :]  # mtl-1, msl*bs, atomic
@@ -84,10 +87,15 @@ class Decoder(nn.Module):
         sos = (torch.ones(1, msl*bs) * self.sos).to(self.device).long()
         e_t = self.embedder(sos)
 
+        encoder_output = encoder_output.reshape(msl, bs, self.encoder_output_size)
+
         Y = []
         for t in range(self.max_steps):
             _, h_t = self.body.forward(e_t, h_t)
-            y_t = self.hidden_to_output(h_t[1])
+            reshaped_h_t = h_t[1].reshape(msl, bs, self.hidden_size)
+            reshaped_h_t = torch.cat([reshaped_h_t, encoder_output], dim=-1).reshape(msl*bs, self.hidden_size +
+                                                                                     self.encoder_output_size)
+            y_t = self.hidden_to_output(reshaped_h_t)
             y_t = F.log_softmax(y_t, dim=-1)
             Y.append(y_t)
             p_t = y_t.argmax(dim=-1)
@@ -259,7 +267,7 @@ def __main__(fake=False, mini=False):
         scheduler.step(l)
 
 
-def eval_and_store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv'):
+def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv'):
 
     texts = []
     t_types = []
