@@ -17,15 +17,12 @@ def accuracy_new(predictions, truth, phrase_lens):
     phrase_lens = phrase_lens.to('cpu').numpy().tolist()
     predictions = predictions.argmax(dim=1)
     correct_subtypes = torch.ones(predictions.size()).to('cuda')
-    correct_subtypes[predictions != truth] = 0
-    correct_subtypes[truth == 0] = 1
+    correct_subtypes[predictions.ne(truth)] = 0
+    correct_subtypes[truth.ne(0)] = 1
     correct_words = correct_subtypes.prod(dim=1)
-    start = 0
-    correct_phrases = 0
-    for i in range(len(phrase_lens)):
-        if sum(correct_words[start: start+phrase_lens[i]]) == phrase_lens[i]:
-            correct_phrases += 1
-        start += phrase_lens[i]
+    phrases = torch.split(correct_words, split_size_or_sections=phrase_lens)
+    correct_phrases = list(map(lambda x: torch.sum(x).item(), phrases))
+    correct_phrases = sum(list(map(lambda x: 1 if x[0] == x[1] else 0, zip(correct_phrases, phrase_lens))))
     return (sum(correct_words), correct_words.shape[0]), (correct_phrases, len(phrase_lens))
 
 
@@ -56,7 +53,7 @@ class Decoder(nn.Module):
             unsorted_embeddings = self.embedder(unsorted_batch_y)
             unsorted_embeddings = pack_padded_sequence(unsorted_embeddings, sequence_lengths)
             indices = reindex(unsorted_embeddings.batch_sizes)
-            sorted_embeddings = unsorted_embeddings.data[indices].permute(1, 0, 2)
+            sorted_embeddings = torch.index_select(unsorted_embeddings.data, 0, indices).permute(1, 0, 2)
 
             h_0 = self.encoder_to_h0(encoder_output).reshape(-1, 2, self.hidden_size).permute(1, 0, 2).contiguous()
 
@@ -73,37 +70,14 @@ class Decoder(nn.Module):
         e_t = self.embedder(sos)
 
         Y = []
-        # encoder_output = encoder_output.reshape(msl*bs, self.encoder_output_size)
         for t in range(self.max_steps):
             _, h_t = self.body.forward(e_t, h_t)
-            # h_t_cat = torch.cat([h_t[1], encoder_output], dim=-1)
             y_t = self.hidden_to_output(h_t[1])
             y_t = F.log_softmax(y_t, dim=-1)
             Y.append(y_t)
             p_t = y_t.argmax(dim=-1)
             e_t = self.embedder(p_t).unsqueeze(0)
         return torch.stack(Y)[:-1]
-
-    # def truncated_forward_first_step(self, encoder_output, batch_y):
-    #     embeddings = self.embedder(batch_y)
-    #     msl, bs, mtl, = embeddings.shape[0:3]
-    #     embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
-    #     h_0 = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
-    #
-    #     first_embeddings = embeddings[:self.max_steps]
-    #     h_t, h_n = self.body.forward(first_embeddings, h_0)  # mts, msl*bs, h
-    #     y_t = self.hidden_to_output(h_t)
-    #     y_t = F.log_softmax(y_t, dim=-1)
-    #     y_t = y_t[:-1]  # mtl-1, msl*bs, atomic
-    #     return y_t.reshape(-1, msl, bs, self.num_atomic), h_n, embeddings[self.max_steps:], msl, bs
-    #
-    # def truncated_forward_next_step(self, last_hidden, embeddings, msl, bs):
-    #     first_embeddings = embeddings[:self.max_steps]
-    #     h_t, h_n = self.body.forward(first_embeddings, last_hidden)
-    #     y_t = self.hidden_to_output(h_t)
-    #     y_t = F.log_softmax(y_t, dim=-1)
-    #     y_t = y_t[:-1]
-    #     return y_t.reshape(-1, msl, bs, self.num_atomic), h_n, embeddings[self.max_steps:], msl, bs
 
 
 class Model(nn.Module):
@@ -121,10 +95,9 @@ class Model(nn.Module):
                                     sos=sos).to(device)
 
     def forward_core(self, word_vectors):
-        # seq_len, batch_size = word_vectors.shape[0:2]
         encoder_o, _ = self.word_encoder(word_vectors)  # num_words, 2 * h
         indices = reindex(encoder_o.batch_sizes)
-        ordered_encoder_output = encoder_o.data[indices]
+        ordered_encoder_output = torch.index_select(encoder_o.data, 0, indices)
         ordered_encoder_output = ordered_encoder_output[:, :300] + ordered_encoder_output[:, 300:]
         return ordered_encoder_output
 
@@ -211,7 +184,7 @@ class Model(nn.Module):
 
         indices = reindex(batch_y.batch_sizes)
         _, phrase_lens = pad_packed_sequence(batch_y)
-        batch_y = batch_y.data[indices][:, 1:]  # NW, TS
+        batch_y = torch.index_select(batch_y.data, 0, indices)[:, 1:]
 
         loss = criterion(prediction, batch_y)
         loss = loss[loss != 0.].sum() / batch_y.shape[0]
@@ -289,13 +262,21 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
 
         batch_indices = [indices[i] for i in range(batch_start, batch_end)]
 
-        batch_all = [dataset[i] for i in batch_indices]
-        batch_x = pad_sequence([x[0] for x in batch_all]).to(device)
+        batch_all = sorted([dataset[i] for i in batch_indices],
+                           key=lambda x: x[0].shape[0], reverse=True)
+        batch_x = pack_sequence([x[0] for x in batch_all]).to(device)
 
-        batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all])[:, :, 1:].permute(1, 0, 2)
-        batch_y = batch_y.to('cpu').numpy().tolist()
-        prediction = network.forward(batch_x).argmax(dim=-1).permute(2, 1, 0)
-        prediction = prediction.to('cpu').numpy().tolist()
+        batch_y = pack_sequence([torch.stack(x[2]) for x in batch_all]).to(device)
+        _, phrase_lens = pad_packed_sequence(batch_y)
+        phrase_lens = phrase_lens.cpu().numpy().tolist()
+        indices = reindex(batch_y.batch_sizes)
+        batch_y = torch.index_select(batch_y.data, 0, indices)[:, 1:]
+        batch_y = torch.split(batch_y, phrase_lens)
+        batch_y = list(map(lambda x: x.cpu().numpy().tolist(), batch_y))
+
+        prediction = network.forward(batch_x).argmax(dim=-1).permute(1, 0)
+        prediction = torch.split(prediction, phrase_lens)
+        prediction = list(map(lambda x: x.cpu().numpy().tolist(), prediction))
 
         texts.extend([dataset.word_sequences[i] for i in batch_indices])
 
@@ -304,7 +285,7 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         t_types.extend(batch_t_types)
 
         batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
-        p_types.extend([[batch_p_types[i][j] for j in range(len(batch_t_types[i]))] for i in range(len(batch_t_types))])
+        p_types.extend([[p for p in batch_p_types[i] if p] for i in range(len(batch_t_types))])
 
         batch_start += batch_size
 
@@ -324,4 +305,4 @@ def reindex(batch_sizes):
             index = torch.tensor(current) + sum(batch_sizes[:i])
             indices.append(index)
         current += 1
-    return [indices]
+    return torch.Tensor(indices).to('cuda').long()
