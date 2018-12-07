@@ -18,7 +18,7 @@ def accuracy_new(predictions, truth, phrase_lens):
     predictions = predictions.argmax(dim=1)
     correct_subtypes = torch.ones(predictions.size()).to('cuda')
     correct_subtypes[predictions.ne(truth)] = 0
-    correct_subtypes[truth.ne(0)] = 1
+    correct_subtypes[truth.eq(0)] = 1
     correct_words = correct_subtypes.prod(dim=1)
     phrases = torch.split(correct_words, split_size_or_sections=phrase_lens)
     correct_phrases = list(map(lambda x: torch.sum(x).item(), phrases))
