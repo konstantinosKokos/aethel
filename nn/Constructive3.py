@@ -25,34 +25,8 @@ def accuracy_new(predictions, truth, phrase_lens):
     for i in range(len(phrase_lens)):
         if sum(correct_words[start: start+phrase_lens[i]]) == phrase_lens[i]:
             correct_phrases += 1
-            start += phrase_lens[i]
+        start += phrase_lens[i]
     return (sum(correct_words), correct_words.shape[0]), (correct_phrases, len(phrase_lens))
-    # pred = predictions.argmax(dim=1)  # max_seq_len, num_words
-    # correct_types = torch.ones(pred.size()).to('cuda')  # max_seq_len, num_words: everything is correct
-    # correct_types[pred != truth] = 0  # .. except everything that isn't
-    # correct_types[truth == 0] = 1  # .. double except the pads
-    # # multiplying across the sequence_length dimension results in a num_words long vector, with 1s when no mistakes
-    # # were make across the entire axis, and 0 otherwise
-    # # summing the elements of this vector we obtain the number of correctly predicted words
-    # correct_words = correct_types.prod(dim=0).sum()
-    # false_truths = truth.sum(dim=0)
-    # false_truths = len(false_truths[false_truths == 0])
-    # return (correct_words - false_truths, truth.shape[-1] - false_truths), \
-    #        (correct_types.sum() - truth[truth == 0].shape[0], truth[truth != 0].shape[0])
-
-    # pred = predictions.argmax(dim=1)  # mtl, sl, bs
-    # correct_types = torch.ones(pred.size()).to('cuda')  # mtl, sl, bs -- everything is correct
-    # correct_types[pred != truth] = 0  # .. except everything that isn't
-    # correct_types[truth == 0] = 1  # .. double except the pads
-    #
-    # correct_words = correct_types.prod(dim=0)  # sl, bs
-    # correct_sentences = correct_words.prod(dim=0)  # bs
-    #
-    # empty_words = truth.sum(dim=0)  # sl, bs
-    # empty_words = empty_words[empty_words == 0].shape[0]  # scalar
-    #
-    # return ((correct_words.sum() - empty_words, truth.shape[1] * truth.shape[2] - empty_words),
-    #         (correct_sentences.sum(), truth.shape[2]))
 
 
 class Decoder(nn.Module):
