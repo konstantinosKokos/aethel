@@ -7,14 +7,26 @@ import numpy as np
 from itertools import chain
 
 
-def accuracy_new(predictions, truth):
+def accuracy_new(predictions, truth, phrase_lens):
     """
 
     :param predictions: mtl, a, sl, bs
     :param truth: mtl, sl, bs
     :return:
     """
-
+    phrase_lens = phrase_lens.to('cpu').numpy().tolist()
+    predictions = predictions.argmax(dim=1)
+    correct_subtypes = torch.ones(predictions.size()).to('cuda')
+    correct_subtypes[predictions != truth] = 0
+    correct_subtypes[truth == 0] = 1
+    correct_words = correct_subtypes.prod(dim=1)
+    start = 0
+    correct_phrases = 0
+    for i in range(len(phrase_lens)):
+        if sum(correct_words[start: start+phrase_lens[i]]) == phrase_lens[i]:
+            correct_phrases += 1
+            start += phrase_lens[i]
+    return (sum(correct_words), correct_words.shape[0]), (correct_phrases, len(phrase_lens))
     # pred = predictions.argmax(dim=1)  # max_seq_len, num_words
     # correct_types = torch.ones(pred.size()).to('cuda')  # max_seq_len, num_words: everything is correct
     # correct_types[pred != truth] = 0  # .. except everything that isn't
@@ -28,19 +40,19 @@ def accuracy_new(predictions, truth):
     # return (correct_words - false_truths, truth.shape[-1] - false_truths), \
     #        (correct_types.sum() - truth[truth == 0].shape[0], truth[truth != 0].shape[0])
 
-    pred = predictions.argmax(dim=1)  # mtl, sl, bs
-    correct_types = torch.ones(pred.size()).to('cuda')  # mtl, sl, bs -- everything is correct
-    correct_types[pred != truth] = 0  # .. except everything that isn't
-    correct_types[truth == 0] = 1  # .. double except the pads
-
-    correct_words = correct_types.prod(dim=0)  # sl, bs
-    correct_sentences = correct_words.prod(dim=0)  # bs
-
-    empty_words = truth.sum(dim=0)  # sl, bs
-    empty_words = empty_words[empty_words == 0].shape[0]  # scalar
-
-    return ((correct_words.sum() - empty_words, truth.shape[1] * truth.shape[2] - empty_words),
-            (correct_sentences.sum(), truth.shape[2]))
+    # pred = predictions.argmax(dim=1)  # mtl, sl, bs
+    # correct_types = torch.ones(pred.size()).to('cuda')  # mtl, sl, bs -- everything is correct
+    # correct_types[pred != truth] = 0  # .. except everything that isn't
+    # correct_types[truth == 0] = 1  # .. double except the pads
+    #
+    # correct_words = correct_types.prod(dim=0)  # sl, bs
+    # correct_sentences = correct_words.prod(dim=0)  # bs
+    #
+    # empty_words = truth.sum(dim=0)  # sl, bs
+    # empty_words = empty_words[empty_words == 0].shape[0]  # scalar
+    #
+    # return ((correct_words.sum() - empty_words, truth.shape[1] * truth.shape[2] - empty_words),
+    #         (correct_sentences.sum(), truth.shape[2]))
 
 
 class Decoder(nn.Module):
@@ -57,7 +69,7 @@ class Decoder(nn.Module):
         self.body = nn.GRU(input_size=embedding_size, hidden_size=hidden_size, num_layers=2).to(device)
         self.embedder = nn.Embedding(num_embeddings=self.num_atomic, embedding_dim=self.embedding_size, padding_idx=0)
         self.hidden_to_output = nn.Sequential(
-            nn.Linear(in_features=hidden_size+encoder_output_size, out_features=num_atomic)).to(device)
+            nn.Linear(in_features=hidden_size, out_features=num_atomic)).to(device)
         self.encoder_to_h0 = nn.Sequential(
             nn.Linear(in_features=encoder_output_size, out_features=self.body.num_layers*hidden_size),
             nn.Tanh()
@@ -66,49 +78,58 @@ class Decoder(nn.Module):
     def forward(self, encoder_output, batch_y=None):
         # training -- fast mode
         if batch_y is not None:
+            unsorted_batch_y, sequence_lengths = pad_packed_sequence(batch_y)
+            unsorted_embeddings = self.embedder(unsorted_batch_y)
+            unsorted_embeddings = pack_padded_sequence(unsorted_embeddings, sequence_lengths)
+            indices = reindex(unsorted_embeddings.batch_sizes)
+            sorted_embeddings = unsorted_embeddings.data[indices].permute(1, 0, 2)
 
-            embeddings = self.embedder(batch_y)
-            msl, bs, mtl, = embeddings.shape[0:3]
-            embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
-            h_0 = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
-            h_t, _ = self.body.forward(embeddings, h_0)
-            repeated_encoder_output = encoder_output.expand(self.max_steps, msl, bs, self.encoder_output_size)
-            h_t = h_t.reshape(self.max_steps, msl, bs, self.hidden_size)
-            h_t = torch.cat([h_t, repeated_encoder_output], dim=-1).reshape(self.max_steps, msl*bs,
-                                                                            self.hidden_size + self.encoder_output_size)
+            h_0 = self.encoder_to_h0(encoder_output).reshape(-1, 2, self.hidden_size).permute(1, 0, 2).contiguous()
+
+            h_t, _ = self.body.forward(sorted_embeddings, h_0)  # mts, msl*bs, h
+
             y_t = self.hidden_to_output(h_t)
             y_t = F.log_softmax(y_t, dim=-1)
-            y_t = y_t[:-1, :, :]  # mtl-1, msl*bs, atomic
-            return y_t.reshape(-1, msl, bs, self.num_atomic)
+            y_t = y_t[:-1, :, :]  # mtl-1, nw, atomic
+            return y_t
 
         # validation -- slow mode
-        msl, bs = encoder_output.shape[0:2]
-        h_t = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
-        sos = (torch.ones(1, msl*bs) * self.sos).to(self.device).long()
+        h_t = self.encoder_to_h0(encoder_output).reshape(-1, 2, self.hidden_size).permute(1, 0, 2).contiguous()
+        sos = (torch.ones(1, h_t.shape[1]) * self.sos).to(self.device).long()
         e_t = self.embedder(sos)
 
-        encoder_output = encoder_output.reshape(msl, bs, self.encoder_output_size)
-
         Y = []
+        # encoder_output = encoder_output.reshape(msl*bs, self.encoder_output_size)
         for t in range(self.max_steps):
             _, h_t = self.body.forward(e_t, h_t)
-            reshaped_h_t = h_t[1].reshape(msl, bs, self.hidden_size)
-            reshaped_h_t = torch.cat([reshaped_h_t, encoder_output], dim=-1).reshape(msl*bs, self.hidden_size +
-                                                                                     self.encoder_output_size)
-            y_t = self.hidden_to_output(reshaped_h_t)
+            # h_t_cat = torch.cat([h_t[1], encoder_output], dim=-1)
+            y_t = self.hidden_to_output(h_t[1])
             y_t = F.log_softmax(y_t, dim=-1)
             Y.append(y_t)
             p_t = y_t.argmax(dim=-1)
             e_t = self.embedder(p_t).unsqueeze(0)
-        return torch.stack(Y).reshape(self.max_steps, msl, bs, self.num_atomic)[:-1]
+        return torch.stack(Y)[:-1]
 
-
-class Attention(nn.Module):
-    def __init__(self):
-        pass
-
-    def forward(self, *input):
-        pass
+    # def truncated_forward_first_step(self, encoder_output, batch_y):
+    #     embeddings = self.embedder(batch_y)
+    #     msl, bs, mtl, = embeddings.shape[0:3]
+    #     embeddings = embeddings.view(msl*bs, mtl, self.embedding_size).permute(1, 0, 2)
+    #     h_0 = self.encoder_to_h0(encoder_output).view(msl*bs, 2, self.hidden_size).permute(1, 0, 2).contiguous()
+    #
+    #     first_embeddings = embeddings[:self.max_steps]
+    #     h_t, h_n = self.body.forward(first_embeddings, h_0)  # mts, msl*bs, h
+    #     y_t = self.hidden_to_output(h_t)
+    #     y_t = F.log_softmax(y_t, dim=-1)
+    #     y_t = y_t[:-1]  # mtl-1, msl*bs, atomic
+    #     return y_t.reshape(-1, msl, bs, self.num_atomic), h_n, embeddings[self.max_steps:], msl, bs
+    #
+    # def truncated_forward_next_step(self, last_hidden, embeddings, msl, bs):
+    #     first_embeddings = embeddings[:self.max_steps]
+    #     h_t, h_n = self.body.forward(first_embeddings, last_hidden)
+    #     y_t = self.hidden_to_output(h_t)
+    #     y_t = F.log_softmax(y_t, dim=-1)
+    #     y_t = y_t[:-1]
+    #     return y_t.reshape(-1, msl, bs, self.num_atomic), h_n, embeddings[self.max_steps:], msl, bs
 
 
 class Model(nn.Module):
@@ -126,11 +147,12 @@ class Model(nn.Module):
                                     sos=sos).to(device)
 
     def forward_core(self, word_vectors):
-        seq_len, batch_size = word_vectors.shape[0:2]
+        # seq_len, batch_size = word_vectors.shape[0:2]
         encoder_o, _ = self.word_encoder(word_vectors)  # num_words, 2 * h
-        encoder_o = encoder_o.view(seq_len, batch_size, 2, self.word_encoder.hidden_size)  # msl, b, 2, h
-        encoder_o = encoder_o.sum(dim=2)  # msl, b, h
-        return encoder_o
+        indices = reindex(encoder_o.batch_sizes)
+        ordered_encoder_output = encoder_o.data[indices]
+        ordered_encoder_output = ordered_encoder_output[:, :300] + ordered_encoder_output[:, 300:]
+        return ordered_encoder_output
 
     def forward_constructive(self, encoder_o, batch_y):
         construction = self.type_decoder(encoder_o, batch_y)
@@ -158,8 +180,8 @@ class Model(nn.Module):
             batch_all = sorted([dataset[iter_indices[i]] for i in range(batch_start, batch_end)],
                                key=lambda x: x[0].shape[0], reverse=True)
 
-            batch_x = pad_sequence([x[0] for x in batch_all]).to(self.device)
-            batch_y = pad_sequence([torch.stack(x[2]) for x in batch_all]).to(self.device)
+            batch_x = pack_sequence([x[0] for x in batch_all]).to(self.device)
+            batch_y = pack_sequence([torch.stack(x[2]) for x in batch_all]).to(self.device)
 
             if mode == 'train':
                 batch_loss, (batch_correct_words, batch_total_words), (batch_correct_phrases, batch_total_phrases) = \
@@ -179,54 +201,67 @@ class Model(nn.Module):
             batch_start += batch_size
         return loss, correct_words/total_words, correct_phrases/total_phrases
 
+    # def truncated_train_batch(self, batch_x, batch_y, criterion, optimizer):
+    #     self.train()
+    #     optimizer.zero_grad()
+    #
+    #     loss = 0.
+    #     encoder_output = self.forward_core(batch_x)
+    #     partial_y, h_n, partial_embeddings, msl, bs = \
+    #         self.type_decoder.truncated_forward_first_step(encoder_output, batch_y)
+    #     partial_loss =
+
     def train_batch(self, batch_x, batch_y, criterion, optimizer):
         self.train()
         optimizer.zero_grad()
 
-        prediction = self.forward(batch_x, batch_y)  # mtl-1, sl, bs, a
-        prediction = prediction.permute(0, 3, 1, 2)  # mtl-1, a, sl, bs
-        # prediction = prediction.permute(0, 2, 1)
+        prediction = self.forward(batch_x, batch_y).permute(1, 2, 0)  # NW, A, TS
 
-        batch_y = batch_y[:, :, 1:]  # sl, bs, mtl-1
-        batch_y = batch_y.permute(2, 0, 1)   # mtl-1, sl, bs
-        # batch_y = batch_y.view(batch_y.shape[0], -1)
+        indices = reindex(batch_y.batch_sizes)
+        _, phrase_lens = pad_packed_sequence(batch_y)
+        batch_y = batch_y.data[indices][:, 1:]  # NW, TS
 
         loss = criterion(prediction, batch_y)
-        loss = loss.sum(dim=0)
-        loss = loss[loss != 0.].mean()
+        loss = loss[loss != 0.].sum() / batch_y.shape[0]
         loss.backward()
 
-        (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_new(prediction, batch_y)
+        (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_new(prediction,
+                                                                                        batch_y, phrase_lens)
         optimizer.step()
         return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
 
     def eval_batch(self, batch_x, batch_y, criterion):
         self.eval()
 
-        prediction = self.forward(batch_x)  # mtl-1, sl, bs, a
-        prediction = prediction.permute(0, 3, 1, 2)  # mtl-1, a, sl, bs
+        prediction = self.forward(batch_x).permute(1, 2, 0)
 
-        batch_y = batch_y[:, :, 1:]  # sl, bs, mtl-1
-        batch_y = batch_y.permute(2, 0, 1)  # mtl -1, sl, bs
+        indices = reindex(batch_y.batch_sizes)
+        _, phrase_lens = pad_packed_sequence(batch_y)
+        batch_y = batch_y.data[indices][:, 1:]  # NW, TS
 
-        loss = criterion(prediction, batch_y)  # mtl - 1, sl, bs
-        loss = loss.sum(dim=0)  # sl, bs
-        loss = loss[loss != 0.].mean()
-        (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_new(prediction, batch_y)
+        loss = criterion(prediction, batch_y)
+        loss = loss[loss != 0.].sum() / batch_y.shape[0]
+
+        (batch_correct, batch_total), (sentence_correct, sentence_total) = accuracy_new(prediction,
+                                                                                        batch_y, phrase_lens)
 
         return loss.item(), (batch_correct, batch_total), (sentence_correct, sentence_total)
 
 
-def __main__(fake=False, mini=False):
-    s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types.p',
-                          return_types=True, mini=mini)
+def __main__(fake=False, mini=False, language='nl'):
+    if language == 'nl':
+        s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types.p',
+                              return_types=True, mini=mini)
+    elif language == 'fr':
+        s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types_fr.p',
+                              return_types=True, mini=mini, language='fr')
     print(s.atomic_dict)
 
     if fake:
         print('Warning! You are using fake data!')
 
     num_epochs = 1000
-    batch_size = 128
+    batch_size = 160
     val_split = 0.25
 
     indices = [i for i in range(len(s))]
@@ -238,15 +273,13 @@ def __main__(fake=False, mini=False):
     device = ('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using {}'.format(device))
 
-    class_weights = 1 / torch.Tensor(s.frequencies).to('cuda')
-    print(class_weights)
-
     ecdc = Model(num_atomic=len(s.atomic_dict), device=device, max_steps=s.max_type_len, num_types=len(s.types),
                  sos=s.inverse_atomic_dict['<SOS>'],)
     criterion = nn.NLLLoss(reduction='none', ignore_index=s.inverse_atomic_dict['<PAD>'])
     optimizer = torch.optim.RMSprop(ecdc.parameters())
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True, threshold=0.001,
-                                                           threshold_mode='rel', cooldown=0, min_lr=1e-08, eps=1e-08)
+                                                           factor=0.33, threshold_mode='rel', cooldown=0, min_lr=1e-08,
+                                                           eps=1e-08)
 
     val_history = []
     for i in range(num_epochs):
@@ -255,15 +288,17 @@ def __main__(fake=False, mini=False):
         print(' Training Loss: {}'.format(l))
         print(' Training Word Accuracy: {}'.format(a))
         print(' Training Phrase Accuracy : {}'.format(b))
+
         if i % 5 == 0 and i != 0:
             l, a, b = ecdc.iter_epoch(s, 256, criterion, optimizer, val_indices, mode='eval')
+            print('- - - - - - - - - - - - - - - - - - - - - - - - - ')
             print(' Validation Loss: {}'.format(l))
             print(' Validation Word Accuracy: {}'.format(a))
             print(' Validation Phrase Accuracy : {}'.format(b))
-            print('- - - - - - - - - - - - - - - - - - - - - - - - - ')
             val_history.append(l)
             if i % 10 == 0:
                 store_samples(ecdc, s, val_indices)
+
         scheduler.step(l)
 
 
@@ -305,3 +340,14 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
             f.write('\t'.join(t_types[i]) + '\n')
             f.write('\t'.join(p_types[i]) + '\n')
             f.write('\n')
+
+
+def reindex(batch_sizes):
+    current = 0
+    indices = []
+    while current < batch_sizes[0]:
+        for i in range(len(batch_sizes[batch_sizes > current])):
+            index = torch.tensor(current) + sum(batch_sizes[:i])
+            indices.append(index)
+        current += 1
+    return [indices]
