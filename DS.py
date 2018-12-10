@@ -736,12 +736,14 @@ def main(ignore=False, return_lists=False, viz=False):
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
-
-    # X, Y = [], []
-    # for i in range(len(L)):
-    #     l = L[i][1]
-    #     X.extend([x[0] for x in l])
-    #     Y.extend([x[1] for x in l])
+    #
+    X, Y = [], []
+    for i in range(len(L)):
+        if i == 29897: continue
+        l = L[i][1]
+        X.extend([x[0] for x in l])
+        Y.extend([x[1] for x in l])
+    return X, Y
 
     return L0, L, ToGraphViz()
 
