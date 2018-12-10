@@ -306,12 +306,12 @@ class Decompose:
                     children_to_remove.append([c, r])
                     if key is not None:
                         del c.attrib['rel'][key.attrib['id']]
-                elif (len(c.attrib['rel'].values()) and
-                      all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
-                    # explicit treatment of modifiers
-                    children_to_remove.append([c, r])
-                    if key is not None:
-                        del c.attrib['rel'][key.attrib['id']]
+                # elif (len(c.attrib['rel'].values()) and
+                #       all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
+                #     # explicit treatment of modifiers
+                #     children_to_remove.append([c, r])
+                #     if key is not None:
+                #         del c.attrib['rel'][key.attrib['id']]
 
             for c in children_to_remove:
                 grouped[key].remove(c)
@@ -553,12 +553,15 @@ class Decompose:
         :param lexicon:
         :return:
         """
+        ToGraphViz()(grouped)
+
         def is_gap(node):
             # this node is involved in some sort of magic trickery if it has more than one incoming edges
             all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
             if len(all_incoming_edges) > 1:
-                num_heads = list(filter(lambda x: x in self.head_candidates, all_incoming_edges))
-                if num_heads and len(num_heads) != len(all_incoming_edges):
+                same_heads = ([x for x in all_incoming_edges if x in self.head_candidates])
+                # ..?
+                if len(set(same_heads)) != 1 or len(same_heads) < len(all_incoming_edges):
                     return True
             else:
                 return False
@@ -575,90 +578,104 @@ class Decompose:
         # pose some linear order and exclude the picked head
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
-        if headchild is not None:
-            # pick all the arguments
-            arglist = [[self.get_plain_type(sib, grouped, rel), self.get_rel(rel)] for sib, rel in siblings]
-            # convert the arglist to coloured arglist
-            if arglist:
-                argtypes, argdeps = list(zip(*arglist))
+        if headchild is None:
+            raise NotImplementedError  # todo -- just deal with the siblings
+            return lexicon
+
+        # classify the headchild
+        gap = is_gap(headchild)
+
+        # pick all the arguments
+        arglist = [[self.get_plain_type(sib, grouped, rel), self.get_rel(rel)] for sib, rel in siblings
+                   if rel != 'mod']
+
+        # case management
+        if arglist and gap:
+            argtypes, argdeps = list(zip(*arglist))
+
+            # hard case first -- gap with siblings
+            # assert that there is just one argument to project into
+            if len(argtypes) != 1:
+                print(argtypes)
+                ToGraphViz()(grouped)
+                raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
+                                          format(headchild.attrib['id'], current.attrib['id']))
+            # find the dependency which does not match the head
+            internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
+                             if self.get_rel(r) != self.get_rel(headrel)]
+            # assert that there is just one (class) of those
+            if len(set(internal_edge)) == 1:
+                # construct the internal type (which includes a hypothesis for the gap)
+                internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, internal_edge),),
+                                            result=argtypes[0], colors=(internal_edge[0],))
+                # construct the external type (which takes the internal type back to the top type)
+                headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
             else:
+                assert len(argdeps) == 1  # not even sure why but this is necessary
+                types = []
+                for it in set(internal_edge):
+                    internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, it),),
+                                                result=argtypes[0], colors=(it,))
+                    types.append(internal_type)
+                    # types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
+                headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
+                                       result=top_type, colors=(argdeps[0],))
+        elif arglist:
+            argtypes, argdeps = list(zip(*arglist))
+            #  easy case -- standard type assignment
+            headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+        elif gap:
+            # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
+            # we avoid type assigning here
+            headtype = self.get_plain_type(headchild, grouped)
+            # raise NotImplementedError('[What is this?] Case of head with only modifier siblings {}.'
+            #                           .format(headchild.attrib['id']))
+        else:
+            # neither gap nor has siblings -- must be the end
+            headtype = top_type
+            if not self.is_leaf(headchild):
+                raise NotImplementedError('[Dead End] Case of head non-terminal with no siblings {}.'
+                                          .format(headchild.attrib['id']))
 
-                # siblings must have been removed by processing, so chain of non-terminal nodes with single child
-                # ending with a single word
-                if not self.is_leaf(headchild):
-                    # call self having made no adjustments to top_type (simply propagate it down)
-                    # self.recursive_assignment(headchild, grouped, top_type, lexicon)
-                    pass
-                elif self.get_key(headchild) not in lexicon.keys():
-                    lexicon[self.get_key(headchild)] = top_type
-                elif lexicon[self.get_key(headchild)] != top_type:
-                    raise KeyError('[No siblings] Trying to assign {} to node {}, when already assigned {}. '
-                                   'Now iterating from parent {}.'.format(top_type, headchild.attrib['id'],
-                                                                          lexicon[self.get_key(headchild)],
-                                                                          current.attrib['id']))
-                return lexicon
-
-            # classify the headchild
-            gap = is_gap(headchild)
-
-            # case management
-            if not gap:
-                # standard type assignment
-                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
-            else:
-                # case of gap: project self within arglist
-
-                # assert that there is one argument to project into
-                if len(argtypes) != 1:
-                    print(argtypes)
-                    ToGraphViz()(grouped)
-                    raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
-                                              format(headchild.attrib['id'], current.attrib['id']))
-
-                # find the dependency which does not match the head
-                internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
-                                 if self.get_rel(r) != self.get_rel(headrel)]
-
-                # assert that there is just one (class) of those
-                if len(set(internal_edge)) == 1:
-                    # construct the internal type (which includes a hypothesis for the gap)
-                    internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, internal_edge),),
-                                                result=argtypes[0], colors=(internal_edge[0],))
-                    # construct the external type (which takes the internal type back to the top type)
-                    headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                else:
-                    assert len(argdeps) == 1  # not even sure why but this is necessary
-                    types = []
-                    for it in set(internal_edge):
-                        internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, it),),
-                                                    result=argtypes[0], colors=(it,))
-                        types.append(internal_type)
-                        # types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
-                    headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
-                                           result=top_type,  colors=(argdeps[0],))
-
-            if Decompose.is_leaf(headchild):
-                # assign the type to the lexicon
-                if self.get_key(headchild) in lexicon.keys():
-                    old_value = lexicon[self.get_key(headchild)]
-                    if old_value != headtype:
-                        headtype = CombinatorType((headtype, old_value), combinator='&')
+        # finish the head assignment
+        if self.is_leaf(headchild):
+            # tying the knot
+            if self.get_key(headchild) not in lexicon.keys():
                 lexicon[self.get_key(headchild)] = headtype
             else:
-                # .. or iterate down
-                self.recursive_assignment(headchild, grouped, headtype, lexicon)
+                old_value = lexicon[self.get_key(headchild)]
+                if old_value != headtype:
+                    headtype = CombinatorType((headtype, old_value), combinator='&')
+        else:
+            self.recursive_assignment(headchild, grouped, headtype, lexicon)
 
         # now deal with the siblings
         for sib, rel in siblings:
             if not is_gap(sib):
                 # simple type
-                sib_type = self.get_plain_type(sib, grouped, rel)
-                if Decompose.is_leaf(sib):
-                    # assign to lexicon
-                    lexicon[self.get_key(sib)] = sib_type
+                if rel != 'mod':
+                    sib_type = self.get_plain_type(sib, grouped, rel)
+                    if Decompose.is_leaf(sib):
+                        # assign to lexicon
+                        lexicon[self.get_key(sib)] = sib_type
+                    else:
+                        # .. or iterate down
+                        self.recursive_assignment(sib, grouped, None, lexicon)
                 else:
-                    # .. or iterate down
-                    self.recursive_assignment(sib, grouped, None, lexicon)
+                    # dont modify the modifier
+                    if isinstance(top_type, ColoredType) and top_type.colors == ('mod',):
+                        sib_type = top_type
+                    else:
+                        sib_type = ColoredType(arguments=(top_type,), result=top_type, colors=('mod',))
+                    if Decompose.is_leaf(sib):
+                        # assign to lexicon
+                        lexicon[self.get_key(sib)] = sib_type
+                    else:
+                        # .. or iterate down
+                        self.recursive_assignment(sib, grouped, sib_type, lexicon)
+            else:
+                pass
+                # raise ValueError('??')
 
     def lexicon_to_list(self, sublex, grouped, to_sequences=True):
         """
@@ -716,7 +733,12 @@ class Decompose:
             return dicts  # or return the dicts
 
 
-def main(ignore=False, return_lists=False, viz=False):
+def main(ignore=False, return_lists=False, viz=False, remove_mods=True):
+    if remove_mods:
+        rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--', 'mod')
+    else:
+        rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--')
+
     # a non-processed dataset for comparisons
     L0 = Lassy(ignore=ignore)
 
@@ -728,22 +750,21 @@ def main(ignore=False, return_lists=False, viz=False):
                            lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
                                                                 cats_to_remove=('du',),
-                                                                rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--',
-                                                                                'top', 'mod', 'predm',))],
+                                                                rels_to_remove=rels_to_remove)],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
-    #
-    X, Y = [], []
-    for i in range(len(L)):
-        if i == 29897: continue
-        l = L[i][1]
-        X.extend([x[0] for x in l])
-        Y.extend([x[1] for x in l])
-    return X, Y
+    # #
+    # X, Y = [], []
+    # for i in range(len(L)):
+    #     if i == 29897: continue
+    #     l = L[i][1]
+    #     X.extend([x[0] for x in l])
+    #     Y.extend([x[1] for x in l])
+    # return X, Y
 
     return L0, L, ToGraphViz()
 
