@@ -45,10 +45,8 @@ class Lassy(Dataset):
             raise ValueError('%s and %s must be existing directories' % (root_dir, treebank_dir))
 
         ignored = []
-        print(ignore)
         if ignore is not None:
             try:
-                print(ignore)
                 with open(ignore, 'r') as f:
                     ignored = f.readlines()
                     ignored = list(map(lambda x: x[0:-1], ignored))
@@ -194,8 +192,8 @@ class Decompose:
         if not type_dict:
             self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
                               'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DET',
-                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
-                              'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
+                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NAME', 'noun': 'N',
+                              'np': 'NP', 'num': 'NUM', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
                               'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'NP', 'punct': 'PUNCT',
                               'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'SVAN',
                               'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
@@ -247,7 +245,7 @@ class Decompose:
         return node.attrib['pos']
 
     def get_type(self, node: ET.Element, grouped: Dict[ET.Element, List], rel: Optional[Union[List, str]]=None,
-                 parent: Optional[ET.Element]=None, parent_type: Optional[WordType] = None) -> WordType:
+                 parent: Optional[ET.Element]=None) -> WordType:
         """
             Returns the type of a node within a given context.
 
@@ -258,11 +256,13 @@ class Decompose:
 
             If the dependency label is also passed, an additional check will be made; if the dependency label is that \
             of a modifier, the type assigned will be X -> X with a 'mod' color on the arrow, where X is the parent type.
+            \ If no parent type is provided (e.g. in the case of gaps, where we don't know the non-local source of an \
+            incoming edge, a placeholder type MOD is assigned instead.
 
-            Alternatively, if the parent itself is passed, and the node has a part of speech label of either noun or \
-            adjective, the assigned type will depend on the parent's syntactic category, according to the rule: if \
-            parent is a phrase (either NP or AP), then the daughter is non-phrasal (N or ADJ, respectively), otherwise \
-            the daughter is acting as a phrase on her own.
+            Alternatively, if the parent but no dependency is passed, and the node has a part of speech label of either
+            \ noun or adjective, the assigned type will depend on the parent's syntactic category, according to the \
+            rule: if parent is a phrase (either NP or AP), then the daughter is non-phrasal (N or ADJ, respectively), \
+            otherwise the daughter is acting as a phrase on her own.
 
         :param node: The node to assign a type to.
         :type node: ET.Element
@@ -273,21 +273,41 @@ class Decompose:
         :type rel: Optional[Union[list, str]]
         :param parent: (Optional) The parent node of the node inspected.
         :type parent: Optional[ET.Element]
-        :param parent_type: (Optional) The type assigned to the parent of the node inspected.
-        :type parent_type: Optional[WordType]
         :return: The WordType that the context imposes on the input node.
         :rtype: WordType
         """
 
-        # todo
-
+        # case management
+        # dependency label is given and is mod
         if rel is not None and self.get_rel(rel) == 'mod':
-            return AtomicType('MOD')
+            if parent is None:
+                # we do not know the parent of this, needs post-processing
+                warn('Assigning placeholder type.')
+                return AtomicType('MOD')
+            return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
+                               colors=('mod',))
+        # node is terminal (i.e. has a POS attribute) and a parent is provided
+        elif 'pos' in node.attrib.keys() and parent is not None:
+            # subcase management
+            if self.get_type(node, grouped) == AtomicType('N') and self.get_type(parent, grouped) != AtomicType('NP'):
+                return AtomicType('NP')
+            elif self.get_type(node, grouped) == AtomicType('ADJ') and \
+                    self.get_type(parent, grouped) != AtomicType('AP'):
+                return AtomicType('AP')
+        # plain type assignment
         if 'cat' in node.attrib.keys():
+            # non-terminal node
             if node.attrib['cat'] == 'conj':
+                # conjunction
                 return self.type_dict[self.majority_vote(node, grouped)]
-            return self.type_dict[node.attrib['cat']]
-        return self.type_dict[node.attrib['pos']]
+            else:
+                # non-conjunction
+                return self.type_dict[node.attrib['cat']]
+        elif 'pos' in node.attrib.keys():
+            # terminal node
+            return self.type_dict[node.attrib['pos']]
+        else:
+            raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
     @staticmethod
     def group_by_parent(xtree):
@@ -582,19 +602,21 @@ class Decompose:
                 new_rel = new_rel[0] if isinstance(new_rel, list) else new_rel
                 if isinstance(old_rel, list):
                     grouped[kk].append([points_to, [rels[0], old_rel[1]]])
-                    points_to.attrib['rel'][kk] = [rels[0], old_rel[1]]
+                    points_to.attrib['rel'][kk.attrib['id']] = [rels[0], old_rel[1]]
                 else:
                     grouped[kk].append([points_to, new_rel])
-                    points_to.attrib['rel'][kk] = new_rel
+                    points_to.attrib['rel'][kk.attrib['id']] = new_rel
             del points_to.attrib['rel'][k.attrib['id']]
         for k in intermediate_nodes:
             del(grouped[k])
         return Decompose.collapse_single_non_terminals(grouped, depth=depth+1)
 
-    def recursive_assignment(self, current, grouped, top_type, lexicon):
+    def recursive_assignment(self, current, grouped, top_type, lexicon, node_dict):
         """
         Takes a node, a dictionary, a word type from the above subtree and a lexicon. Updates the lexicon with inferred
         types for this node's children and iterates downwards.
+        :param node_dict:
+        :type node_dict:
         :param current:
         :param grouped:
         :param top_type:
@@ -631,8 +653,8 @@ class Decompose:
             gap = is_gap(headchild)
 
             # pick all the arguments
-            arglist = [[self.get_type(sib, grouped), self.get_rel(rel)] for sib, rel in siblings
-                       if rel != 'mod']
+            arglist = [[self.get_type(sib, grouped, parent=current), self.get_rel(rel)]
+                       for sib, rel in siblings if rel != 'mod']
 
             # whether to type assign on this head -- True by default
             assign = True
@@ -648,24 +670,31 @@ class Decompose:
                     ToGraphViz()(grouped)
                     raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
                                               format(headchild.attrib['id'], current.attrib['id']))
-                # find the dependency which does not match the head
-                internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
-                                 if self.get_rel(r) != self.get_rel(headrel)]
+                # find the dependencies not projected by current head
+                internal_edges = list(filter(lambda x: x[0] != current.attrib['id'], headchild.attrib['rel'].items()))
+                internal_edges = list(map(lambda x: (node_dict[x[0]], self.get_rel(x[1])), internal_edges))
+
                 # assert that there is just one (class) of those
-                if len(set(internal_edge)) == 1:
+                if len(set(internal_edges)) == 1:
                     # construct the internal type (which includes a hypothesis for the gap)
-                    internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, internal_edge),),
-                                                result=argtypes[0], colors=(internal_edge[0],))
+                    internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edges[0][1],
+                                                                         parent=internal_edges[0][0]),),
+                                                result=argtypes[0], colors=(internal_edges[0][1],))
+                    # (X -> Y)
                     # construct the external type (which takes the internal type back to the top type)
                     headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                    # (X -> Y) -> Z
                 else:
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
-                    for it in set(internal_edge):
-                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, it),),
-                                                    result=argtypes[0], colors=(it,))
+                    for internal_head, internal_edge in set(internal_edges):
+                        # if internal_edge == 'mod':
+                        #     raise NotImplementedError('[Case of unknown parent] Modifier gap {} {}.'.
+                        #                               format(headchild.attrib['id'], current.attrib['id']))
+                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edge,
+                                                                             parent=internal_head),),
+                                                    result=argtypes[0], colors=(internal_edge,))
                         types.append(internal_type)
-                        # types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
                     headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
                                            result=top_type, colors=(argdeps[0],))
             elif arglist:
@@ -698,28 +727,18 @@ class Decompose:
                             headtype = CombinatorType((headtype, old_value), combinator='&')
                             lexicon[self.get_key(headchild)] = headtype
                 else:
-                    self.recursive_assignment(headchild, grouped, headtype, lexicon)
+                    self.recursive_assignment(headchild, grouped, headtype, lexicon, node_dict)
 
         # now deal with the siblings
         for sib, rel in siblings:
             if not is_gap(sib):
-                # simple type
-                if rel != 'mod':
-                    sib_type = self.get_type(sib, grouped, rel)
-                    if Decompose.is_leaf(sib):
-                        # assign to lexicon
-                        lexicon[self.get_key(sib)] = sib_type
-                    else:
-                        # .. or iterate down
-                        self.recursive_assignment(sib, grouped, None, lexicon)
+                sib_type = self.get_type(sib, grouped, rel, parent=current)
+                if Decompose.is_leaf(sib):
+                    # assign to lexicon
+                    lexicon[self.get_key(sib)] = sib_type
                 else:
-                    sib_type = ColoredType(arguments=(top_type,), result=top_type, colors=('mod',))
-                    if Decompose.is_leaf(sib):
-                        # assign to lexicon
-                        lexicon[self.get_key(sib)] = sib_type
-                    else:
-                        # .. or iterate down
-                        self.recursive_assignment(sib, grouped, sib_type, lexicon)
+                    # .. or iterate down
+                    self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
             else:
                 pass
                 # raise ValueError('??')
@@ -757,13 +776,16 @@ class Decompose:
 
         top_node_types = map(lambda x: self.get_type(x, grouped), top_nodes)
 
+        node_dict = {node.attrib['id']: node for node in
+                     set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
+
         if self.unify:
             # init lexicon here
             lexicon = dict()
 
             # recursively iterate from each top node
             for top_node in top_nodes:
-                self.recursive_assignment(top_node, grouped, None, lexicon)
+                self.recursive_assignment(top_node, grouped, None, lexicon, node_dict)
             if self.return_lists:
                 return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
             return lexicon  # or return the dict
@@ -773,14 +795,14 @@ class Decompose:
             dicts = [dict() for _ in top_nodes]
             for i, top_node in enumerate(top_nodes):
                 # recursively iterate each
-                self.recursive_assignment(top_node, grouped, None, dicts[i])
+                self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
 
             if self.return_lists:
                 return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
             return dicts  # or return the dicts
 
 
-def main(return_lists=False, viz=False, remove_mods=True, ignore='ignored.txt'):
+def main(return_lists=False, viz=False, remove_mods=False, ignore='ignored.txt'):
     if remove_mods:
         rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--', 'mod')
     else:
