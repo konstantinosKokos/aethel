@@ -629,10 +629,11 @@ class Decompose:
             # this node is involved in some sort of magic trickery if it has more than one incoming edges
             all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
             if len(all_incoming_edges) > 1:
-                same_heads = ([x for x in all_incoming_edges if x in self.head_candidates])
-                # ..?
-                if len(set(same_heads)) != 1 or len(same_heads) < len(all_incoming_edges):
-                    return True
+                head_edges = ([x for x in all_incoming_edges if x in self.head_candidates])
+                if head_edges:
+                    if len(set(head_edges)) != 1 or len(head_edges) < len(all_incoming_edges):
+                        return True
+                return False
             else:
                 return False
 
@@ -654,7 +655,7 @@ class Decompose:
 
             # pick all the arguments
             arglist = [[self.get_type(sib, grouped, parent=current), self.get_rel(rel)]
-                       for sib, rel in siblings if rel != 'mod']
+                       for sib, rel in siblings if self.get_rel(rel) != 'mod']
 
             # whether to type assign on this head -- True by default
             assign = True
