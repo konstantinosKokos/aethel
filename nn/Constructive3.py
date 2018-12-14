@@ -26,6 +26,44 @@ def accuracy_new(predictions, truth, phrase_lens):
     return (sum(correct_words), correct_words.shape[0]), (correct_phrases, len(phrase_lens))
 
 
+class Attention(nn.Module):
+    def __init__(self, device='cuda'):
+        super(Attention, self).__init__()
+        self.device = device
+
+        self.key_transformation = nn.Sequential(
+            nn.Linear(300, 50, bias=False),
+            nn.Tanh(),
+            nn.Linear(50, 50, bias=False),
+            nn.Tanh()
+        ).to(self.device)
+        self.query_transformation = nn.Sequential(
+            nn.Linear(300, 50, bias=False),
+            nn.Tanh(),
+            nn.Linear(50, 50, bias=False),
+            nn.Tanh()
+        ).to(self.device)
+
+    def forward(self, sequence):
+        sequence = sequence.transpose(1, 0)
+        # sequence : batch_size, seq_len, encoder_size ~~ 256, 30, 300
+        keys = self.key_transformation(sequence)  # batch_size, seq_len, key_size  ~~ 256, 30, 150
+        queries = self.query_transformation(sequence).transpose(2, 1)  # batch_size, key_size, seq_len  ~ 256, 150, 30
+
+        # weights[b,i,k] = Σ keys[b,i,j] * queries[b,j,k]  -- inner product across the sizes
+        # weights = torch.einsum('bij,bjk->bik', [keys, queries])  # batch_size, seq_len, seq_len
+        weights = torch.bmm(keys, queries)/torch.sqrt(torch.tensor(300.)).to(self.device)
+
+        # now weights[s,k,q] tells us the scoring of query q against key k in sentence s
+        # we need to normalize so that Σ weights[b,i,:] = 1 (the sum of all query-scores against the same key is 1)
+        weights = F.softmax(weights, dim=-1)  # batch_size, seq_len, seq_len
+
+        # attention is given as attention[b,i,l] = Σ weights[b,i,j] * vectors[b, j, l]
+        # attended = torch.einsum('bij,bjl->bil', [weights, sequence])
+        attended = torch.bmm(weights, sequence)
+        return attended.transpose(1, 0)
+
+
 class Decoder(nn.Module):
     def __init__(self, encoder_output_size, num_atomic, hidden_size, device, sos, max_steps=50, embedding_size=50):
         super(Decoder, self).__init__()
@@ -53,7 +91,7 @@ class Decoder(nn.Module):
             unsorted_embeddings = self.embedder(unsorted_batch_y)
             unsorted_embeddings = pack_padded_sequence(unsorted_embeddings, sequence_lengths)
             indices = reindex(unsorted_embeddings.batch_sizes)
-            sorted_embeddings = torch.index_select(unsorted_embeddings.data, 0, indices).permute(1, 0, 2)
+            sorted_embeddings = torch.Tensor.index_select(unsorted_embeddings.data, 0, indices).permute(1, 0, 2)
 
             h_0 = self.encoder_to_h0(encoder_output).reshape(-1, 2, self.hidden_size).permute(1, 0, 2).contiguous()
 
@@ -90,15 +128,19 @@ class Model(nn.Module):
 
         self.word_encoder = nn.GRU(input_size=300, hidden_size=300,
                                    bidirectional=True, num_layers=2, dropout=0.5).to(device)
+        self.attention = Attention(device=device)
         self.type_decoder = Decoder(encoder_output_size=300, num_atomic=num_atomic,
-                                    hidden_size=256, device=self.device, max_steps=max_steps,
+                                    hidden_size=384, device=self.device, max_steps=max_steps,
                                     sos=sos).to(device)
 
     def forward_core(self, word_vectors):
         encoder_o, _ = self.word_encoder(word_vectors)  # num_words, 2 * h
+        encoder_o, seq_lens = pad_packed_sequence(encoder_o)
+        encoder_o = encoder_o[:, :, :300] + encoder_o[:, :, 300:]
+        encoder_o = self.attention(encoder_o)
+        encoder_o = pack_padded_sequence(encoder_o, seq_lens)
         indices = reindex(encoder_o.batch_sizes)
         ordered_encoder_output = torch.index_select(encoder_o.data, 0, indices)
-        ordered_encoder_output = ordered_encoder_output[:, :300] + ordered_encoder_output[:, 300:]
         return ordered_encoder_output
 
     def forward_constructive(self, encoder_o, batch_y):
@@ -198,17 +240,17 @@ class Model(nn.Module):
 def __main__(fake=False, mini=False, language='nl'):
     if language == 'nl':
         s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types.p',
-                              return_types=True, mini=mini)
+                              return_types=True, mini=mini, language='nl')
     elif language == 'fr':
         s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types_fr.p',
-                              return_types=True, mini=mini, language='fr')
+                              return_types=True, mini=mini, language='fr', max_sentence_length=30)
     print(s.atomic_dict)
 
     if fake:
         print('Warning! You are using fake data!')
 
     num_epochs = 1000
-    batch_size = 160
+    batch_size = 128
     val_split = 0.25
 
     indices = [i for i in range(len(s))]
@@ -223,12 +265,14 @@ def __main__(fake=False, mini=False, language='nl'):
     ecdc = Model(num_atomic=len(s.atomic_dict), device=device, max_steps=s.max_type_len, num_types=len(s.types),
                  sos=s.inverse_atomic_dict['<SOS>'],)
     criterion = nn.NLLLoss(reduction='none', ignore_index=s.inverse_atomic_dict['<PAD>'])
-    optimizer = torch.optim.RMSprop(ecdc.parameters())
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True, threshold=0.001,
-                                                           factor=0.33, threshold_mode='rel', cooldown=0, min_lr=1e-08,
+    optimizer = torch.optim.RMSprop(ecdc.parameters(), lr=1e-03)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=7, verbose=True, threshold=0.0005,
+                                                           factor=0.5, threshold_mode='rel', cooldown=0, min_lr=1e-09,
                                                            eps=1e-08)
 
     val_history = []
+
+    store_samples(ecdc, s, val_indices)
     for i in range(num_epochs):
         print('================== Epoch {} =================='.format(i))
         l, a, b = ecdc.iter_epoch(s, batch_size, criterion, optimizer, train_indices)
@@ -262,8 +306,10 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
 
         batch_indices = [indices[i] for i in range(batch_start, batch_end)]
 
-        batch_all = sorted([dataset[i] for i in batch_indices],
-                           key=lambda x: x[0].shape[0], reverse=True)
+        sorted_indices = sorted(batch_indices, key=lambda i: dataset[i][0].shape[0], reverse=True)
+
+        batch_all = [dataset[i] for i in sorted_indices]
+
         batch_x = pack_sequence([x[0] for x in batch_all]).to(device)
 
         batch_y = pack_sequence([torch.stack(x[2]) for x in batch_all]).to(device)
@@ -278,7 +324,7 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         prediction = torch.split(prediction, phrase_lens)
         prediction = list(map(lambda x: x.cpu().numpy().tolist(), prediction))
 
-        texts.extend([dataset.word_sequences[i] for i in batch_indices])
+        texts.extend([dataset.word_sequences[i] for i in sorted_indices])
 
         batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
         batch_t_types = [[t for t in batch_t_types[i] if t] for i in range(len(batch_t_types))]
