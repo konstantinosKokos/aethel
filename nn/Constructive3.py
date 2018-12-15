@@ -314,7 +314,7 @@ def __main__(fake=False, mini=False, language='nl'):
         scheduler.step(l)
 
 
-def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_file='nn/val_log.tsv', marks=None):
+def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, log_file='nn/val_log.tsv', marks=None):
 
     texts = []
     t_types = []
@@ -322,11 +322,11 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
 
     batch_start = 0
 
-    while batch_start < len(indices):
+    while batch_start < len(val_indices):
 
-        batch_end = min([batch_start + batch_size, len(indices)])
+        batch_end = min([batch_start + batch_size, len(val_indices)])
 
-        batch_indices = [indices[i] for i in range(batch_start, batch_end)]
+        batch_indices = [val_indices[i] for i in range(batch_start, batch_end)]
 
         sorted_indices = sorted(batch_indices, key=lambda i: dataset[i][0].shape[0], reverse=True)
 
@@ -346,6 +346,10 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         prediction = torch.split(prediction, phrase_lens)
         prediction = list(map(lambda x: x.cpu().numpy().tolist(), prediction))
 
+        batch_texts = [dataset.word_sequences[i] for i in sorted_indices]
+        if len(batch_texts) != batch_end - batch_start:
+            import pdb
+            pdb.set_trace()
         texts.extend([dataset.word_sequences[i] for i in sorted_indices])
 
         batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
@@ -355,11 +359,13 @@ def store_samples(network, dataset, indices, device='cuda', batch_size=256, log_
         batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
         p_types.extend([[p for p in batch_p_types[i] if p] for i in range(len(batch_t_types))])
 
-        batch_start += batch_size
+        batch_start = batch_end
 
+    import pdb
+    pdb.set_trace()
     with open(log_file, 'w') as f:
         for i in range(len(texts)):
-            f.write('\t'.join([marks[i]] + texts[i]) + '\n')
+            f.write('\t'.join([marks[i]] + list(map(lambda x: x.replace('\t', ''), texts[i]))) + '\n')
             f.write('\t'.join([marks[i]] + t_types[i]) + '\n')
             f.write('\t'.join([marks[i]] + p_types[i]) + '\n')
             f.write('\n')
