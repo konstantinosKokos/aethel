@@ -4,6 +4,7 @@ from torch.nn import functional as F
 from torch.nn.utils.rnn import *
 from utils import SeqUtils
 import numpy as np
+from collections import defaultdict
 
 
 def accuracy_new(predictions, truth, phrase_lens):
@@ -127,10 +128,10 @@ class Model(nn.Module):
         self.num_types = num_types
         self.mode = None
 
-        self.word_encoder = nn.LSTM(input_size=300, hidden_size=512,
+        self.word_encoder = nn.LSTM(input_size=300, hidden_size=300,
                                     bidirectional=True, num_layers=2, dropout=0.5).to(device)
-        self.attention = Attention(device=device, encoder_output_size=512)
-        self.type_decoder = Decoder(encoder_output_size=512, num_atomic=num_atomic,
+        self.attention = Attention(device=device, encoder_output_size=300)
+        self.type_decoder = Decoder(encoder_output_size=300, num_atomic=num_atomic,
                                     hidden_size=384, device=self.device, max_steps=max_steps,
                                     sos=sos).to(device)
 
@@ -244,14 +245,14 @@ def __main__(fake=False, mini=False, language='nl'):
                               return_types=True, mini=mini, language='nl')
     elif language == 'fr':
         s = SeqUtils.__main__(fake=fake, constructive=True, sequence_file='test-output/sequences/words-types_fr.p',
-                              return_types=True, mini=mini, language='fr', max_sentence_length=35)
+                              return_types=True, mini=mini, language='fr', max_sentence_length=35,)
     print(s.atomic_dict)
 
     if fake:
         print('Warning! You are using fake data!')
 
     num_epochs = 1000
-    batch_size = 96
+    batch_size = 128
     val_split = 0.25
 
     indices = [i for i in range(len(s))]
@@ -259,22 +260,7 @@ def __main__(fake=False, mini=False, language='nl'):
     np.random.shuffle(indices)
     train_indices, val_indices = indices[splitpoint:], indices[:splitpoint]
 
-
-    below_5 = SeqUtils.filter_by_occurrence(s.word_sequences, s.type_vectors, 5, 'max', True)
-    below_5_in_val = set(below_5).intersection(set(val_indices))
-    below_5_not_in_train = set(below_5) - set(below_5).intersection(set(train_indices))
-    below_2 = SeqUtils.filter_by_occurrence(s.word_sequences, s.type_vectors, 1, 'max', True)
-    below_2 = set(below_2).intersection(set(val_indices))
-    marks = []
-    for i in val_indices:
-        if i in below_2:
-            marks.append('!!!')
-        elif i in below_5_not_in_train:
-            marks.append('!!')
-        elif i in below_5_in_val:
-            marks.append('!')
-        else:
-            marks.append('-')
+    marks = SeqUtils.get_type_occurrences([s.type_sequences[i] for i in train_indices])
 
     print('Training on {} and validating on {} samples.'.format(len(train_indices), len(val_indices)))
 
@@ -284,7 +270,7 @@ def __main__(fake=False, mini=False, language='nl'):
     ecdc = Model(num_atomic=len(s.atomic_dict), device=device, max_steps=s.max_type_len, num_types=len(s.types),
                  sos=s.inverse_atomic_dict['<SOS>'],)
     criterion = nn.NLLLoss(reduction='none', ignore_index=s.inverse_atomic_dict['<PAD>'])
-    optimizer = torch.optim.RMSprop(ecdc.parameters(), lr=1e-03, weight_decay=1e-04)
+    optimizer = torch.optim.RMSprop(ecdc.parameters(), lr=1e-03, weight_decay=5e-04)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=7, verbose=True, threshold=0.001,
                                                            factor=0.5, threshold_mode='rel', cooldown=0, min_lr=1e-09,
                                                            eps=1e-08)
@@ -292,6 +278,7 @@ def __main__(fake=False, mini=False, language='nl'):
     val_history = []
 
     store_samples(ecdc, s, val_indices, marks=marks)
+
     for i in range(num_epochs):
         print('================== Epoch {} =================='.format(i))
         l, a, b = ecdc.iter_epoch(s, batch_size, criterion, optimizer, train_indices)
@@ -347,9 +334,7 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
         prediction = list(map(lambda x: x.cpu().numpy().tolist(), prediction))
 
         batch_texts = [dataset.word_sequences[i] for i in sorted_indices]
-        if len(batch_texts) != batch_end - batch_start:
-            import pdb
-            pdb.set_trace()
+
         texts.extend([dataset.word_sequences[i] for i in sorted_indices])
 
         batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
@@ -361,13 +346,12 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
 
         batch_start = batch_end
 
-    import pdb
-    pdb.set_trace()
     with open(log_file, 'w') as f:
         for i in range(len(texts)):
-            f.write('\t'.join([marks[i]] + list(map(lambda x: x.replace('\t', ''), texts[i]))) + '\n')
-            f.write('\t'.join([marks[i]] + t_types[i]) + '\n')
-            f.write('\t'.join([marks[i]] + p_types[i]) + '\n')
+            f.write('\t'.join(list(map(lambda x: x.replace('\t', ' ').replace('\n', ' '), texts[i]))) + '\n')
+            f.write('\t'.join(list(map(lambda x: str(marks[x]), t_types[i]))) + '\n')
+            f.write('\t'.join(t_types[i]) + '\n')
+            f.write('\t'.join(p_types[i]) + '\n')
             f.write('\n')
 
 
@@ -380,3 +364,25 @@ def reindex(batch_sizes):
             indices.append(index)
         current += 1
     return torch.Tensor(indices).to('cuda').long()
+
+
+def mark_types(dataset, train_indices, val_indices):
+    marks = defaultdict(lambda: 0)
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+
+    type_occurrences_all = SeqUtils.get_type_occurrences(dataset.type_sequences)
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+    # todo:
+    #   pick out relevant types (apply ''.join() on each out of get occurrence
+    #   mark in the default dict
+    #   return it
+    type_occurrences_all = set(type_occurrences_all.keys())
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+    type_occurrences_val = SeqUtils.get_type_occurrences([s.type_sequences[i] for i in val_indices])
+    type_occurrences_val = set(type_occurrences_val.keys())
+    only_in_val = type_occurrences_all.difference(type_occurrences_val)
+    marks = defaultdict(lambda: ' ')
+    for item in only_in_val:
+        marks[item] = '!!!'
+    import pdb
+    pdb.set_trace()
