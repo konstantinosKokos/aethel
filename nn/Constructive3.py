@@ -270,7 +270,7 @@ def __main__(fake=False, mini=False, language='nl'):
     ecdc = Model(num_atomic=len(s.atomic_dict), device=device, max_steps=s.max_type_len, num_types=len(s.types),
                  sos=s.inverse_atomic_dict['<SOS>'],)
     criterion = nn.NLLLoss(reduction='none', ignore_index=s.inverse_atomic_dict['<PAD>'])
-    optimizer = torch.optim.RMSprop(ecdc.parameters(), lr=1e-03, weight_decay=5e-04)
+    optimizer = torch.optim.RMSprop(ecdc.parameters(), lr=1e-03, weight_decay=3e-04)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=7, verbose=True, threshold=0.001,
                                                            factor=0.5, threshold_mode='rel', cooldown=0, min_lr=1e-09,
                                                            eps=1e-08)
@@ -293,9 +293,11 @@ def __main__(fake=False, mini=False, language='nl'):
             print(' Validation Word Accuracy: {}'.format(a))
             print(' Validation Phrase Accuracy : {}'.format(b))
             val_history.append(l)
-            if i % 10 == 0 and min(val_history) == l:
+            if min(val_history) == l:
                 print('- - - - - - - - - - - - - - - - - - - - - - - - - ')
-                print('Best validation score at epoch {}. Storing results..'.format(i))
+                print(' & & & & & & & & & & & & & & & & & & & & & & & & & & '
+                      'Best validation score at epoch {}. Storing results..'
+                      ' & & & & & & & & & & & & & & & & & & & & & & & & & &'.format(i))
                 store_samples(ecdc, s, val_indices, marks=marks)
 
         scheduler.step(l)
@@ -309,13 +311,15 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
 
     batch_start = 0
 
+    val_indices = sorted(val_indices, key = lambda i: dataset[i][0].shape[0], reverse=True)
+
     while batch_start < len(val_indices):
 
         batch_end = min([batch_start + batch_size, len(val_indices)])
 
         batch_indices = [val_indices[i] for i in range(batch_start, batch_end)]
 
-        sorted_indices = sorted(batch_indices, key=lambda i: dataset[i][0].shape[0], reverse=True)
+        sorted_indices = batch_indices
 
         batch_all = [dataset[i] for i in sorted_indices]
 
@@ -342,16 +346,18 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
         t_types.extend(batch_t_types)
 
         batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
-        p_types.extend([[p for p in batch_p_types[i] if p] for i in range(len(batch_t_types))])
+        p_types.extend([[batch_p_types[i][j] for j in range(len(batch_t_types[i]))] for i in range(len(batch_t_types))])
 
         batch_start = batch_end
 
     with open(log_file, 'w') as f:
         for i in range(len(texts)):
-            f.write('\t'.join(list(map(lambda x: x.replace('\t', ' ').replace('\n', ' '), texts[i]))) + '\n')
-            f.write('\t'.join(list(map(lambda x: str(marks[x]), t_types[i]))) + '\n')
-            f.write('\t'.join(t_types[i]) + '\n')
-            f.write('\t'.join(p_types[i]) + '\n')
+            for j in range(len(texts[i])):
+                f.write(texts[i][j].replace('\t', ' ').replace('\n', ' ') +
+                        '\t' + str(marks[t_types[i][j]]) +
+                        '\t' + str(int(t_types[i][j] == p_types[i][j])) +
+                        '\t' + t_types[i][j] +
+                        '\t' + p_types[i][j] + '\n')
             f.write('\n')
 
 
