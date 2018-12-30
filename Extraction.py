@@ -300,6 +300,7 @@ class Decompose:
             if rel == 'cnj':
                 return self.get_type(parent, grouped)
             if self.get_rel(rel) in ('obj1', 'su', 'body', 'vc', 'obj2'):
+                print('Transforming {} ({}) to NP.'.format(node.attrib['pos'], node.attrib['id']))
                 return AtomicType('NP')
             elif self.get_rel(rel) in ('predc', 'predm'):
                 if self.get_type(node, grouped) == AtomicType('ADJ'):
@@ -309,6 +310,7 @@ class Decompose:
                     ToGraphViz()(grouped)
                     print(rel)
                     print(node.attrib['id'])
+                    print(node.attrib['pos'])
                     print(node.attrib['postag'])
                     print(self.get_type(parent, grouped))
                     raise AssertionError('NP under NP.')
@@ -318,6 +320,7 @@ class Decompose:
                     print('POSTag looks like NP but no direct dependency')
                     ToGraphViz()(grouped)
                     print(node.attrib['id'])
+                    print(node.attrib['pos'])
                     print(node.attrib['postag'])
                     print(self.get_type(parent, grouped))
                     raise AssertionError('NP under NP.')
@@ -325,6 +328,7 @@ class Decompose:
             elif self.get_type(node, grouped) == AtomicType('ADJ') and \
                     self.get_type(parent, grouped) != AtomicType('AP'):
                 return AtomicType('AP')
+
         # plain type assignment
         if 'cat' in node.attrib.keys():
             # non-terminal node
@@ -452,15 +456,20 @@ class Decompose:
         :param grouped:
         :return:
         """
+        def is_abstract(node_rel, real_so):
+            node, rel = node_rel
+            if (node.attrib['index'] in real_so.attrib['index']) and \
+                    rel in (['obj1', 'primary'], ['su', 'primary'], ['sup', 'primary']):
+                return True
+            return False
 
-        # todo: write this neatly
         for main_parent in grouped.keys():
 
             parent = main_parent
 
             if main_parent.attrib['cat'] not in ('ssub', 'smain', 'sv1'):
                 continue
-            real_so = list(filter(lambda x: (x[1] == ['su', 'secondary'] or x[1] == ['obj1', 'secondary']),
+            real_so = list(filter(lambda x: x[1] in (['su', 'secondary'], ['obj1', 'secondary']),
                                   [x for x in grouped[main_parent]]))
             if not real_so:
                 continue
@@ -475,14 +484,12 @@ class Decompose:
             if ti:
                 parent = ti[0][0]
 
-            ppart = list(filter(lambda x: (x[0].attrib['cat'] == 'ppart' or x[0].attrib['cat'] == 'inf'),
+            ppart = list(filter(lambda x: x[0].attrib['cat'] in ('ppart', 'inf'),
                                 [x for x in grouped[parent] if 'cat' in x[0].attrib]))
             if not ppart:
                 continue
             ppart = ppart[0][0]
-            abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']
-                                                 or x[1] == ['sup', 'primary']) and
-                                                    (x[0].attrib['index'] == real_so.attrib['index']),
+            abstract_so = list(filter(lambda x: is_abstract(x, real_so),
                                       [x for x in grouped[ppart] if 'index' in x[0].attrib]))
 
             # chained inf / ppart construction
@@ -491,9 +498,7 @@ class Decompose:
                              [x for x in grouped[ppart] if 'cat' in x[0].attrib]))
                 if ppart:
                     ppart = ppart[0][0]
-                    abstract_so = list(filter(lambda x: (x[1] == ['obj1', 'primary'] or x[1] == ['su', 'primary']
-                                                 or x[1] == ['sup', 'primary']) and
-                                                        (x[0].attrib['index'] == real_so.attrib['index']),
+                    abstract_so = list(filter(lambda x: is_abstract(x, real_so),
                                               [x for x in grouped[ppart] if 'index' in x[0].attrib]))
             if not abstract_so:
                 continue
@@ -507,7 +512,7 @@ class Decompose:
             grouped[main_parent].remove([abstract_so, [parent_dep, 'secondary']])
             # add it again with a primary label
             grouped[main_parent].append([abstract_so, [parent_dep, 'primary']])
-            # # # Internal node changes (for consistency) # todo redundant
+            # # # Internal node changes (for consistency)
             # remove the primary edge property from abstract object
             del abstract_so.attrib['rel'][ppart.attrib['id']]
             # convert the secondary edge to primary internally
@@ -537,7 +542,7 @@ class Decompose:
                     # # # Dictionary changes
                     # remove the abstract s/o from being a child of the ppart/inf
                     grouped[parent].remove([child, rel])
-                    # # # Internal node changes (for consistency) # todo redundant
+                    # # # Internal node changes (for consistency)
                     del child.attrib['rel'][parent.attrib['id']]
                 else:
                     # Trying to remove main coindex
