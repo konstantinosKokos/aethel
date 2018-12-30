@@ -12,9 +12,12 @@ from itertools import groupby, chain
 
 from WordType import *
 
-from typing import Optional, Iterable, Tuple, Union, Any, Generator, Dict, List
+from typing import Optional, Iterable, Tuple, Union, Any, Generator, Dict, List, Callable, NamedTuple
 
 from warnings import warn
+
+Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
+Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
 
 class Lassy(Dataset):
@@ -23,7 +26,7 @@ class Lassy(Dataset):
     """
 
     def __init__(self, root_dir: str='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir: str='/Treebank',
-                 transform: Optional[Compose]=None, ignore: Optional[str] = 'ignored.txt'):
+                 transform: Optional[Compose]=None, ignore: Optional[str] = 'ignored.txt') -> None:
         """
             Initialize a Lassy dataset.
 
@@ -168,17 +171,18 @@ class Lassy(Dataset):
 
         _, main_coind = Lassy.find_main_coindex(xtree)
 
+        # todo
         for node, parent in nodes[1:]:
             if node in main_coind.values():
-                node.attrib['rel'] = {parent.attrib['id']: [node.attrib['rel'], 'primary']}
+                node.attrib['rel'] = {parent.attrib['id']: Rel(label=node.attrib['rel'], rank='primary')}
 
         for node, parent in nodes[1:]:
-            if type(node.attrib['rel']) == str:
+            if isinstance(node.attrib['rel'], str):
                 if 'index' in node.attrib.keys():
 
-                    main_coind[node.attrib['index']].attrib['rel'] = {parent.attrib['id']: [node.attrib['rel'],
-                                                                                            'secondary'],
-                                                                      **main_coind[node.attrib['index']].attrib['rel']}
+                    main_coind[node.attrib['index']].attrib['rel'] = {
+                        parent.attrib['id']: Rel(label=node.attrib['rel'], rank='secondary'),
+                        **main_coind[node.attrib['index']].attrib['rel']}
                     parent.remove(node)
                 else:
                     node.attrib['rel'] = {parent.attrib['id']: node.attrib['rel']}
@@ -186,8 +190,9 @@ class Lassy(Dataset):
 
 
 class Decompose:
-    def __init__(self, type_dict=None, unify=False, return_lists=True, text_pipeline=lambda x: x.lower(),
-                 separation_symbol='↔', visualize=False):
+    def __init__(self, type_dict: Optional[Dict[str, str]]=None, unify: bool=False, return_lists: bool=True,
+                 text_pipeline: Callable[[str], str]=lambda x: x.lower(), separation_symbol: str='↔',
+                 visualize: bool=False) -> None:
         # type_dict: POS → Type
         if not type_dict:
             self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
@@ -211,40 +216,46 @@ class Decompose:
         self.visualize = visualize
 
     @staticmethod
-    def is_leaf(node):
+    def is_leaf(node: ET.Element) -> bool:
         """
-        Returns True if a node is a leaf in the parse tree, False otherwise.
-        :param node: the node to decide
-        :return True | False:
+
+        :param node:
+        :type node:
+        :return:
+        :rtype:
         """
         return True if 'word' in node.attrib.keys() else False
 
-    def majority_vote(self, node, grouped):
+    def majority_vote(self, node: ET.Element, grouped: Grouped) -> str:
         """
-        Returns the majority voting of a node's children base types.
+
         :param node:
+        :type node:
         :param grouped:
+        :type grouped:
         :return:
+        :rtype:
         """
         sibling_types = [self.get_type_key(n[0], grouped) for n in grouped[node]]
         votes = {c: len([x for x in sibling_types if x == c]) for c in set(sibling_types)}
         votes = sorted(votes, key=lambda x: -votes[x])
         return votes[0]
 
-    def get_type_key(self, node, grouped):
+    def get_type_key(self, node: ET.Element, grouped: Dict[ET.Element, List]):
         """
         This will return the pos/cat of a node, performing majority vote on conjunctions
         :param node:
         :param grouped:
         :return:
         """
+        # todo: this will not work after the noun-ification change
         if 'cat' in node.attrib.keys():
             if node.attrib['cat'] == 'conj':
                 return self.majority_vote(node, grouped)
             return node.attrib['cat']
         return node.attrib['pos']
 
-    def get_type(self, node: ET.Element, grouped: Dict[ET.Element, List], rel: Optional[Union[List, str]]=None,
+    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Rel]=None,
                  parent: Optional[ET.Element]=None) -> WordType:
         """
             Returns the type of a node within a given context.
@@ -345,11 +356,13 @@ class Decompose:
             raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
     @staticmethod
-    def group_by_parent(xtree):
+    def group_by_parent(xtree: ET.ElementTree) -> Grouped:
         """
-        Converts the representation from ETree to a dictionary mapping parents to their children
-        :param ElementTree xtree:
-        :return dict grouped: a dictionary mapping each node to its children
+
+        :param xtree:
+        :type xtree:
+        :return:
+        :rtype:
         """
         nodes = list(xtree.iter('node'))
         grouped = []
@@ -361,8 +374,8 @@ class Decompose:
                     grouped.append([node, parent, rel])
         grouped = sorted(grouped, key=lambda x: int(x[1]))
         grouped = groupby(grouped, key=lambda x: int(x[1]))
-        grouped = {k: [[v[0], v[2]] for v in V] for k, V in grouped}
-        grouped = dict(map(lambda x: [x[0], x[1]], grouped.items()))
+        grouped = {k: [(v[0], v[2]) for v in V] for k, V in grouped}
+        grouped = dict(map(lambda x: (x[0], x[1]), grouped.items()))
 
         newdict = dict()
 
@@ -372,6 +385,7 @@ class Decompose:
                 continue
             newkey = list(filter(lambda x: x.attrib['id'] == str(key), nodes))[0]
             newdict[newkey] = grouped[key]
+
         return newdict
 
     @staticmethod
@@ -401,12 +415,12 @@ class Decompose:
             for c, r in grouped[key]:
                 if c in keys_to_remove:
                     # the child was a cut-off parent; remove the incoming edge
-                    children_to_remove.append([c, r])
+                    children_to_remove.append((c, r))
                     if key is not None:
                         del c.attrib['rel'][key.attrib['id']]
                 elif r in rels_to_remove:
                     # the child has a 'bad' incoming edge; remove it
-                    children_to_remove.append([c, r])
+                    children_to_remove.append((c, r))
                     if key is not None:
                         del c.attrib['rel'][key.attrib['id']]
                 # elif (len(c.attrib['rel'].values()) and
@@ -427,7 +441,7 @@ class Decompose:
             for key in grouped.keys():
                 for c, r in grouped[key]:
                     if c in empty_keys:
-                        grouped[key].remove([c, r])
+                        grouped[key].remove((c,r))
                         if key is not None:
                             del c.attrib['rel'][key.attrib['id']]
             empty_keys = [key for key in grouped.keys() if not grouped[key]]
@@ -449,7 +463,7 @@ class Decompose:
         return all_keys.difference(all_children)
 
     @staticmethod
-    def abstract_object_to_subject(grouped):
+    def abstract_object_to_subject(grouped: Grouped) -> Grouped:
         """
         Takes a dictionary containing abstract objects/subjects and applies a series of conventions to re-assign the
         main objects/subjects.
@@ -459,7 +473,7 @@ class Decompose:
         def is_abstract(node_rel, real_so):
             node, rel = node_rel
             if (node.attrib['index'] in real_so.attrib['index']) and \
-                    rel in (['obj1', 'primary'], ['su', 'primary'], ['sup', 'primary']):
+                    rel in (('obj1', 'primary'), ('su', 'primary'), ('sup', 'primary')):
                 return True
             return False
 
@@ -469,13 +483,13 @@ class Decompose:
 
             if main_parent.attrib['cat'] not in ('ssub', 'smain', 'sv1'):
                 continue
-            real_so = list(filter(lambda x: x[1] in (['su', 'secondary'], ['obj1', 'secondary']),
+            real_so = list(filter(lambda x: x[1] in (('su', 'secondary'), ('obj1', 'secondary')),
                                   [x for x in grouped[main_parent]]))
             if not real_so:
                 continue
 
-            assert isinstance(real_so[0][1], list)
-            parent_dep = real_so[0][1][0]
+            assert isinstance(real_so[0][1], Rel)
+            parent_dep = real_so[0][1].label
             real_so = real_so[0][0]
 
             # om te construction --  go one level lower
@@ -503,78 +517,82 @@ class Decompose:
             if not abstract_so:
                 continue
 
-            rel = abstract_so[0][1][0]
+            rel = abstract_so[0][1].label
             abstract_so = abstract_so[0][0]
             # # # Dictionary changes
             # remove the abstract real_so / object from being a child of the ppart/inf
-            grouped[ppart].remove([abstract_so, [rel, 'primary']])
+            grouped[ppart].remove((abstract_so, Rel(label=rel, rank='primary')))
             # remove the abstract so from being a child of the ssub with a secondary label
-            grouped[main_parent].remove([abstract_so, [parent_dep, 'secondary']])
+            grouped[main_parent].remove((abstract_so, (parent_dep, 'secondary')))
             # add it again with a primary label
-            grouped[main_parent].append([abstract_so, [parent_dep, 'primary']])
+            grouped[main_parent].append((abstract_so, Rel(label=parent_dep, rank='primary')))
             # # # Internal node changes (for consistency)
             # remove the primary edge property from abstract object
             del abstract_so.attrib['rel'][ppart.attrib['id']]
             # convert the secondary edge to primary internally
-            abstract_so.attrib['rel'][main_parent.attrib['id']] = ['su', 'primary']
+            abstract_so.attrib['rel'][main_parent.attrib['id']] = Rel(label='su', rank='primary')
         return grouped
 
     @staticmethod
-    def remove_abstract_so(grouped, candidates=('su', 'obj', 'obj1', 'obj2', 'sup')):
+    def remove_abstract_so(grouped: Grouped, candidates: Iterable[str]=('su', 'obj', 'obj1', 'obj2', 'sup')) -> Grouped:
         """
-        Takes a dictionary containing abstract subjects/objects and removes them. The main subject/object must have
-        been properly assigned before.
+            Takes a dictionary containing abstract subjects/objects and removes them. The main subject/object must have
+            been properly assigned before.
         :param grouped:
+        :type grouped:
+        :param candidates:
+        :type candidates:
         :return:
+        :rtype:
         """
         for parent in grouped.keys():
-            if parent.attrib['cat'] != 'ppart' and parent.attrib['cat'] != 'inf':
+            if parent.attrib['cat'] not in ('ppart', 'inf'):
                 # this is a proper secondary edge (non-abstract) and should not be removed
                 continue
             for child, rel in grouped[parent]:
-                if not isinstance(rel, list):
+                if isinstance(rel, str):
                     # ignore non-coindexed
                     continue
                 red_rel = Decompose.get_rel(rel)
                 if red_rel not in candidates:
                     continue
-                if rel[1] == 'secondary':
+                if rel.rank == 'secondary':
                     # # # Dictionary changes
                     # remove the abstract s/o from being a child of the ppart/inf
-                    grouped[parent].remove([child, rel])
+                    grouped[parent].remove((child, rel))
                     # # # Internal node changes (for consistency)
                     del child.attrib['rel'][parent.attrib['id']]
                 else:
                     # Trying to remove main coindex
                     if 'index' in child.keys():
-                        # todo?
                         continue
-                        # raise ValueError('Found primary object between {} and {}'.format(parent.attrib['id'],
-                        #                                                    child.attrib['id']))
-                    #ToGraphViz()(grouped, output='abc')
 
         return grouped
 
     @staticmethod
-    def order_siblings(siblings, exclude=None):
+    def order_siblings(siblings: List[Tuple[ET.Element, Union[Rel, str]]], exclude: Optional[ET.Element]=None) \
+            -> List[Tuple[ET.Element, Union[Rel, str]]]:
         """
-        Sorts a list of sibling nodes. Sorting is done on the basis of (span: start, span:end, original id)
+
         :param siblings:
+        :type siblings:
         :param exclude:
+        :type exclude:
         :return:
+        :rtype:
         """
         if exclude is not None:
             siblings = list(filter(lambda x: x[0] != exclude, siblings))
         return sorted(siblings,
                       key=lambda x: tuple(map(int, (x[0].attrib['begin'], x[0].attrib['end'], x[0].attrib['id']))))
 
-    def collapse_mwu(self, grouped):
+    def collapse_mwu(self, grouped: Grouped) -> Grouped:
         """
-        Takes a dictionary, possibly containing multi-word units, and collapses these together. The type of the
-        collapsed node is inferred by majority voting on its children.
+
         :param grouped:
-        :param relabel:
+        :type grouped:
         :return:
+        :rtype:
         """
         to_remove = []
 
@@ -595,7 +613,8 @@ class Decompose:
             del (grouped[key])
         return grouped
 
-    def choose_head(self, children_rels):
+    def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
+            -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
         """
         Takes a list of siblings and selects their head.
         :param children_rels: a list of [node, rel] lists
@@ -610,11 +629,14 @@ class Decompose:
         return None, None
 
     @staticmethod
-    def get_rel(rel):
-        return rel[0] if isinstance(rel, list) else rel
+    def get_rel(rel: Union[Rel, str]) -> str:
+        if isinstance(rel, str):
+            return rel
+        else:
+            return rel.label
 
     @staticmethod
-    def collapse_single_non_terminals(grouped, depth=0):
+    def collapse_single_non_terminals(grouped: Grouped, depth: int=0) -> Grouped:
         # list of nodes containing a single child
         intermediate_nodes = [k for k in grouped.keys() if len(grouped[k]) == 1]
         if not intermediate_nodes:
@@ -634,13 +656,13 @@ class Decompose:
                     ToGraphViz()(grouped)
                     raise ValueError('Many rels @ non-terminal node {}.'.format(k.attrib['id']))
                 new_rel = rels[0]
-                grouped[kk].remove([k, new_rel])
-                new_rel = new_rel[0] if isinstance(new_rel, list) else new_rel
-                if isinstance(old_rel, list):
-                    grouped[kk].append([points_to, [rels[0], old_rel[1]]])
-                    points_to.attrib['rel'][kk.attrib['id']] = [rels[0], old_rel[1]]
+                grouped[kk].remove((k, new_rel))
+                new_rel = Decompose.get_rel(new_rel)
+                if isinstance(old_rel, Rel):
+                    grouped[kk].append((points_to, Rel(label=rels[0], rank=old_rel[1])))
+                    points_to.attrib['rel'][kk.attrib['id']] = (rels[0], old_rel[1])
                 else:
-                    grouped[kk].append([points_to, new_rel])
+                    grouped[kk].append((points_to, new_rel))
                     points_to.attrib['rel'][kk.attrib['id']] = new_rel
             del points_to.attrib['rel'][k.attrib['id']]
         for k in intermediate_nodes:
@@ -876,10 +898,10 @@ def main(return_lists=False, viz=False, remove_mods=False, ignore='ignored.txt')
 
 
 class ToGraphViz:
-    def __init__(self, to_show=('id', 'word', 'pos', 'cat', 'index')):
+    def __init__(self, to_show: Iterable[str]=('id', 'word', 'pos', 'cat', 'index')) -> None:
         self.to_show = to_show
 
-    def construct_node_label(self, child):
+    def construct_node_label(self, child: ET.Element):
         """
         :param child:
         :return:
@@ -895,13 +917,16 @@ class ToGraphViz:
                 label += child['begin'] + '-' + child['end'] + '\n'
         return label
 
-    def construct_edge_label(self, rel):
-        return ' '.join(rel) if isinstance(rel, list) else rel
+    def construct_edge_label(self, rel: Union[Rel, str]) -> str:
+        if isinstance(rel, str):
+            return rel
+        else:
+            return ' '.join(rel)
 
-    def get_edge_style(self, rel):
-        return 'dashed' if isinstance(rel, list) and rel[1] == 'secondary' else ''
+    def get_edge_style(self, rel: Union[Rel, str]) -> str:
+        return 'dashed' if isinstance(rel, Rel) and rel.rank == 'secondary' else ''
 
-    def xml_to_gv(self, xtree):
+    def xml_to_gv(self, xtree: ET.ElementTree) -> graphviz.Digraph:
         nodes = list(Lassy.extract_nodes(xtree))  # a list of triples
         graph = graphviz.Digraph()
 
@@ -913,7 +938,7 @@ class ToGraphViz:
             node_label = self.construct_node_label(child.attrib)
             graph.node(child.attrib['id'], label=node_label)
 
-            if type(child.attrib['rel']) == str:
+            if isinstance(child.attrib['rel'], str):
                 graph.edge(parent.attrib['id'], child.attrib['id'], label=child.attrib['rel'])
             else:
                 for parent_id, dependency in child.attrib['rel'].items():
@@ -921,7 +946,7 @@ class ToGraphViz:
 
         return graph
 
-    def grouped_to_gv(self, grouped):
+    def grouped_to_gv(self, grouped: Grouped) -> graphviz.Digraph:
         graph = graphviz.Digraph()
         reduced_sentence = ' '.join([x.attrib['word'] for x in sorted(
             set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
@@ -938,7 +963,7 @@ class ToGraphViz:
                 graph.edge(parent.attrib['id'], child.attrib['id'], style=self.get_edge_style(rel), label=self.construct_edge_label(rel))
         return graph
 
-    def __call__(self, parse, output='gv_output', view=True):
+    def __call__(self, parse: Union[Grouped, ET.ElementTree], output: str='gv_output', view: bool=True) -> None:
         graph = self.xml_to_gv(parse) if isinstance(parse, ET.ElementTree) else self.grouped_to_gv(parse)
         if output:
             graph.render(output, view=view)
