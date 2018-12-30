@@ -263,7 +263,10 @@ def __main__(fake=False, mini=False, language='nl'):
     splitpoint = int(np.floor(val_split * len(s)))
     np.random.shuffle(indices)
     train_indices, val_indices = indices[splitpoint:], indices[:splitpoint]
+<<<<<<< HEAD
     val_indices = sorted(val_indices, key=lambda i: s[i][0].shape[0], reverse=True)  # sort val_indices for bucketing
+=======
+>>>>>>> origin/master
 
     marks = SeqUtils.get_type_occurrences([s.type_sequences[i] for i in train_indices])
 
@@ -320,6 +323,10 @@ def __main__(fake=False, mini=False, language='nl'):
                 store_samples(ecdc, s, val_indices, marks=marks)
 
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/master
 def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, log_file='nn/val_log.tsv', marks=None):
 
     texts = []
@@ -328,11 +335,24 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
 
     batch_start = 0
 
+<<<<<<< HEAD
     while batch_start < len(val_indices):
 
         batch_end = min([batch_start + batch_size, len(val_indices)])
         batch_indices = [val_indices[i] for i in range(batch_start, batch_end)]
         sorted_indices = batch_indices
+=======
+    val_indices = sorted(val_indices, key = lambda i: dataset[i][0].shape[0], reverse=True)
+
+    while batch_start < len(val_indices):
+
+        batch_end = min([batch_start + batch_size, len(val_indices)])
+
+        batch_indices = [val_indices[i] for i in range(batch_start, batch_end)]
+
+        sorted_indices = batch_indices
+
+>>>>>>> origin/master
         batch_all = [dataset[i] for i in sorted_indices]
 
         batch_x = pack_sequence([x[0] for x in batch_all]).to(device)
@@ -348,6 +368,11 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
         prediction = torch.split(prediction, phrase_lens)
         prediction = list(map(lambda x: x.cpu().numpy().tolist(), prediction))
 
+<<<<<<< HEAD
+=======
+        batch_texts = [dataset.word_sequences[i] for i in sorted_indices]
+
+>>>>>>> origin/master
         texts.extend([dataset.word_sequences[i] for i in sorted_indices])
 
         batch_t_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(batch_y, dataset.atomic_dict)
@@ -356,10 +381,15 @@ def store_samples(network, dataset, val_indices, device='cuda', batch_size=128, 
 
         batch_p_types = SeqUtils.convert_many_vector_sequences_to_type_sequences(prediction, dataset.atomic_dict)
         p_types.extend([[batch_p_types[i][j] for j in range(len(batch_t_types[i]))] for i in range(len(batch_t_types))])
+<<<<<<< HEAD
 
         batch_start = batch_end
 
     imagined_types = SeqUtils.get_all_unique(p_types) - SeqUtils.get_all_unique(t_types)
+=======
+
+        batch_start = batch_end
+>>>>>>> origin/master
 
     with open(log_file, 'w') as f:
         for i in range(len(texts)):
@@ -383,6 +413,7 @@ def reindex(batch_sizes):
     return torch.Tensor(indices).to('cuda').long()
 
 
+<<<<<<< HEAD
 def organize_curriculum(dataset, training_indices, marks):
     curriculum = []
     # the number of words in the sample
@@ -426,3 +457,25 @@ def organize_curriculum(dataset, training_indices, marks):
                       )
     print('Curriculum lens: {}'.format(list(map(len, curriculum))))
     return curriculum
+=======
+def mark_types(dataset, train_indices, val_indices):
+    marks = defaultdict(lambda: 0)
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+
+    type_occurrences_all = SeqUtils.get_type_occurrences(dataset.type_sequences)
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+    # todo:
+    #   pick out relevant types (apply ''.join() on each out of get occurrence
+    #   mark in the default dict
+    #   return it
+    type_occurrences_all = set(type_occurrences_all.keys())
+    type_occurrences_train = SeqUtils.get_type_occurrences([dataset.type_sequences[i] for i in train_indices])
+    type_occurrences_val = SeqUtils.get_type_occurrences([s.type_sequences[i] for i in val_indices])
+    type_occurrences_val = set(type_occurrences_val.keys())
+    only_in_val = type_occurrences_all.difference(type_occurrences_val)
+    marks = defaultdict(lambda: ' ')
+    for item in only_in_val:
+        marks[item] = '!!!'
+    import pdb
+    pdb.set_trace()
+>>>>>>> origin/master

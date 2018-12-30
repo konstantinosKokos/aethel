@@ -38,7 +38,11 @@ def make_oov_files(input_file='test-output/sequences/words-types.p', iv_vectors_
 
 
 def get_type_occurrences(type_sequences):
+<<<<<<< HEAD
     return Counter([x for x in chain(*type_sequences)])
+=======
+    return Counter([tuple(x) for x in chain(*type_sequences)])
+>>>>>>> origin/master
 
 
 def get_all_chars(word_sequences):
@@ -60,9 +64,14 @@ def filter_by_occurrence(word_sequences, type_sequences, threshold, mode='min', 
     """
     assert (len(word_sequences) == len(type_sequences))
     type_occurrences = get_type_occurrences(type_sequences)
+<<<<<<< HEAD
     # kept indices are the ones where each type has an occurrence above the threshold
     kept_indices = [i for i in range(len(s.type_sequences)) if
                     all(list(map(lambda x: type_occurrences[x] > threshold, type_sequences[i])))]
+=======
+    kept_indices = [i for i in range(len(word_sequences)) if not
+                        list(filter(lambda x: type_occurrences[tuple(x)] <= threshold, type_sequences[i]))]
+>>>>>>> origin/master
     if mode != 'min':
         kept_indices = [i for i in range(len(word_sequences)) if i not in kept_indices]
     if return_indices:
