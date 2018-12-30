@@ -1,44 +1,44 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from collections import Counter
+from typing import Union, Tuple
 
 
 class WordType(ABC):
     @abstractmethod
-    def __str__(self):
+    def __str__(self) -> str:
         pass
 
     @abstractmethod
-    def __repr__(self):
+    def __repr__(self) -> str:
         pass
 
     @abstractmethod
-    def __hash__(self):
+    def __hash__(self) -> int:
         pass
 
     @abstractmethod
-    def get_arity(self):
+    def get_arity(self) -> int:
         pass
 
     @abstractmethod
-    def __call__(self):
+    def __call__(self) -> str:
         pass
 
     @abstractmethod
-    def __eq__(self, other):
+    def __eq__(self, other: 'WordType') -> bool:
         pass
 
     @abstractmethod
-    def decolor(self):
+    def decolor(self) -> Union['AtomicType', 'ComplexType', 'CombinatorType']:
         pass
 
     @abstractmethod
-    def retrieve_atomic(self):
+    def retrieve_atomic(self) -> 'AtomicType':
         pass
 
 
 class AtomicType(WordType):
-    def __init__(self, result):
+    def __init__(self, result: str) -> None:
         if not isinstance(result, str):
             raise TypeError('Expected result to be of type str, received {} instead.'.format(type(result)))
         self.result = result
@@ -72,7 +72,7 @@ class AtomicType(WordType):
 
 
 class ModalType(WordType):
-    def __init__(self, result, modality):
+    def __init__(self, result: WordType, modality: str) -> None:
         if not isinstance(result, WordType):
             raise TypeError('Expected result to be of type WordType, received {} instead.'.format(type(result)))
         self.result = result
@@ -112,7 +112,7 @@ class ModalType(WordType):
 
 
 class ComplexType(WordType):
-    def __init__(self, arguments, result):
+    def __init__(self, arguments: Tuple[WordType], result: WordType) -> None:
         if not isinstance(result, WordType):
             raise TypeError('Expected result to be of type WordType, received {} instead.'.format(type(result)))
         self.result = result
