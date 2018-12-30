@@ -285,8 +285,8 @@ class EncoderDecoderWithCharRNN(nn.Module):
         return self.forward(x.view(seq_len, 1, 300), c.view(seq_len, 1, -1)).view(-1, self.num_types).argmax(-1)
 
 
-def __main__(fake=False):
-    s = SeqUtils.__main__(fake=fake, return_char_sequences=True, return_word_distributions=True)
+def __main__(fake=False, decolor=False):
+    s = SeqUtils.__main__(fake=fake, return_char_sequences=True, return_word_distributions=True, decolor=decolor)
 
     num_epochs = 100
     batch_size = 64

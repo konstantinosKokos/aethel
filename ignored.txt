@@ -148,3 +148,8 @@
 /home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WR-P-P-I-0000000055/WR-P-P-I-0000000055.p.1.s.2.xml
 /home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WR-P-P-G-0000000020/WR-P-P-G-0000000020.p.8.s.1.xml
 /home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WR-P-P-I-0000000048/WR-P-P-I-0000000048.p.1.s.2.xml
+/home/kokos/Documents/Projects/LassySmall 4.0/Treebank/dpc-vla-001175-nl-sen/dpc-vla-001175-nl-sen.p.136.s.3.xml
+/home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WS-U-E-A-0000000245/WS-U-E-A-0000000245.p.17.s.6.xml
+/home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WS-U-E-A-0000000220/WS-U-E-A-0000000220.p.35.s.15.xml
+/home/kokos/Documents/Projects/LassySmall 4.0/Treebank/WS-U-E-A-0000000237/WS-U-E-A-0000000237.p.4.s.4.xml
+/home/kokos/Documents/Projects/LassySmall 4.0/Treebank/wiki-1941/wiki-1941.p.5.s.1.xml

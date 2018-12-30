@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import pickle
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-from LexUtils import init_char_dict
+from utils.LexUtils import init_char_dict
 import numpy as np
 
 """
@@ -40,7 +40,7 @@ class VectorsToTypes(nn.Module):
             nn.Linear(in_features=self.vector_shape+self.rnn_dim, out_features=self.vector_shape+self.rnn_dim),
             nn.ReLU(),
             nn.Linear(in_features=self.vector_shape+self.rnn_dim, out_features=num_types),
-            nn.Softmax(dim=1)
+            nn.LogSoftmax(dim=1)
         ).to(device)
 
         self.device = device
@@ -52,9 +52,11 @@ class VectorsToTypes(nn.Module):
         # print(char_embeddings.shape) [32, 115, 50] -> [batch, seq_len, dim]
         _, (char_vector, _) = self.char_rnn(char_embeddings.view(-1, batch_shape, self.embedding_dim), hc)
         char_vector = F.layer_norm(char_vector, char_vector.size()[1:])
+        char_vector = F.dropout(char_vector, 0.35)
         char_vector = char_vector[0] + char_vector[1]  # sum over the two directions
         transformed_vector = self.vector_transformation(word_vector)
         transformed_vector = F.layer_norm(transformed_vector, transformed_vector.size()[1:])
+        transformed_vector = F.dropout(transformed_vector, 0.5)
         transformed_vector = torch.cat((transformed_vector, char_vector), dim=1)
         type_prediction = self.type_prediction(transformed_vector)
         return type_prediction
@@ -72,7 +74,7 @@ class VectorsToTypes(nn.Module):
     def eval_batch(self, batch_inputs_x, batch_inputs_c, batch_outputs, criterion):
         self.eval()
         predictions = self.forward(batch_inputs_x, batch_inputs_c)
-        loss = criterion(predictions.view(-1, 1), batch_outputs.view(-1, 1))
+        loss = criterion(predictions, batch_outputs)
         return loss.item()
 
     def top_accuracy(self, batch_inputs_x, batch_inputs_c, batch_outputs):
@@ -123,7 +125,7 @@ def to_categorical(y, num_classes=None):
     return categorical
 
 
-def __main__(filename='test-output/XYW.p'):
+def __main__(filename='test-output/XYW10FO.p'):
     with open(filename, 'rb') as f:
         x, y, words = pickle.load(f)
 
@@ -143,10 +145,9 @@ def __main__(filename='test-output/XYW.p'):
 
     num_train_samples, num_types, num_chars = y_train.shape[0], y_train.shape[1], char_one_hots.shape[2]
     network = VectorsToTypes(num_types, num_chars, device=device)
-    optimizer = torch.optim.Adam(network.parameters(), lr=1e-03, weight_decay=1e-02)
-    # optimizer = torch.optim.SGD(network.parameters(), momentum=1e-05, lr=1e-03)
-    # criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='elementwise_mean')
-    criterion = nn.BCELoss(reduction='sum')
+    optimizer = torch.optim.Adam(network.parameters(), lr=1e-04, weight_decay=1)
+    criterion = lambda inp, outp: F.kl_div(inp, outp, reduction='sum')
+    # criterion = nn.BCELoss(reduction='sum')
     batch_size = 64
     num_epochs = 50
 
