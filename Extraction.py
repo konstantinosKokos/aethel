@@ -5,13 +5,14 @@ from copy import deepcopy
 import graphviz
 from pprint import pprint as print
 
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 
 from itertools import groupby, chain
-from collections import Counter
 
 from WordType import *
+
+from typing import Optional, Iterable, Tuple, Union, Any, Generator, Dict, List
 
 from warnings import warn
 
@@ -21,13 +22,20 @@ class Lassy(Dataset):
     Lassy dataset
     """
 
-    def __init__(self, root_dir='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir='/Treebank',
-                 transform=None, ignore=True):
+    def __init__(self, root_dir: str='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir: str='/Treebank',
+                 transform: Optional[Compose]=None, ignore: Optional[str] = 'ignored.txt'):
         """
+            Initialize a Lassy dataset.
 
-        :param root_dir:
-        :param treebank_dir:
-        :param transform:
+
+        :param root_dir: The root directory containing all data and metadata files.
+        :type root_dir: str
+        :param treebank_dir: The subdirectory containing the parse trees in xml format.
+        :type treebank_dir: test
+        :param transform: A torchvision Compose object, specifying the transformations to be applied on the data.
+        :type transform: Compose
+        :param ignore: (Optional) Filename containing the xml files to be ignored.
+        :type ignore: Optional[str]
         """
 
         if os.path.isdir(root_dir) and os.path.isdir(root_dir+treebank_dir):
@@ -37,14 +45,14 @@ class Lassy(Dataset):
             raise ValueError('%s and %s must be existing directories' % (root_dir, treebank_dir))
 
         ignored = []
-        if ignore:
+        if ignore is not None:
             try:
-                with open('ignored.txt', 'r') as f:
+                with open(ignore, 'r') as f:
                     ignored = f.readlines()
                     ignored = list(map(lambda x: x[0:-1], ignored))
+                    print('Ignoring {} samples..'.format(len(ignored)))
             except FileNotFoundError:
-                pass
-            print('Ignoring {} samples..'.format(len(ignored)))
+                warn('Could not open the ignore file.')
 
         self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))
                          if y not in ignored]
@@ -52,29 +60,35 @@ class Lassy(Dataset):
 
         print('Dataset constructed with {} samples.'.format(len(self.filelist)))
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
-        :return:
+        :return: The number of xml files used by this dataset.
+        :rtype: int
         """
         return len(self.filelist)
 
-    def __getitem__(self, id):
+    def __getitem__(self, index: Union[int, str]) -> Any:
         """
-        :param file:
-        :return: id (INT), FILENAME (STR), PARSE (XMLTREE)
+            Itemgetter function, used to retrieve items from this dataset.
+
+        :param index: The index or filename of the sample to be retrieved.
+        :type index: Union[int, str]
+        :return: If no transformation is provided, a tuple containing the index, the filename and the ElementTree parse
+            of the sample. If a transformation is provided, returns the output of that transformation.
+        :rtype: Any
         """
 
-        if type(id) == int:
-            file = self.filelist[id]
-        elif type(id) == str:
-            file = id
+        if type(index) == int:
+            file = self.filelist[index]
+        elif type(index) == str:
+            file = index
         else:
             raise TypeError('file argument has to be int or str')
 
         parse = ET.parse(file)
         parse.getroot().set('type', 'Tree')
 
-        sample = (id, file, parse)
+        sample = (index, file, parse)
 
         if self.transform:
             return self.transform(sample)
@@ -82,12 +96,15 @@ class Lassy(Dataset):
         return sample
 
     @staticmethod
-    def extract_nodes(xtree):
+    def extract_nodes(xtree: ET.ElementTree) -> Generator[Tuple[ET.Element, Optional[ET.Element]], None, None]:
         """
-        A simple iterator over an xml parse that returns the parse tree's nodes. This is necessary as the default ET
-        iterator does not provide parent or depth info.
-        :param xtree:
-        :return (child_node, parent_node, depth)
+            A simple iterator over an xml parse that returns the parse tree's nodes. This is necessary as the default \
+        ET iterator does not provide parent or depth info.
+
+        :param xtree: The ElementTree to extract the nodes from.
+        :type xtree: ET.ElementTree
+        :return: A generator yielding tuples of (child, parent) nodes.
+        :rtype: Generator[Tuple[ET.Element, Optional[int]], None, None]
         """
 
         root = xtree.getroot().find('node')
@@ -104,16 +121,20 @@ class Lassy(Dataset):
 
 
     @staticmethod
-    def find_main_coindex(xtree):
+    def find_main_coindex(xtree: ET.ElementTree) -> Tuple[Dict[int, List[ET.Element]],
+                                                          Dict[int, List[ET.Element]]]:
         """
-        Takes an ElementTree representing a parse tree, finds out nodes corresponding to the same lexical unit, and
-        selects a single node to act as the "main" node (the one to collapse dependencies to, when removing its
-        cross-references).
-        :param cElementTree xtree: the ElementTree to operate on
-        :return dict all_coind a dictionary mapping each co-indexing identifier to a list of nodes sharing it,
-                dict main_coind a dictionary mapping each co-indexing identifier to the main node of the group:
+            Takes an ElementTree representing a parse tree, finds out nodes corresponding to the same lexical unit \
+        and selects a single node to act as the "main" node (the one to collapse dependencies to, when removing \
+        its cross-references).
 
+        :param xtree: The ElementTree to operate on.
+        :type xtree: ET.ElementTree
+        :return: Returns a tuple of dictionaries, the first mapping each co-indexing identifier to a list of nodes
+            sharing it, and the second mapping each co-indexing identifier to the main node of the group.
+        :rtype: Tuple[Dict[int, List[ET.Element, ...]], Dict[int, List[ET.Element, ...]]]
         """
+
         coindexed = list(filter(lambda x: 'index' in x.attrib.keys(), xtree.iter('node')))
         if not coindexed:
             return dict(), dict()
@@ -125,17 +146,22 @@ class Lassy(Dataset):
         return all_coind, main_coind
 
     @staticmethod
-    def tree_to_dag(xtree, inline=False):
+    def tree_to_dag(xtree: ET.ElementTree, inplace: bool=False) -> ET.ElementTree:
         """
-        Takes an ElementTree representing a parse tree, possibly containing duplicate nodes (that is, nodes that
-        correspond to the same lexical unit but with a different identifier to preserve the tree format). Removes
-        duplicate nodes by constructing new dependency links between cross-references (moving to a DAG format), and
+            Takes an ElementTree representing a parse tree, possibly containing duplicate nodes (that is, nodes that \
+        correspond to the same lexical unit but with a different identifier to preserve the tree format). Removes \
+        duplicate nodes by constructing new dependency links between cross-references (moving to a DAG format), and \
         returns the resulting ElementTree.
-        :param xtree: the ElementTree to process
-        :param inline: whether to apply the changes to the original tree or a copy of it
-        :return xtree: the modified ElementTree
+
+        :param xtree: The ElementTree to transform.
+        :type xtree: ET.ElementTree
+        :param inplace: Whether to do the transformation inplace or on a deep copy of the input.
+        :type inplace: bool
+        :return: The ElementTree with the ghost nodes replaced by secondary dependencies.
+        :rtype: ET.ElementTree
         """
-        if not inline:
+
+        if not inplace:
             xtree = deepcopy(xtree)
 
         nodes = list(Lassy.extract_nodes(xtree))
@@ -164,11 +190,10 @@ class Decompose:
                  separation_symbol='↔', visualize=False):
         # type_dict: POS → Type
         if not type_dict:
-            # todo: instantiate the type dict with Types and refactor all downwards call to allow for complex types
             self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
                               'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DET',
-                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NP', 'noun': 'NP',
-                              'np': 'NP', 'num': 'NP', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
+                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NAME', 'noun': 'N',
+                              'np': 'NP', 'num': 'NUM', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
                               'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'NP', 'punct': 'PUNCT',
                               'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'SVAN',
                               'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
@@ -176,13 +201,6 @@ class Decompose:
             # convert to Types
             self.type_dict = {k: AtomicType(v) for k, v in self.type_dict.items()}
 
-            # Type conventions (richard)
-            # # todo: need to change the direction of headedness before applying
-            # self.type_dict['det'] = WordType([('NP', 'det')], 'NP')
-            # self.type_dict['adj'] = WordType([('NP', 'mod')], 'NP')
-            # self.type_dict['ap'] = WordType([('NP', 'mod')], 'NP')
-            # self.type_dict['adv'] = WordType([('S', 'mod')], 'S')
-            # self.type_dict['advp'] = WordType([('S', 'mod')], 'S')
         self.unify = unify  # whether to return a single lexicon from a sentence, or a lexicon for each subunit
         self.return_lists = return_lists  # whether to convert lexicons to word and type sequences
         self.text_pipeline = text_pipeline  # the function applied on the text before adding a word to the lexicon
@@ -226,20 +244,70 @@ class Decompose:
             return node.attrib['cat']
         return node.attrib['pos']
 
-    def get_plain_type(self, node, grouped, rel=None):
+    def get_type(self, node: ET.Element, grouped: Dict[ET.Element, List], rel: Optional[Union[List, str]]=None,
+                 parent: Optional[ET.Element]=None) -> WordType:
         """
-        This will return the plain (i.e. ignoring context) of a node, based on the type_dict of the class
-        :param node:
-        :param grouped:
-        :return:
+            Returns the type of a node within a given context.
+
+            If no optional arguments are passed, context is ignored and the type returned is simply the type dictionary
+            \ mapping of the node's syntactic category or part of speech. In the case of conjunction, a majority vote \
+            is performed on the node's daughters to infer its type translation, i.e. conjunction is treated as \
+            polymorphic, with the production type being the same as that of the (majority of the) daughters.
+
+            If the dependency label is also passed, an additional check will be made; if the dependency label is that \
+            of a modifier, the type assigned will be X -> X with a 'mod' color on the arrow, where X is the parent type.
+            \ If no parent type is provided (e.g. in the case of gaps, where we don't know the non-local source of an \
+            incoming edge, a placeholder type MOD is assigned instead.
+
+            Alternatively, if the parent but no dependency is passed, and the node has a part of speech label of either
+            \ noun or adjective, the assigned type will depend on the parent's syntactic category, according to the \
+            rule: if parent is a phrase (either NP or AP), then the daughter is non-phrasal (N or ADJ, respectively), \
+            otherwise the daughter is acting as a phrase on her own.
+
+        :param node: The node to assign a type to.
+        :type node: ET.Element
+        :param grouped: The dictionary containing the parenthood relations between nodes and their corresponding \
+            dependency labels.
+        :type grouped: dict
+        :param rel: (Optional) The currently inspected dependency label.
+        :type rel: Optional[Union[list, str]]
+        :param parent: (Optional) The parent node of the node inspected.
+        :type parent: Optional[ET.Element]
+        :return: The WordType that the context imposes on the input node.
+        :rtype: WordType
         """
+
+        # case management
+        # dependency label is given and is mod
         if rel is not None and self.get_rel(rel) == 'mod':
-            return AtomicType('MOD')
+            if parent is None:
+                # we do not know the parent of this, needs post-processing
+                warn('Assigning placeholder type.')
+                return AtomicType('MOD')
+            return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
+                               colors=('mod',))
+        # node is terminal (i.e. has a POS attribute) and a parent is provided
+        elif 'pos' in node.attrib.keys() and parent is not None:
+            # subcase management
+            if self.get_type(node, grouped) == AtomicType('N') and self.get_type(parent, grouped) != AtomicType('NP'):
+                return AtomicType('NP')
+            elif self.get_type(node, grouped) == AtomicType('ADJ') and \
+                    self.get_type(parent, grouped) != AtomicType('AP'):
+                return AtomicType('AP')
+        # plain type assignment
         if 'cat' in node.attrib.keys():
+            # non-terminal node
             if node.attrib['cat'] == 'conj':
+                # conjunction
                 return self.type_dict[self.majority_vote(node, grouped)]
-            return self.type_dict[node.attrib['cat']]
-        return self.type_dict[node.attrib['pos']]
+            else:
+                # non-conjunction
+                return self.type_dict[node.attrib['cat']]
+        elif 'pos' in node.attrib.keys():
+            # terminal node
+            return self.type_dict[node.attrib['pos']]
+        else:
+            raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
     @staticmethod
     def group_by_parent(xtree):
@@ -306,12 +374,12 @@ class Decompose:
                     children_to_remove.append([c, r])
                     if key is not None:
                         del c.attrib['rel'][key.attrib['id']]
-                elif (len(c.attrib['rel'].values()) and
-                      all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
-                    # explicit treatment of modifiers
-                    children_to_remove.append([c, r])
-                    if key is not None:
-                        del c.attrib['rel'][key.attrib['id']]
+                # elif (len(c.attrib['rel'].values()) and
+                #       all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
+                #     # explicit treatment of modifiers
+                #     children_to_remove.append([c, r])
+                #     if key is not None:
+                #         del c.attrib['rel'][key.attrib['id']]
 
             for c in children_to_remove:
                 grouped[key].remove(c)
@@ -534,32 +602,38 @@ class Decompose:
                 new_rel = new_rel[0] if isinstance(new_rel, list) else new_rel
                 if isinstance(old_rel, list):
                     grouped[kk].append([points_to, [rels[0], old_rel[1]]])
-                    points_to.attrib['rel'][kk] = [rels[0], old_rel[1]]
+                    points_to.attrib['rel'][kk.attrib['id']] = [rels[0], old_rel[1]]
                 else:
                     grouped[kk].append([points_to, new_rel])
-                    points_to.attrib['rel'][kk] = new_rel
+                    points_to.attrib['rel'][kk.attrib['id']] = new_rel
             del points_to.attrib['rel'][k.attrib['id']]
         for k in intermediate_nodes:
             del(grouped[k])
         return Decompose.collapse_single_non_terminals(grouped, depth=depth+1)
 
-    def recursive_assignment(self, current, grouped, top_type, lexicon):
+    def recursive_assignment(self, current, grouped, top_type, lexicon, node_dict):
         """
         Takes a node, a dictionary, a word type from the above subtree and a lexicon. Updates the lexicon with inferred
         types for this node's children and iterates downwards.
+        :param node_dict:
+        :type node_dict:
         :param current:
         :param grouped:
         :param top_type:
         :param lexicon:
         :return:
         """
+        # ToGraphViz()(grouped)
+
         def is_gap(node):
             # this node is involved in some sort of magic trickery if it has more than one incoming edges
             all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
             if len(all_incoming_edges) > 1:
-                num_heads = list(filter(lambda x: x in self.head_candidates, all_incoming_edges))
-                if num_heads and len(num_heads) != len(all_incoming_edges):
-                    return True
+                head_edges = ([x for x in all_incoming_edges if x in self.head_candidates])
+                if head_edges:
+                    if len(set(head_edges)) != 1 or len(head_edges) < len(all_incoming_edges):
+                        return True
+                return False
             else:
                 return False
 
@@ -570,95 +644,105 @@ class Decompose:
 
         # if no type given from above, assign one now (no nested types)
         if top_type is None:
-            top_type = self.get_plain_type(current, grouped)
+            top_type = self.get_type(current, grouped)
 
         # pose some linear order and exclude the picked head
         siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
         if headchild is not None:
-            # pick all the arguments
-            arglist = [[self.get_plain_type(sib, grouped, rel), self.get_rel(rel)] for sib, rel in siblings]
-            # convert the arglist to coloured arglist
-            if arglist:
-                argtypes, argdeps = list(zip(*arglist))
-            else:
-
-                # siblings must have been removed by processing, so chain of non-terminal nodes with single child
-                # ending with a single word
-                if not self.is_leaf(headchild):
-                    # call self having made no adjustments to top_type (simply propagate it down)
-                    # self.recursive_assignment(headchild, grouped, top_type, lexicon)
-                    pass
-                elif self.get_key(headchild) not in lexicon.keys():
-                    lexicon[self.get_key(headchild)] = top_type
-                elif lexicon[self.get_key(headchild)] != top_type:
-                    raise KeyError('[No siblings] Trying to assign {} to node {}, when already assigned {}. '
-                                   'Now iterating from parent {}.'.format(top_type, headchild.attrib['id'],
-                                                                          lexicon[self.get_key(headchild)],
-                                                                          current.attrib['id']))
-                return lexicon
-
             # classify the headchild
             gap = is_gap(headchild)
 
-            # case management
-            if not gap:
-                # standard type assignment
-                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
-            else:
-                # case of gap: project self within arglist
+            # pick all the arguments
+            arglist = [[self.get_type(sib, grouped, parent=current), self.get_rel(rel)]
+                       for sib, rel in siblings if self.get_rel(rel) != 'mod']
 
-                # assert that there is one argument to project into
+            # whether to type assign on this head -- True by default
+            assign = True
+
+            # case management
+            if arglist and gap:
+                argtypes, argdeps = list(zip(*arglist))
+
+                # hard case first -- gap with siblings
+                # assert that there is just one argument to project into
                 if len(argtypes) != 1:
                     print(argtypes)
                     ToGraphViz()(grouped)
                     raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
                                               format(headchild.attrib['id'], current.attrib['id']))
-
-                # find the dependency which does not match the head
-                internal_edge = [self.get_rel(r) for r in headchild.attrib['rel'].values()
-                                 if self.get_rel(r) != self.get_rel(headrel)]
+                # find the dependencies not projected by current head
+                internal_edges = list(filter(lambda x: x[0] != current.attrib['id'], headchild.attrib['rel'].items()))
+                internal_edges = list(map(lambda x: (node_dict[x[0]], self.get_rel(x[1])), internal_edges))
 
                 # assert that there is just one (class) of those
-                if len(set(internal_edge)) == 1:
+                if len(set(internal_edges)) == 1:
                     # construct the internal type (which includes a hypothesis for the gap)
-                    internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, internal_edge),),
-                                                result=argtypes[0], colors=(internal_edge[0],))
+                    internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edges[0][1],
+                                                                         parent=internal_edges[0][0]),),
+                                                result=argtypes[0], colors=(internal_edges[0][1],))
+                    # (X -> Y)
                     # construct the external type (which takes the internal type back to the top type)
                     headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                    # (X -> Y) -> Z
                 else:
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
-                    for it in set(internal_edge):
-                        internal_type = ColoredType(arguments=(self.get_plain_type(headchild, grouped, it),),
-                                                    result=argtypes[0], colors=(it,))
+                    for internal_head, internal_edge in set(internal_edges):
+                        # if internal_edge == 'mod':
+                        #     raise NotImplementedError('[Case of unknown parent] Modifier gap {} {}.'.
+                        #                               format(headchild.attrib['id'], current.attrib['id']))
+                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edge,
+                                                                             parent=internal_head),),
+                                                    result=argtypes[0], colors=(internal_edge,))
                         types.append(internal_type)
-                        # types.append(ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],)))
                     headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
-                                           result=top_type,  colors=(argdeps[0],))
-
-            if Decompose.is_leaf(headchild):
-                # assign the type to the lexicon
-                if self.get_key(headchild) in lexicon.keys():
-                    old_value = lexicon[self.get_key(headchild)]
-                    if old_value != headtype:
-                        headtype = CombinatorType((headtype, old_value), combinator='&')
-                lexicon[self.get_key(headchild)] = headtype
+                                           result=top_type, colors=(argdeps[0],))
+            elif arglist:
+                argtypes, argdeps = list(zip(*arglist))
+                #  easy case -- standard type assignment
+                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+            elif gap:
+                # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
+                headtype = self.get_type(headchild, grouped)
+                # we avoid type assigning here
+                assign = False
+                # raise NotImplementedError('[What is this?] Case of head with only modifier siblings {}.'
+                #                           .format(headchild.attrib['id']))
             else:
-                # .. or iterate down
-                self.recursive_assignment(headchild, grouped, headtype, lexicon)
+                # neither gap nor has siblings -- must be the end
+                headtype = top_type
+                if not self.is_leaf(headchild):
+                    raise NotImplementedError('[Dead End] Case of head non-terminal with no siblings {}.'
+                                              .format(headchild.attrib['id']))
+
+            # finish the head assignment
+            if assign:
+                if self.is_leaf(headchild):
+                    # tying the knot
+                    if self.get_key(headchild) not in lexicon.keys():
+                        lexicon[self.get_key(headchild)] = headtype
+                    else:
+                        old_value = lexicon[self.get_key(headchild)]
+                        if old_value != headtype:
+                            headtype = CombinatorType((headtype, old_value), combinator='&')
+                            lexicon[self.get_key(headchild)] = headtype
+                else:
+                    self.recursive_assignment(headchild, grouped, headtype, lexicon, node_dict)
 
         # now deal with the siblings
         for sib, rel in siblings:
             if not is_gap(sib):
-                # simple type
-                sib_type = self.get_plain_type(sib, grouped, rel)
+                sib_type = self.get_type(sib, grouped, rel, parent=current)
                 if Decompose.is_leaf(sib):
                     # assign to lexicon
                     lexicon[self.get_key(sib)] = sib_type
                 else:
                     # .. or iterate down
-                    self.recursive_assignment(sib, grouped, None, lexicon)
+                    self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
+            else:
+                pass
+                # raise ValueError('??')
 
     def lexicon_to_list(self, sublex, grouped, to_sequences=True):
         """
@@ -691,7 +775,10 @@ class Decompose:
             ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
-        top_node_types = map(lambda x: self.get_plain_type(x, grouped), top_nodes)
+        top_node_types = map(lambda x: self.get_type(x, grouped), top_nodes)
+
+        node_dict = {node.attrib['id']: node for node in
+                     set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
 
         if self.unify:
             # init lexicon here
@@ -699,7 +786,7 @@ class Decompose:
 
             # recursively iterate from each top node
             for top_node in top_nodes:
-                self.recursive_assignment(top_node, grouped, None, lexicon)
+                self.recursive_assignment(top_node, grouped, None, lexicon, node_dict)
             if self.return_lists:
                 return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
             return lexicon  # or return the dict
@@ -709,14 +796,19 @@ class Decompose:
             dicts = [dict() for _ in top_nodes]
             for i, top_node in enumerate(top_nodes):
                 # recursively iterate each
-                self.recursive_assignment(top_node, grouped, None, dicts[i])
+                self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
 
             if self.return_lists:
                 return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
             return dicts  # or return the dicts
 
 
-def main(ignore=False, return_lists=False, viz=False):
+def main(return_lists=False, viz=False, remove_mods=False, ignore='ignored.txt'):
+    if remove_mods:
+        rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--', 'mod')
+    else:
+        rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--')
+
     # a non-processed dataset for comparisons
     L0 = Lassy(ignore=ignore)
 
@@ -728,22 +820,21 @@ def main(ignore=False, return_lists=False, viz=False):
                            lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
                                                                 cats_to_remove=('du',),
-                                                                rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--',
-                                                                                'top', 'mod', 'predm',))],
+                                                                rels_to_remove=rels_to_remove)],
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
                            lambda x: [x[1], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer, ignore=ignore)
-    #
-    X, Y = [], []
-    for i in range(len(L)):
-        if i == 29897: continue
-        l = L[i][1]
-        X.extend([x[0] for x in l])
-        Y.extend([x[1] for x in l])
-    return X, Y
+    # #
+    # X, Y = [], []
+    # for i in range(len(L)):
+    #     if i == 29897: continue
+    #     l = L[i][1]
+    #     X.extend([x[0] for x in l])
+    #     Y.extend([x[1] for x in l])
+    # return X, Y
 
     return L0, L, ToGraphViz()
 
