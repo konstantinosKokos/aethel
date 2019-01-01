@@ -255,7 +255,7 @@ class Decompose:
             return node.attrib['cat']
         return node.attrib['pos']
 
-    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Rel]=None,
+    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
                  parent: Optional[ET.Element]=None) -> WordType:
         """
             Returns the type of a node within a given context.
@@ -669,21 +669,26 @@ class Decompose:
             del(grouped[k])
         return Decompose.collapse_single_non_terminals(grouped, depth=depth+1)
 
-    def recursive_assignment(self, current, grouped, top_type, lexicon, node_dict):
+    def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
+                             lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
         """
-        Takes a node, a dictionary, a word type from the above subtree and a lexicon. Updates the lexicon with inferred
-        types for this node's children and iterates downwards.
+            Blah.
+        :param current:
+        :type current:
+        :param grouped:
+        :type grouped:
+        :param top_type:
+        :type top_type:
+        :param lexicon:
+        :type lexicon:
         :param node_dict:
         :type node_dict:
-        :param current:
-        :param grouped:
-        :param top_type:
-        :param lexicon:
         :return:
+        :rtype:
         """
         # ToGraphViz()(grouped)
 
-        def is_gap(node):
+        def is_gap(node: ET.Element) -> bool:
             # this node is involved in some sort of magic trickery if it has more than one incoming edges
             all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
             if len(all_incoming_edges) > 1:
@@ -802,7 +807,8 @@ class Decompose:
                 pass
                 # raise ValueError('??')
 
-    def lexicon_to_list(self, sublex, grouped, to_sequences=True):
+    def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped, to_sequences: bool=True) \
+            -> Union[List[Tuple[str, WordType]], List[Iterable[str], Iterable[WordType]]]:
         """
         Take a sublexicon {word : WordType}, partially mapping leaves from the grouped dictionary to types, and convert
          it to a (word, WordType) list that respects the original linear order of the sentence
@@ -811,24 +817,26 @@ class Decompose:
         :param to_sequences: if True, return a list of words and a corresponding list of their types
         :return:
         """
-        # todo: sorting by keys properly
 
+        # find all items that need to be labeled
         all_leaves = set(list(filter(lambda x: 'word' in x.attrib.keys(),
                               map(lambda x: x[0], chain.from_iterable(grouped.values())))))
-
+        # sort them by occurrence
         all_leaves = sorted(all_leaves,
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
 
         # mapping from linear order to dictionary keys
         enum = {i: self.get_key(l) for i, l in enumerate(all_leaves)}
-
+        # convert to a list [(word, WordType), ...]
         ret = [(enum[i].split(self.separation_symbol)[0], sublex[enum[i]])
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
+
         if to_sequences:
+            # convert to two tuples (word1, word2, ..), (type1, type2, ..)
             return list(zip(*ret))
         return ret
 
-    def __call__(self, grouped):
+    def __call__(self, grouped: Grouped):
         if self.visualize:
             ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
@@ -861,7 +869,7 @@ class Decompose:
             return dicts  # or return the dicts
 
 
-def main(return_lists=False, viz=False, remove_mods=False, ignore='ignored.txt'):
+def main(return_lists: bool=False, viz: bool=False, remove_mods: bool=False, ignore: str='ignored.txt'):
     if remove_mods:
         rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--', 'mod')
     else:
