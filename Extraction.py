@@ -22,14 +22,13 @@ Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
 class Lassy(Dataset):
     """
-    Lassy dataset
+        Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
     """
 
     def __init__(self, root_dir: str='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir: str='/Treebank',
                  transform: Optional[Compose]=None, ignore: Optional[str] = 'ignored.txt') -> None:
         """
             Initialize a Lassy dataset.
-
 
         :param root_dir: The root directory containing all data and metadata files.
         :type root_dir: str
@@ -122,13 +121,12 @@ class Lassy(Dataset):
                     yield (child, parent)
                 parents = children
 
-
     @staticmethod
     def find_main_coindex(xtree: ET.ElementTree) -> Tuple[Dict[int, List[ET.Element]],
                                                           Dict[int, List[ET.Element]]]:
         """
-            Takes an ElementTree representing a parse tree, finds out nodes corresponding to the same lexical unit \
-        and selects a single node to act as the "main" node (the one to collapse dependencies to, when removing \
+            Takes an ElementTree representing a parse tree, finds out nodes corresponding to the same lexical unit
+        and selects a single node to act as the "main" node (the one to collapse dependencies to, when removing
         its cross-references).
 
         :param xtree: The ElementTree to operate on.
@@ -190,9 +188,31 @@ class Lassy(Dataset):
 
 
 class Decompose:
+    """
+        Class wrapper implementing the functionalities of the extraction algorithm.
+    """
     def __init__(self, type_dict: Optional[Dict[str, str]]=None, unify: bool=False, return_lists: bool=True,
                  text_pipeline: Callable[[str], str]=lambda x: x.lower(), separation_symbol: str='↔',
                  visualize: bool=False) -> None:
+        """
+            Initialize an extraction class.
+
+        :param type_dict: (Optional) A dictionary mapping part of speech and category labels to their corresponding
+            types.
+        :type type_dict: Optional[Dict[str, str]]
+        :param unify: If True, will return a single lexicon from a sentence. If False, will return a lexicon for each
+            subunit.
+        :type unify: bool
+        :param return_lists: If False, will return a lexicon Dict[str, WordType]. If True, will return an iterable of
+            words and iterable of WordTypes instead.
+        :type return_lists: bool
+        :param text_pipeline: A function applied on the text before adding a word to the lexicon.
+        :type text_pipeline: Callable[[str], str]
+        :param separation_symbol: The separation symbol between a node's text content and its id.
+        :type separation_symbol: str
+        :param visualize: If True, will visualize the input DAG.
+        :type visualize: bool
+        """
         # type_dict: POS → Type
         if not type_dict:
             self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
@@ -206,10 +226,10 @@ class Decompose:
             # convert to Types
             self.type_dict = {k: AtomicType(v) for k, v in self.type_dict.items()}
 
-        self.unify = unify  # whether to return a single lexicon from a sentence, or a lexicon for each subunit
-        self.return_lists = return_lists  # whether to convert lexicons to word and type sequences
-        self.text_pipeline = text_pipeline  # the function applied on the text before adding a word to the lexicon
-        self.separation_symbol = separation_symbol  # the separation symbol between a node's text content and its id
+        self.unify = unify
+        self.return_lists = return_lists
+        self.text_pipeline = text_pipeline
+        self.separation_symbol = separation_symbol
         # the function applied to convert the processed text of a node into a dictionary key
         self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
         self.head_candidates = ('hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink')
@@ -219,15 +239,16 @@ class Decompose:
     def is_leaf(node: ET.Element) -> bool:
         """
 
-        :param node:
-        :type node:
-        :return:
-        :rtype:
+        :param node: The node to check.
+        :type node: ET.Element
+        :return: True if the node has a 'word' field, False otherwise.
+        :rtype: bool
         """
         return True if 'word' in node.attrib.keys() else False
 
     def majority_vote(self, node: ET.Element, grouped: Grouped) -> str:
         """
+            todo
 
         :param node:
         :type node:
@@ -358,11 +379,13 @@ class Decompose:
     @staticmethod
     def group_by_parent(xtree: ET.ElementTree) -> Grouped:
         """
+            Given a DAG, will organize the nodes into a dictionary with non-terminal nodes (parents) as keys, and their
+        children as values.
 
-        :param xtree:
-        :type xtree:
-        :return:
-        :rtype:
+        :param xtree: The DAG to convert.
+        :type xtree: ET.ElementTree
+        :return: The dictionary mapping parents to their children.
+        :rtype: Grouped
         """
         nodes = list(xtree.iter('node'))
         grouped = []
@@ -389,14 +412,20 @@ class Decompose:
         return newdict
 
     @staticmethod
-    def split_dag(grouped, cats_to_remove=('du',), rels_to_remove=('dp', 'sat', 'nucl', 'tag', '--', 'top')):
+    def split_dag(grouped: Grouped, cats_to_remove: Iterable[str]=('du',),
+                  rels_to_remove: Iterable[str]=('dp', 'sat', 'nucl', 'tag', '--', 'top')) -> Grouped:
         """
-        Takes a dictionary possibly containing headless structures, and returns multiple dictionaries that don't.
-        Essentially splits a parse DAG into a set of disjoint DAGs.
-        :param grouped:
-        :param cats_to_remove:
-        :param rels_to_remove:
-        :return:
+            Takes a dictionary describing a DAG and breaks it into a possibly disconnected one by removing links between
+        the category and dependency labels specified. Useful for breaking headless structures apart.
+
+        :param grouped: The dictionary to operate on.
+        :type grouped: Grouped
+        :param cats_to_remove: The category labels that are subject to removal.
+        :type cats_to_remove: Iterable[str]
+        :param rels_to_remove: The dependency labels that are subject to removal.
+        :type rels_to_remove: Iterable[str]
+        :return: The disconnected DAG dictionary.
+        :rtype: Grouped
         """
         keys_to_remove = list()
 
@@ -449,12 +478,15 @@ class Decompose:
         return grouped
 
     @staticmethod
-    def get_disconnected(grouped):
+    def get_disconnected(grouped: Grouped) -> Set[ET.Element]:
         """
-        Takes a dictionary, possibly containing headless structures. Returns all nodes that are parents without being
-        children of any other node.
-        :param grouped:
-        :return:
+            Takes a dictionary, possibly containing headless structures. Returns all nodes that are parents without
+        being children of any other node (i.e. the starting points for the type-assignment recursion).
+
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped
+        :return: The set of nodes that are starting points.
+        :rtype: Set[ET.Element]
         """
         all_keys = set(grouped.keys())  # all parents
         all_children = set([x[0] for k in all_keys for x in grouped[k]])  # all children
@@ -465,10 +497,13 @@ class Decompose:
     @staticmethod
     def abstract_object_to_subject(grouped: Grouped) -> Grouped:
         """
-        Takes a dictionary containing abstract objects/subjects and applies a series of conventions to re-assign the
+            Takes a dictionary containing abstract objects/subjects and applies a series of conventions to re-assign the
         main objects/subjects.
-        :param grouped:
-        :return:
+
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped
+        :return: The transformed DAG.
+        :rtype: Grouped
         """
         def is_abstract(node_rel, real_so):
             node, rel = node_rel
@@ -537,13 +572,14 @@ class Decompose:
     def remove_abstract_so(grouped: Grouped, candidates: Iterable[str]=('su', 'obj', 'obj1', 'obj2', 'sup')) -> Grouped:
         """
             Takes a dictionary containing abstract subjects/objects and removes them. The main subject/object must have
-            been properly assigned before.
-        :param grouped:
-        :type grouped:
-        :param candidates:
-        :type candidates:
-        :return:
-        :rtype:
+        been properly assigned before.
+
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped
+        :param candidates: The potential abstract subject/object dependency labels.
+        :type candidates: Iterable[str]
+        :return: The transformed DAG.
+        :rtype: Grouped
         """
         for parent in grouped.keys():
             if parent.attrib['cat'] not in ('ppart', 'inf'):
@@ -573,13 +609,15 @@ class Decompose:
     def order_siblings(siblings: List[Tuple[ET.Element, Union[Rel, str]]], exclude: Optional[ET.Element]=None) \
             -> List[Tuple[ET.Element, Union[Rel, str]]]:
         """
+            Arranges a list of sibling nodes by their order of appearance. Optionally excludes one of them (useful for
+        head-daughters).
 
-        :param siblings:
-        :type siblings:
-        :param exclude:
-        :type exclude:
-        :return:
-        :rtype:
+        :param siblings: The siblings to arrange.
+        :type siblings: List[Tuple[ET.Element, Union[Rel, str]]]
+        :param exclude: (Optional) The node to exclude. Defaults to None.
+        :type exclude: Optional[ET.Element]
+        :return: The arranged siblings.
+        :rtype: List[Tuple[ET.Element, Union[Rel, str]]]
         """
         if exclude is not None:
             siblings = list(filter(lambda x: x[0] != exclude, siblings))
@@ -588,11 +626,12 @@ class Decompose:
 
     def collapse_mwu(self, grouped: Grouped) -> Grouped:
         """
+            Collapses multi-word expressions into a single node. Updates the node's word and category fields.
 
-        :param grouped:
-        :type grouped:
-        :return:
-        :rtype:
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped
+        :return: The transformed DAG.
+        :rtype: Grouped
         """
         to_remove = []
 
@@ -602,10 +641,9 @@ class Decompose:
                 if 'cat' in key.attrib.keys():
                     if key.attrib['cat'] == 'mwu':
                         nodes = Decompose.order_siblings(grouped[key])
-                        collapsed_text = ''.join([x[0].attrib['word'] + ' ' for x in nodes])
-
-                        key.attrib['word'] = collapsed_text[0:-1]  # update the parent text
-                        key.attrib['cat'] = self.majority_vote(key, grouped)
+                        collapsed_text = ' '.join([x[0].attrib['word'] for x in nodes])
+                        key.attrib['word'] = collapsed_text  # update the parent text
+                        key.attrib['cat'] = self.majority_vote(key, grouped)  # todo
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
@@ -616,12 +654,12 @@ class Decompose:
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
             -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
         """
-        Takes a list of siblings and selects their head.
-        :param children_rels: a list of [node, rel] lists
-        :return:
-            if a head is found, return the head and the rel
-            if structure is headless, return None, None
-            if unspecified case, raise ValueError
+            Takes a list of siblings and returns their head and its dependency label. Returns Nones if no head is found.
+
+        :param children_rels: The siblings to look for a head in.
+        :type children_rels: List[Tuple[ET.Element, Union[Rel, str]]]
+        :return: A tuple consisting of the head node and its dependency label, or Nones if no head is found.
+        :rtype: Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]
         """
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in self.head_candidates:
@@ -637,10 +675,22 @@ class Decompose:
 
     @staticmethod
     def collapse_single_non_terminals(grouped: Grouped, depth: int=0) -> Grouped:
+        """
+            Takes a dictionary containing intermediate non-terminals with only a single child (by-product of previous
+        transformations) and collapses those with their respective children. The dependency label is inherited from
+        upwards, but the dependency rank is inherited from downwards.
+
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped.
+        :param depth: The recursion depth. Defaults to 0, useful for debugging.
+        :type depth: int
+        :return: The transformed DAG.
+        :rtype: Grouped
+        """
         # list of nodes containing a single child
         intermediate_nodes = [k for k in grouped.keys() if len(grouped[k]) == 1]
         if not intermediate_nodes:
-            return grouped
+            return grouped  # tying the knot
 
         # for each intermediate node
         for k in intermediate_nodes:
@@ -810,14 +860,19 @@ class Decompose:
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped, to_sequences: bool=True) \
             -> Union[List[Tuple[str, WordType]], List[Iterable[str], Iterable[WordType]]]:
         """
-        Take a sublexicon {word : WordType}, partially mapping leaves from the grouped dictionary to types, and convert
-         it to a (word, WordType) list that respects the original linear order of the sentence
-        :param sublex:
-        :param grouped:
-        :param to_sequences: if True, return a list of words and a corresponding list of their types
-        :return:
-        """
+            Takes a dictionary and a lexicon partially mapping dictionary leaves to types and converts it to either an
+        iterable of (word, WordType) tuples, if to_sequences=True, or two iterables of words and WordTypes otherwise.
 
+        :param sublex: The partially filled lexicon.
+        :type sublex: Dict[str, WordType]
+        :param grouped: The DAG that is being assigned.
+        :type grouped: Grouped
+        :param to_sequences: If True, will return an iterable of words and an iterable of WordTypes. If False, will
+            return an iterable of (word, WordType) tuples.
+        :type to_sequences: bool
+        :return: The partial lexicon, converted into iterable(s)
+        :rtype: Union[List[Tuple[str, WordType]], List[Iterable[str], Iterable[WordType]]]
+        """
         # find all items that need to be labeled
         all_leaves = set(list(filter(lambda x: 'word' in x.attrib.keys(),
                               map(lambda x: x[0], chain.from_iterable(grouped.values())))))
