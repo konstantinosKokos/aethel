@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Union, Tuple
+from typing import Union, Tuple, Set
 
 
 class WordType(ABC):
@@ -33,7 +33,7 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def retrieve_atomic(self) -> 'AtomicType':
+    def retrieve_atomic(self) -> Sequence['AtomicType']:
         pass
 
 
@@ -99,13 +99,13 @@ class ModalType(WordType):
         return self.__str__()
 
     def __eq__(self, other):
-        if not isinstance(other, ModalType):
-            return False
-        else:
+        if isinstance(other, ModalType):
             return self.modality == other.modality and self.result == other.result
+        else:
+            return False
 
     def decolor(self):
-        return ModalType(result=(self.result.decolor()))
+        return ModalType(result=(self.result.decolor()), modality=self.modality)
 
     def retrieve_atomic(self):
         return self.result.retrieve_atomic()
