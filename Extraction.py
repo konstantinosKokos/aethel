@@ -858,7 +858,7 @@ class Decompose:
                 # raise ValueError('??')
 
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped, to_sequences: bool=True) \
-            -> Union[List[Tuple[str, WordType]], List[Iterable[str], Iterable[WordType]]]:
+            -> Union[List[Tuple[str, WordType]], Tuple[Iterable[str], Iterable[WordType]]]:
         """
             Takes a dictionary and a lexicon partially mapping dictionary leaves to types and converts it to either an
         iterable of (word, WordType) tuples, if to_sequences=True, or two iterables of words and WordTypes otherwise.
@@ -888,12 +888,25 @@ class Decompose:
 
         if to_sequences:
             # convert to two tuples (word1, word2, ..), (type1, type2, ..)
-            return list(zip(*ret))
+            return tuple(zip(*ret))
         return ret
 
+    def annotate_nodes(self, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
+        """
+            Writes the extracted type of a node into its attributes.
+
+        :param lexicon: The mapping from words and their identifiers into their types.
+        :type lexicon: Dict[str, WordType]
+        :param node_dict: The mapping from node identifiers into nodes.
+        :type node_dict: Dict[str, ET.Element]
+        :return: None
+        """
+        for lex_key in lexicon:
+            key_id = lex_key.split(self.separation_symbol)[1]
+            node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
+        return None
+
     def __call__(self, grouped: Grouped):
-        if self.visualize:
-            ToGraphViz()(grouped)
         top_nodes = Decompose.get_disconnected(grouped)
 
         top_node_types = map(lambda x: self.get_type(x, grouped), top_nodes)
@@ -908,6 +921,11 @@ class Decompose:
             # recursively iterate from each top node
             for top_node in top_nodes:
                 self.recursive_assignment(top_node, grouped, None, lexicon, node_dict)
+
+            if self.visualize:
+                self.annotate_nodes(lexicon, node_dict)
+                ToGraphViz()(grouped)
+
             if self.return_lists:
                 return Decompose.lexicon_to_list(lexicon, grouped)  # return the dict transformation
             return lexicon  # or return the dict
@@ -918,6 +936,11 @@ class Decompose:
             for i, top_node in enumerate(top_nodes):
                 # recursively iterate each
                 self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
+
+            if self.visualize:
+                for d in dicts:
+                    self.annotate_nodes(d, node_dict)
+                    ToGraphViz()(grouped)
 
             if self.return_lists:
                 return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
@@ -961,7 +984,7 @@ def main(return_lists: bool=False, viz: bool=False, remove_mods: bool=False, ign
 
 
 class ToGraphViz:
-    def __init__(self, to_show: Iterable[str]=('id', 'word', 'pos', 'cat', 'index')) -> None:
+    def __init__(self, to_show: Iterable[str]=('id', 'word', 'pos', 'cat', 'index', 'type')) -> None:
         self.to_show = to_show
 
     def construct_node_label(self, child: ET.Element):
