@@ -177,7 +177,6 @@ class Lassy(Dataset):
         for node, parent in nodes[1:]:
             if isinstance(node.attrib['rel'], str):
                 if 'index' in node.attrib.keys():
-
                     main_coind[node.attrib['index']].attrib['rel'] = {
                         parent.attrib['id']: Rel(label=node.attrib['rel'], rank='secondary'),
                         **main_coind[node.attrib['index']].attrib['rel']}
@@ -215,14 +214,17 @@ class Decompose:
         """
         # type_dict: POS → Type
         if not type_dict:
-            self.type_dict = {'adj': 'ADJ', 'adv': 'ADV', 'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'comp': 'COMP',
-                              'comparative': 'COMPARATIVE', 'conj': 'CONJ', 'cp': 'CP', 'det': 'DET', 'detp': 'DET',
-                              'du': 'DU', 'fixed': 'FIXED', 'inf': 'INF', 'mwu': 'MWU', 'name': 'NAME', 'noun': 'N',
-                              'np': 'NP', 'num': 'NUM', 'oti': 'OTI', 'part': 'PART', 'pp': 'PP', 'ppart': 'PPART',
-                              'ppres': 'PPRES', 'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'NP', 'punct': 'PUNCT',
-                              'rel': 'REL', 'smain': 'S', 'ssub': 'S', 'sv1': 'S', 'svan': 'SVAN',
-                              'tag': 'TAG', 'ti': 'TI', 'top': 'TOP', 'verb': 'VERB', 'vg': 'VG', 'whq': 'WHQ',
-                              'whrel': 'WHREL', 'whsub': 'WHSUB'}
+            cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'conj': 'CONJ', 'cp': 'CP', 'detp': 'DET', 'du': 'DU',
+                        'inf': 'INF', 'np': 'NP', 'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES',
+                        'rel': 'REL', 'smain': 'SMAIN', 'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI',
+                        'top': 'TOP', 'whq': 'WHQ', 'whrel': 'WHREL', 'whsub': 'WHSUB'}
+            pos_dict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
+                        'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
+                        'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
+                        'verb': 'VERB', 'vg': 'VG'}
+            pt_dict = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
+                       'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
+            self.type_dict = {**cat_dict, **pos_dict}
             # convert to Types
             self.type_dict = {k: AtomicType(v) for k, v in self.type_dict.items()}
 
@@ -269,7 +271,6 @@ class Decompose:
         :param grouped:
         :return:
         """
-        # todo: this will not work after the noun-ification change
         if 'cat' in node.attrib.keys():
             if node.attrib['cat'] == 'conj':
                 return self.majority_vote(node, grouped)
@@ -277,6 +278,30 @@ class Decompose:
         return node.attrib['pos']
 
     def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
+                 parent: Optional[ET.Element]=None) -> WordType:
+        if rel is not None and self.get_rel(rel) == 'mod':
+            if parent is None:
+                # we do not know the parent of this, needs post-processing
+                warn('Assigning placeholder type.')
+                return AtomicType('MOD')
+            return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
+                               colors=('mod',))
+        # plain type assignment
+        if 'cat' in node.attrib.keys():
+            # non-terminal node
+            if node.attrib['cat'] == 'conj':
+                # conjunction
+                return self.type_dict[self.majority_vote(node, grouped)]
+            else:
+                # non-conjunction
+                return self.type_dict[node.attrib['cat']]
+        elif 'pos' in node.attrib.keys():
+            # terminal node
+            return self.type_dict[node.attrib['pos']]
+        else:
+            raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
+
+    def get_type_promotion(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
                  parent: Optional[ET.Element]=None) -> WordType:
         """
             Returns the type of a node within a given context.
@@ -318,7 +343,7 @@ class Decompose:
             return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
                                colors=('mod',))
         # node is terminal (i.e. has a POS attribute) and a parent is provided
-        elif 'pos' in node.attrib.keys() and parent is not None:
+        elif self.is_leaf(node) and parent is not None:
             # subcase management
             # three indicators; pos of parent, dependency, postag of self
             # pos of parent useful in case of cnj but not really
@@ -331,7 +356,7 @@ class Decompose:
             #
             if rel == 'cnj':
                 return self.get_type(parent, grouped)
-            if self.get_rel(rel) in ('obj1', 'su', 'body', 'vc', 'obj2'):
+            if self.get_rel(rel) in ('obj1', 'su', 'obj2'):
                 print('Transforming {} ({}) to NP.'.format(node.attrib['pos'], node.attrib['id']))
                 return AtomicType('NP')
             elif self.get_rel(rel) in ('predc', 'predm'):
@@ -470,7 +495,7 @@ class Decompose:
             for key in grouped.keys():
                 for c, r in grouped[key]:
                     if c in empty_keys:
-                        grouped[key].remove((c,r))
+                        grouped[key].remove((c, r))
                         if key is not None:
                             del c.attrib['rel'][key.attrib['id']]
             empty_keys = [key for key in grouped.keys() if not grouped[key]]
@@ -710,7 +735,7 @@ class Decompose:
                 new_rel = Decompose.get_rel(new_rel)
                 if isinstance(old_rel, Rel):
                     grouped[kk].append((points_to, Rel(label=rels[0], rank=old_rel[1])))
-                    points_to.attrib['rel'][kk.attrib['id']] = (rels[0], old_rel[1])
+                    points_to.attrib['rel'][kk.attrib['id']] = Rel(label=rels[0], rank=old_rel[1])
                 else:
                     grouped[kk].append((points_to, new_rel))
                     points_to.attrib['rel'][kk.attrib['id']] = new_rel
@@ -955,7 +980,6 @@ def main(return_lists: bool=False, viz: bool=False, remove_mods: bool=False, ign
 
     # a non-processed dataset for comparisons
     L0 = Lassy(ignore=ignore)
-
     # a processed dataset that yields a lexicon
     decomposer = Decompose(return_lists=return_lists, visualize=viz)
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
@@ -984,7 +1008,7 @@ def main(return_lists: bool=False, viz: bool=False, remove_mods: bool=False, ign
 
 
 class ToGraphViz:
-    def __init__(self, to_show: Iterable[str]=('id', 'word', 'pos', 'cat', 'index', 'type')) -> None:
+    def __init__(self, to_show: Iterable[str]=('id', 'word', 'pos', 'cat', 'index', 'type', 'pt')) -> None:
         self.to_show = to_show
 
     def construct_node_label(self, child: ET.Element):
