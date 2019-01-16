@@ -6,7 +6,7 @@ from glob import glob
 from copy import deepcopy
 import graphviz
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import Compose
 
 from itertools import groupby, chain
@@ -167,7 +167,6 @@ class Lassy(Dataset):
 
         _, main_coind = Lassy.find_main_coindex(xtree)
 
-        # todo
         for node, parent in nodes[1:]:
             if node in main_coind.values():
                 node.attrib['rel'] = {parent.attrib['id']: Rel(label=node.attrib['rel'], rank='primary')}
@@ -925,7 +924,6 @@ class Decompose:
         for lex_key in lexicon:
             key_id = lex_key.split(self.separation_symbol)[1]
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
-        return None
 
     def __call__(self, grouped: Grouped):
         top_nodes = Decompose.get_disconnected(grouped)
@@ -943,14 +941,14 @@ class Decompose:
             # recursively iterate from each top node
             for top_node in top_nodes:
                 self.recursive_assignment(top_node, grouped, None, lexicon, node_dict)
+            self.annotate_nodes(lexicon, node_dict)
 
             if self.visualize:
-                self.annotate_nodes(lexicon, node_dict)
                 ToGraphViz()(grouped)
 
             if self.return_lists:
-                return self.lexicon_to_list(lexicon, grouped)  # return the dict transformation
-            return lexicon  # or return the dict
+                return grouped, self.lexicon_to_list(lexicon, grouped)  # return the dict transformation
+            return grouped, lexicon  # or return the dict
 
         else:
             # one dict per disjoint sequence
@@ -959,14 +957,15 @@ class Decompose:
                 # recursively iterate each
                 self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
 
+            for d in dicts:
+                self.annotate_nodes(d, node_dict)
+
             if self.visualize:
-                for d in dicts:
-                    self.annotate_nodes(d, node_dict)
-                    ToGraphViz()(grouped)
+                ToGraphViz()(grouped)
 
             if self.return_lists:
-                return list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict transformation
-            return dicts  # or return the dicts
+                return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict
+            return grouped, dicts  # or return the dicts
 
 
 def main(return_lists: bool=True, viz: bool=False, remove_mods: bool=False, unify: bool=False) -> Any:
@@ -989,21 +988,47 @@ def main(return_lists: bool=True, viz: bool=False, remove_mods: bool=False, unif
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
-                           lambda x: decomposer(x[1]),  # decompose into a lexicon
+                           lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
-    L = Lassy(transform=lexicalizer, ignore=ignore)
+    L = Lassy(transform=lexicalizer)
     return L0, L, ToGraphViz()
 
 
-def iterate(lassy: Dataset) -> Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]:
+def iterate(lassy: Lassy, **kwargs: int) -> \
+        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]:
+    """
+        Iterates over a Lassy dataset as returned by main(), either serially or in parallel. To enable parallel mode
+        provide num_workers and/or batch_size as keyword arguments.
+
+    :param lassy: The dataset to iterate. Note that its itemgetter function must be composed with a lexicalization
+                  transformation.
+    :type lassy: Lassy
+    :param kwargs: If any of num_workers, batch_size is provided as a kwarg, the iteration will be done in parallel.
+                   Set num_workers to the number of your CPU cores and batch_size to a power of 2 between 1 and 128.
+    :type kwargs: int
+    :return: X: A list of tuples (i, S) where S a sentence (i.e. sequence of words) and i the index indicating which
+             data sample this sentence came from, and a corresponding list of tuples (i, T) where T is the sequence of
+             types that were assigned to matching sentence.
+    :rtype: Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]
+    """
+
     X, Y = [], []
+
+    # parallel case
+    if kwargs:
+        dl = DataLoader(lassy, **kwargs, collate_fn=lambda x: list(x))
+        for b in dl:
+            for sample in b:
+                idx = sample[0]
+                X.extend([(idx, x[0]) for x in sample[1][1]])
+                Y.extend([(idx, x[1]) for x in sample[1][1]])
+        return X, Y
+
+    # sequential case
     for i in range(len(lassy)):
-        try:
-            l = lassy[i]
-            X.extend([(i, x[0]) for x in l])
-            Y.extend([(i, x[1]) for x in l])
-        except NotImplementedError:
-            print('Ignoring {}'.format(i))
+        l = lassy[i][1][1]
+        X.extend([(i, x[0]) for x in l])
+        Y.extend([(i, x[1]) for x in l])
     return X, Y
 
 
