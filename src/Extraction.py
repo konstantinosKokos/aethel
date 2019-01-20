@@ -1,4 +1,7 @@
-from src.WordType import *
+try:
+    from src.WordType import *
+except ImportError:
+    from LassyExtraction.src.WordType import *
 
 import os
 import xml.etree.cElementTree as ET
@@ -23,8 +26,9 @@ class Lassy(Dataset):
         Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
     """
 
-    def __init__(self, root_dir: str='/home/kokos/Documents/Projects/LassySmall 4.0', treebank_dir: str='/Treebank',
-                 transform: Optional[Compose]=None, ignore: Optional[str] = 'src/utils/ignored.txt') -> None:
+    def __init__(self, root_dir: str='/home/kokos/Documents/Projects/Lassy/LassySmall 4.0',
+                 treebank_dir: str='/Treebank', transform: Optional[Compose]=None,
+                 ignore: Optional[str] = 'src/utils/ignored.txt') -> None:
         """
             Initialize a Lassy dataset.
 
@@ -48,14 +52,13 @@ class Lassy(Dataset):
         if ignore is not None:
             try:
                 with open(ignore, 'r') as f:
-                    ignored = f.readlines()
-                    ignored = list(map(lambda x: x[0:-1], ignored))
-                    print('Ignoring {} samples..'.format(len(ignored)))
+                    self.ignored = list(map(lambda x: x[0:-1], f.readlines()))
+                    print('Ignoring {} samples..'.format(len(self.ignored)))
             except FileNotFoundError:
                 warn('Could not open the ignore file.')
 
         self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))
-                         if y not in ignored]
+                         if y not in self.ignored]
         self.transform = transform
 
         print('Dataset constructed with {} samples.'.format(len(self.filelist)))
@@ -187,8 +190,8 @@ class Decompose:
     """
         Class wrapper implementing the functionalities of the extraction algorithm.
     """
-    def __init__(self, unify: bool=False, return_lists: bool=True, separation_symbol: str='↔',
-                 text_pipeline: Callable[[str], str]=lambda x: x.lower(), visualize: bool=False) -> None:
+    def __init__(self, unify: bool=False, separation_symbol: str='↔', visualize: bool=False,
+                 text_pipeline: Callable[[str], str]=lambda x: x.lower()) -> None:
         """
             Initialize an extraction class.
 
@@ -221,9 +224,6 @@ class Decompose:
 
         # convert to Types
         self.type_dict = {k: AtomicType(v) for k, v in self.type_dict.items()}
-
-        self.unify = unify
-        self.return_lists = return_lists
         self.text_pipeline = text_pipeline
         self.separation_symbol = separation_symbol
         # the function applied to convert the processed text of a node into a dictionary key
@@ -814,10 +814,10 @@ class Decompose:
                     internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edges[0][1],
                                                                          parent=internal_edges[0][0]),),
                                                 result=argtypes[0], colors=(internal_edges[0][1],))
-                    # (X -> Y)
+                    # (X: internal_edges[0][1] -> Y)
                     # construct the external type (which takes the internal type back to the top type)
                     headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                    # (X -> Y) -> Z
+                    # (X -> Y): argdeps[0] -> Z
                 else:
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
@@ -833,7 +833,7 @@ class Decompose:
                                            result=top_type, colors=(argdeps[0],))
             elif arglist:
                 argtypes, argdeps = list(zip(*arglist))
-                #  easy case -- standard type assignment
+                #  easy case -- stantgdard type assignment
                 headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
             elif gap:
                 # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
@@ -925,50 +925,33 @@ class Decompose:
             key_id = lex_key.split(self.separation_symbol)[1]
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
 
-    def __call__(self, grouped: Grouped):
+    def __call__(self, grouped: Grouped) -> \
+            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], Iterable[WordType]]:
+
         top_nodes = Decompose.get_disconnected(grouped)
 
         # might be useful if the tagger is trained on the phrase level
-        top_node_types = map(lambda x: self.get_type(x, grouped), top_nodes)
+        top_node_types = tuple(map(lambda x: self.get_type(x, grouped), top_nodes))
 
         node_dict = {node.attrib['id']: node for node in
                      set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
 
-        if self.unify:
-            # init lexicon here
-            lexicon = dict()
+        # init one dict per disjoint sequence
+        dicts = [dict() for _ in top_nodes]
+        for i, top_node in enumerate(top_nodes):
+            # recursively iterate each
+            self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
 
-            # recursively iterate from each top node
-            for top_node in top_nodes:
-                self.recursive_assignment(top_node, grouped, None, lexicon, node_dict)
-            self.annotate_nodes(lexicon, node_dict)
+        for d in dicts:
+            self.annotate_nodes(d, node_dict)
 
-            if self.visualize:
-                ToGraphViz()(grouped)
+        if self.visualize:
+            ToGraphViz()(grouped)
 
-            if self.return_lists:
-                return grouped, self.lexicon_to_list(lexicon, grouped)  # return the dict transformation
-            return grouped, lexicon  # or return the dict
-
-        else:
-            # one dict per disjoint sequence
-            dicts = [dict() for _ in top_nodes]
-            for i, top_node in enumerate(top_nodes):
-                # recursively iterate each
-                self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
-
-            for d in dicts:
-                self.annotate_nodes(d, node_dict)
-
-            if self.visualize:
-                ToGraphViz()(grouped)
-
-            if self.return_lists:
-                return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))  # return the dict
-            return grouped, dicts  # or return the dicts
+        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), top_node_types
 
 
-def main(return_lists: bool=True, viz: bool=False, remove_mods: bool=False, unify: bool=False) -> Any:
+def main(viz: bool=False, remove_mods: bool=False) -> Any:
     if remove_mods:
         rels_to_remove = ('dp', 'sat', 'nucl', 'tag', '--', 'mod', 'predm')
     else:
@@ -977,7 +960,7 @@ def main(return_lists: bool=True, viz: bool=False, remove_mods: bool=False, unif
     # a non-processed dataset for comparisons
     L0 = Lassy()
     # a processed dataset that yields a lexicon
-    decomposer = Decompose(return_lists=return_lists, visualize=viz, unify=unify)
+    decomposer = Decompose(visualize=viz)
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
                            lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
@@ -995,7 +978,7 @@ def main(return_lists: bool=True, viz: bool=False, remove_mods: bool=False, unif
 
 
 def iterate(lassy: Lassy, **kwargs: int) -> \
-        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]:
+        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]], List[Tuple[int, WordType]]]:
     """
         Iterates over a Lassy dataset as returned by main(), either serially or in parallel. To enable parallel mode
         provide num_workers and/or batch_size as keyword arguments.
@@ -1006,13 +989,13 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
     :param kwargs: If any of num_workers, batch_size is provided as a kwarg, the iteration will be done in parallel.
                    Set num_workers to the number of your CPU cores and batch_size to a power of 2 between 1 and 128.
     :type kwargs: int
-    :return: X: A list of tuples (i, S) where S a sentence (i.e. sequence of words) and i the index indicating which
-             data sample this sentence came from, and a corresponding list of tuples (i, T) where T is the sequence of
-             types that were assigned to matching sentence.
-    :rtype: Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]
+    :return: X: A list of tuples (i, S) where S a list of words forming a sentence and i the index indicating which
+             data sample this sentence came from, and a corresponding list of tuples (i, T) where T is the list of
+             types that this sentence maps to.
+    :rtype: Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]], List[Tuple[int], WordType]]
     """
 
-    X, Y = [], []
+    X, Y, Z = [], [], []
 
     # parallel case
     if kwargs:
@@ -1022,14 +1005,16 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
                 idx = sample[0]
                 X.extend([(idx, x[0]) for x in sample[1][1]])
                 Y.extend([(idx, x[1]) for x in sample[1][1]])
-        return X, Y
+                Z.extend([(idx, x) for x in sample[1][2]])
+        return X, Y, Z
 
     # sequential case
     for i in range(len(lassy)):
-        l = lassy[i][1][1]
-        X.extend([(i, x[0]) for x in l])
-        Y.extend([(i, x[1]) for x in l])
-    return X, Y
+        l = lassy[i][1]
+        X.extend([(i, x[0]) for x in l[1]])
+        Y.extend([(i, x[1]) for x in l[1]])
+        Z.extend([(i, x) for x in l[2]])
+    return X, Y, Z
 
 
 # # # # # # # # Visualization Utility # # # # # # # #

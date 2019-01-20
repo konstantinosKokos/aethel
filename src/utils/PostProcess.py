@@ -9,6 +9,7 @@ Post-processing of the extraction output
 T1 = TypeVar('T1')
 T2 = TypeVar('T2')
 
+
 # # # # # # # # # # # # # # # # Search and Exploration Tools # # # # # # # # # # # # # # # #
 
 
@@ -37,14 +38,14 @@ def matchings(X: List[Sequence[T1]], Y: List[Sequence[T2]], sX: Optional[Set[T1]
     return d
 
 
-def annotated_matchings(X: List[Tuple[int, Sequence[T1]]], Y: List[Tuple[int, Sequence[T1]]],
+def annotated_matchings(X: List[Tuple[int, Sequence[T1]]], Y: List[Sequence[T1]],
                         sX: Optional[Set[T1]]=None, sY: Optional[Set[T2]]=None) -> Dict[T1, List[Tuple[int, T2]]]:
     if sX is None:
         sX = get_unique(deannotate(X))
     if sY is None:
-        sY = get_unique(deannotate(Y))
+        sY = get_unique(Y)
     d = {sx: [] for sx in sX}
-    Y = deannotate(Y)
+
     for i, (index, it) in enumerate(X):
         for j, sx in enumerate(it):
             d[sx].append((index, Y[i][j]))
@@ -52,7 +53,7 @@ def annotated_matchings(X: List[Tuple[int, Sequence[T1]]], Y: List[Tuple[int, Se
 
 
 def indexize(X: Set[T1]) -> Dict[T1, int]:
-    return {x: i for i, x in enumerate(X)}
+    return {x: i+1 for i, x in enumerate(X)}
 
 
 def freqsort(counter: Dict[T1, int], indices: Dict[T1, int]):
@@ -71,8 +72,8 @@ def search_by_id(i: int, inverted: Dict[int, T1], X: Dict[T1, Sequence[Tuple[int
 
 # # # # # # # # # # # # # # # # Filtering Tools # # # # # # # # # # # # # # # #
 
-def filter_by_occurrence(X: List[Sequence[T1]], Y: List[Sequence[T2]], mode: str, threshold: int,
-                         counter: Dict[T2, int]=None) -> Tuple[List[Sequence[T1]], List[Sequence[T2]]]:
+
+def filter_by_occurrence(Y: List[Sequence[T2]], mode: str, threshold: int, counter: Dict[T2, int]=None) -> List[int]:
     if counter is None:
         counter = count_occurrences(Y)
     if mode == 'max':
@@ -83,12 +84,40 @@ def filter_by_occurrence(X: List[Sequence[T1]], Y: List[Sequence[T2]], mode: str
         cond = all
     else:
         raise ValueError('mode must be "min" or "max"')
-    indices = [i for i, y in enumerate(Y) if cond(list(map(lambda x: cmp(counter[x], threshold), y)))]
-    return [X[i] for i in indices], [Y[i] for i in indices]
+    return [i for i, y in enumerate(Y) if cond(list(map(lambda x: cmp(counter[x], threshold), y)))]
 
 
-def filter_by_length(X: List[Sequence[T1]], Y: List[Sequence[T2]], threshold: int) \
-                     -> Tuple[List[Sequence[T1]], List[Sequence[T2]]]:
-    indices = [i for i, x in enumerate(X) if len(x) < threshold]
-    return [X[i] for i in indices], [Y[i] for i in indices]
+def filter_by_length(X: List[Sequence[T1]], threshold: int) -> List[int]:
+    return [i for i, x in enumerate(X) if len(x) < threshold]
 
+
+def create_dataset():
+    from src import Extraction
+    L0, L, tg = Extraction.main()
+    aX, aY, aZ = Extraction.iterate(L, num_workers=8, batch_size=128)
+    X, Y, Z = deannotate(aX), deannotate(aY), deannotate(aZ)
+    high_freq_indices = filter_by_occurrence(Y, 'min', 10, count_occurrences(Y))
+    fX = [X[i] for i in high_freq_indices]
+    fY = [Y[i] for i in high_freq_indices]
+    fZ = [Z[i] for i in high_freq_indices]
+    low_len_indices = filter_by_length(fX, 25)
+    lfX = [fX[i] for i in low_len_indices]
+    lfY = [fY[i] for i in low_len_indices]
+    lfZ = [fZ[i] for i in low_len_indices]
+    return lfX, lfY, lfZ
+
+
+def create_stats():
+    from src import Extraction
+
+    L0, L, tg = Extraction.main()
+    aX, aY, aZ = Extraction.iterate(L)
+    X, Y, Z = deannotate(aX), deannotate(aY), deannotate(aZ)
+
+    m = annotated_matchings(aY, X)
+    reverse_m = annotated_matchings(aX, Y)
+    indices = indexize(get_unique(Y))
+    type_occurrences = count_occurrences(Y)
+
+    f = freqsort(type_occurrences, indices)
+    return f, {v: k for k, v in indices.items()}, m, reverse_m, L0, L, tg
