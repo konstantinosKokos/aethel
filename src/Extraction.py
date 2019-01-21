@@ -671,6 +671,48 @@ class Decompose:
             del (grouped[key])
         return grouped
 
+    def swap_determiner_head(self, grouped: Grouped) -> Grouped:
+        """
+            Turns determiner dependency labels into heads, replacing original heads with an 'invdet' dependency.
+            Maintains the rank of the original dependency.
+
+        :param grouped: The DAG to operate on
+        :type grouped: Grouped
+        :return: The transformed DAG
+        :rtype: Grouped
+        """
+        for parent in grouped:
+            children_rels = grouped[parent]
+            rels = list(map(self.get_rel, [x[1] for x in children_rels]))
+            if 'det' in rels:
+                det_idx = rels.index('det')
+                hd_idx = rels.index('hd')
+
+                if isinstance(children_rels[det_idx][1], Rel):
+                    # det becomes a hd, inheriting the rank of previous det
+                    new_hd = Rel(label='hd', rank=children_rels[det_idx][1].rank)
+                else:
+                    new_hd = 'hd'
+
+                if isinstance(children_rels[hd_idx][1], Rel):
+                    # head becomes an invdet, inheriting the rank of previous head
+                    new_det = Rel(label='invdet', rank=children_rels[hd_idx][1].rank)
+                else:
+                    new_det = 'invdet'
+
+                # change internal node attributes
+                del children_rels[det_idx][0].attrib['rel'][parent.attrib['id']]
+                children_rels[det_idx][0].attrib['rel'][parent.attrib['id']] = new_hd
+                del children_rels[hd_idx][0].attrib['rel'][parent.attrib['id']]
+                children_rels[hd_idx][0].attrib['rel'][parent.attrib['id']] = new_det
+
+                # change grouped structure
+                new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i not in [det_idx, hd_idx]]
+                new_children_rels += [(children_rels[det_idx][0], new_hd), (children_rels[hd_idx][0], new_det)]
+                grouped[parent] = new_children_rels
+
+        return grouped
+
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
             -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
         """
@@ -971,6 +1013,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
+                           lambda x: [x[0], decomposer.swap_determiner_head(x[1])],
                            lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer)
