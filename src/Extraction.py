@@ -914,7 +914,11 @@ class Decompose:
                     lexicon[self.get_key(sib)] = sib_type
                 else:
                     # .. or iterate down
-                    self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
+                    if self.get_rel(rel) == 'mod':
+                        self.recursive_assignment(sib, grouped, sib_type, lexicon, node_dict)
+                    else:
+                        self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
+
             else:
                 pass
                 # raise ValueError('??')
@@ -1125,7 +1129,8 @@ class ToGraphViz:
             for child, rel in grouped[parent]:
                 node_label = self.construct_node_label(child.attrib)
                 graph.node(child.attrib['id'], label=node_label)
-                graph.edge(parent.attrib['id'], child.attrib['id'], style=self.get_edge_style(rel), label=self.construct_edge_label(rel))
+                graph.edge(parent.attrib['id'], child.attrib['id'], style=self.get_edge_style(rel),
+                           label=self.construct_edge_label(rel))
         return graph
 
     def __call__(self, parse: Union[Grouped, ET.ElementTree], output: str='gv_output', view: bool=True) -> None:
