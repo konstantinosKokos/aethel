@@ -851,7 +851,7 @@ class Decompose:
                 internal_edges = list(map(lambda x: (node_dict[x[0]], self.get_rel(x[1])), internal_edges))
 
                 # assert that there is just one (class) of those
-                if len(set(internal_edges)) == 1:
+                if len(set([x[1] for x in internal_edges])) == 1:
                     # construct the internal type (which includes a hypothesis for the gap)
                     internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edges[0][1],
                                                                          parent=internal_edges[0][0]),),
