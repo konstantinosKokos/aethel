@@ -1,7 +1,4 @@
-try:
-    from src.WordType import *
-except ImportError:
-    from LassyExtraction.src.WordType import *
+from src.WordType import *
 
 import os
 import xml.etree.cElementTree as ET
@@ -150,9 +147,9 @@ class Lassy(Dataset):
     @staticmethod
     def tree_to_dag(xtree: ET.ElementTree, inplace: bool=False) -> ET.ElementTree:
         """
-            Takes an ElementTree representing a parse tree, possibly containing duplicate nodes (that is, nodes that \
-        correspond to the same lexical unit but with a different identifier to preserve the tree format). Removes \
-        duplicate nodes by constructing new dependency links between cross-references (moving to a DAG format), and \
+            Takes an ElementTree representing a parse tree, possibly containing duplicate nodes (that is, nodes that
+        correspond to the same lexical unit but with a different identifier to preserve the tree format). Removes
+        duplicate nodes by constructing new dependency links between cross-references (moving to a DAG format), and
         returns the resulting ElementTree.
 
         :param xtree: The ElementTree to transform.
@@ -260,7 +257,8 @@ class Decompose:
 
     def get_type_key(self, node: ET.Element, grouped: Dict[ET.Element, List]):
         """
-        This will return the pos/cat of a node, performing majority vote on conjunctions
+            This will return the pos/cat of a node, performing majority vote on conjunctions
+
         :param node:
         :param grouped:
         :return:
@@ -273,13 +271,33 @@ class Decompose:
 
     def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
                  parent: Optional[ET.Element]=None) -> WordType:
-        if rel is not None and self.get_rel(rel) in ('mod', 'predm'):
-            if parent is None:
-                # we do not know the parent of this, needs post-processing
-                warn('Assigning placeholder type.')
-                return AtomicType('MOD')
-            return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
-                               colors=('mod',))
+        """
+            Assign a word a type. The type assigned depends on the node itself and its local context, as described by
+            its dependency role wrt to its parent.
+
+        :param node:
+        :type node:
+        :param grouped:
+        :type grouped:
+        :param rel:
+        :type rel:
+        :param parent:
+        :type parent:
+        :return:
+        :rtype:
+        """
+        if rel is not None:
+            if self.get_rel(rel) in ('mod', 'predm'):
+                if parent is None:
+                    # we do not know the parent of this, needs post-processing
+                    warn('Assigning placeholder type.')
+                    return AtomicType('MOD')
+                return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
+                                   colors=('mod',))
+            elif self.get_rel(rel) == 'crd':
+                # if crd, there must have been a primary crd assigned the head type
+                return AtomicType('_')  # todo
+
         # plain type assignment
         if 'cat' in node.attrib.keys():
             # non-terminal node
@@ -830,7 +848,7 @@ class Decompose:
 
             # pick all the arguments
             arglist = [[self.get_type(sib, grouped, parent=current, rel=self.get_rel(rel)), self.get_rel(rel)]
-                       for sib, rel in siblings if self.get_rel(rel) not in ('mod', 'predm')]
+                       for sib, rel in siblings if self.get_rel(rel) not in ('mod', 'predm', 'crd')]
 
             # whether to type assign on this head -- True by default
             assign = True
