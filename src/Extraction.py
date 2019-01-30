@@ -17,6 +17,8 @@ from warnings import warn
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
 Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
+ColoredType = flat_colored_type_constructor
+
 
 class Lassy(Dataset):
     """
