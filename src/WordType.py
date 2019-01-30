@@ -39,6 +39,7 @@ class WordType(ABC):
 WordTypes = Sequence[WordType]
 strings = Sequence[str]
 
+
 class AtomicType(WordType):
     def __init__(self, result: str) -> None:
         if not isinstance(result, str):
@@ -139,7 +140,7 @@ class ComplexType(WordType):
         return self.__str__().__hash__()
 
     def get_arity(self) -> int:
-        return max(map(lambda x: x.get_arity(), self.arguments)) + 1 + self.result.get_arity()
+        return max(max(map(lambda x: x.get_arity() + 1, self.arguments)), self.result.get_arity())
 
     def __call__(self) -> str:
         return self.__str__()
