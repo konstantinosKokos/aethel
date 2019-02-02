@@ -263,3 +263,10 @@ def flat_colored_type_constructor(arguments: WordTypes, result: WordType, colors
         return ColoredType(all_args, result.result, all_colors)
     else:
         return ColoredType(arguments, result, colors)
+
+
+def kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
+    if all(list(map(lambda x: x == 'cnj', colors))) and len(set(arguments)) == 1:
+        return ColoredType((ModalType(arguments[0], modality='*'),), result, ('cnj',))
+    else:
+        return flat_colored_type_constructor(arguments, result, colors)
