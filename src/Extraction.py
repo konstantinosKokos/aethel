@@ -17,7 +17,7 @@ from warnings import warn
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
 Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
-ColoredType = flat_colored_type_constructor
+ColoredType = kleene_star_type_constructor
 
 
 class Lassy(Dataset):
@@ -228,6 +228,7 @@ class Decompose:
         # the function applied to convert the processed text of a node into a dictionary key
         self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
         self.head_candidates = ('hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink')
+        self.mod_candidates = ('mod', 'predm')
         self.visualize = visualize
 
     @staticmethod
@@ -315,107 +316,6 @@ class Decompose:
         else:
             raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
-    def get_type_promotion(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
-                 parent: Optional[ET.Element]=None) -> WordType:
-        raise NotImplementedError
-        # """
-        #     Returns the type of a node within a given context.
-        #
-        #     If no optional arguments are passed, context is ignored and the type returned is simply the type dictionary
-        #     \ mapping of the node's syntactic category or part of speech. In the case of conjunction, a majority vote \
-        #     is performed on the node's daughters to infer its type translation, i.e. conjunction is treated as \
-        #     polymorphic, with the production type being the same as that of the (majority of the) daughters.
-        #
-        #     If the dependency label is also passed, an additional check will be made; if the dependency label is that \
-        #     of a modifier, the type assigned will be X -> X with a 'mod' color on the arrow, where X is the parent type.
-        #     \ If no parent type is provided (e.g. in the case of gaps, where we don't know the non-local source of an \
-        #     incoming edge, a placeholder type MOD is assigned instead.
-        #
-        #     Alternatively, if the parent but no dependency is passed, and the node has a part of speech label of either
-        #     \ noun or adjective, the assigned type will depend on the parent's syntactic category, according to the \
-        #     rule: if parent is a phrase (either NP or AP), then the daughter is non-phrasal (N or ADJ, respectively), \
-        #     otherwise the daughter is acting as a phrase on her own.
-        #
-        # :param node: The node to assign a type to.
-        # :type node: ET.Element
-        # :param grouped: The dictionary containing the parenthood relations between nodes and their corresponding \
-        #     dependency labels.
-        # :type grouped: dict
-        # :param rel: (Optional) The currently inspected dependency label.
-        # :type rel: Optional[Union[list, str]]
-        # :param parent: (Optional) The parent node of the node inspected.
-        # :type parent: Optional[ET.Element]
-        # :return: The WordType that the context imposes on the input node.
-        # :rtype: WordType
-        # """
-        # # case management
-        # # dependency label is given and is mod
-        # if rel is not None and self.get_rel(rel) == 'mod':
-        #     if parent is None:
-        #         # we do not know the parent of this, needs post-processing
-        #         warn('Assigning placeholder type.')
-        #         return AtomicType('MOD')
-        #     return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
-        #                        colors=('mod',))
-        # # node is terminal (i.e. has a POS attribute) and a parent is provided
-        # elif self.is_leaf(node) and parent is not None:
-        #     # subcase management
-        #     # three indicators; pos of parent, dependency, postag of self
-        #     # pos of parent useful in case of cnj but not really
-        #     # dependency most reliable (obj1, su, body)
-        #     # postag of self only covers some cases
-        #
-        #     # issues:
-        #     # if I dont take into account all three information sources, I get partial information
-        #     # i.e. a predc might be a name or a noun-- do I assign it AP then?
-        #     #
-        #     if rel == 'cnj':
-        #         return self.get_type(parent, grouped)
-        #     if self.get_rel(rel) in ('obj1', 'su', 'obj2'):
-        #         print('Transforming {} ({}) to NP.'.format(node.attrib['pos'], node.attrib['id']))
-        #         return AtomicType('NP')
-        #     elif self.get_rel(rel) in ('predc', 'predm'):
-        #         if self.get_type(node, grouped) == AtomicType('ADJ'):
-        #             return AtomicType('AP')
-        #         else:
-        #             print('should be ap but is not adj')
-        #             ToGraphViz()(grouped)
-        #             print(rel)
-        #             print(node.attrib['id'])
-        #             print(node.attrib['pos'])
-        #             print(node.attrib['postag'])
-        #             print(self.get_type(parent, grouped))
-        #             raise AssertionError('NP under NP.')
-        #     elif any(pt in node.attrib['postag'] for pt in (',nom', 'soort,', 'eigen', 'vrij', 'pers,pron')):
-        #         if self.get_rel(rel) not in ('app', 'predc', 'svp'):
-        #             print(rel)
-        #             print('POSTag looks like NP but no direct dependency')
-        #             ToGraphViz()(grouped)
-        #             print(node.attrib['id'])
-        #             print(node.attrib['pos'])
-        #             print(node.attrib['postag'])
-        #             print(self.get_type(parent, grouped))
-        #             raise AssertionError('NP under NP.')
-        #         return AtomicType('NP')
-        #     elif self.get_type(node, grouped) == AtomicType('ADJ') and \
-        #             self.get_type(parent, grouped) != AtomicType('AP'):
-        #         return AtomicType('AP')
-        #
-        # # plain type assignment
-        # if 'cat' in node.attrib.keys():
-        #     # non-terminal node
-        #     if node.attrib['cat'] == 'conj':
-        #         # conjunction
-        #         return self.type_dict[self.majority_vote(node, grouped)]
-        #     else:
-        #         # non-conjunction
-        #         return self.type_dict[node.attrib['cat']]
-        # elif 'pos' in node.attrib.keys():
-        #     # terminal node
-        #     return self.type_dict[node.attrib['pos']]
-        # else:
-        #     raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
-
     @staticmethod
     def group_by_parent(xtree: ET.ElementTree) -> Grouped:
         """
@@ -492,13 +392,6 @@ class Decompose:
                     children_to_remove.append((c, r))
                     if key is not None:
                         del c.attrib['rel'][key.attrib['id']]
-                # elif (len(c.attrib['rel'].values()) and
-                #       all(map(lambda x: Decompose.get_rel(x) == 'mod', c.attrib['rel'].values()))):
-                #     # explicit treatment of modifiers
-                #     children_to_remove.append([c, r])
-                #     if key is not None:
-                #         del c.attrib['rel'][key.attrib['id']]
-
             for c in children_to_remove:
                 grouped[key].remove(c)
 
@@ -872,21 +765,31 @@ class Decompose:
 
                 # assert that there is just one (class) of those
                 if len(set([x[1] for x in internal_edges])) == 1:
-                    # construct the internal type (which includes a hypothesis for the gap)
-                    internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edges[0][1],
-                                                                         parent=internal_edges[0][0]),),
-                                                result=argtypes[0], colors=(internal_edges[0][1],))
-                    # (X: internal_edges[0][1] -> Y)
-                    # construct the external type (which takes the internal type back to the top type)
-                    headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                    # (X -> Y): argdeps[0] -> Z
+                    # modifier gap case
+                    if internal_edges[0][1] in self.mod_candidates:
+                        internal_type = self.get_type(headchild, grouped,
+                                                      rel=internal_edges[0][1],
+                                                      parent=internal_edges[0][0])
+                        # (X: mod -> X)
+                        headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                        # (X: mod -> X): argdeps[0] -> Z
+                        print(headtype)
+                        import pdb
+                        pdb.set_trace()
+                    else:
+                        # construct the internal type (which includes a hypothesis for the gap)
+                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped,
+                                                                             rel=internal_edges[0][1],
+                                                                             parent=internal_edges[0][0]),),
+                                                    result=argtypes[0], colors=(internal_edges[0][1],))
+                        # (X: internal_edges[0][1] -> Y)
+                        # construct the external type (which takes the internal type back to the top type)
+                        headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
+                        # (X -> Y): argdeps[0] -> Z
                 else:
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
                     for internal_head, internal_edge in set(internal_edges):
-                        # if internal_edge == 'mod':
-                        #     raise NotImplementedError('[Case of unknown parent] Modifier gap {} {}.'.
-                        #                               format(headchild.attrib['id'], current.attrib['id']))
                         internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edge,
                                                                              parent=internal_head),),
                                                     result=argtypes[0], colors=(internal_edge,))
@@ -934,7 +837,7 @@ class Decompose:
                     lexicon[self.get_key(sib)] = sib_type
                 else:
                     # .. or iterate down
-                    if self.get_rel(rel) == 'mod':
+                    if self.get_rel(rel) in self.mod_candidates:
                         self.recursive_assignment(sib, grouped, sib_type, lexicon, node_dict)
                     else:
                         self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
