@@ -773,9 +773,6 @@ class Decompose:
                         # (X: mod -> X)
                         headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
                         # (X: mod -> X): argdeps[0] -> Z
-                        print(headtype)
-                        import pdb
-                        pdb.set_trace()
                     else:
                         # construct the internal type (which includes a hypothesis for the gap)
                         internal_type = ColoredType(arguments=(self.get_type(headchild, grouped,
