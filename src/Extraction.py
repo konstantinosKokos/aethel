@@ -539,8 +539,7 @@ class Decompose:
         return grouped
 
     @staticmethod
-    def order_siblings(siblings: List[Tuple[ET.Element, Union[Rel, str]]], exclude: Optional[ET.Element]=None) \
-            -> List[Tuple[ET.Element, Union[Rel, str]]]:
+    def order_siblings(siblings: List[Tuple[ET.Element, Union[Rel, str]]]) -> List[Tuple[ET.Element, Union[Rel, str]]]:
         """
             Arranges a list of sibling nodes by their order of appearance. Optionally excludes one of them (useful for
         head-daughters).
@@ -552,8 +551,6 @@ class Decompose:
         :return: The arranged siblings.
         :rtype: List[Tuple[ET.Element, Union[Rel, str]]]
         """
-        if exclude is not None:
-            siblings = list(filter(lambda x: x[0] != exclude, siblings))
         return sorted(siblings,
                       key=lambda x: tuple(map(int, (x[0].attrib['begin'], x[0].attrib['end'], x[0].attrib['id']))))
 
@@ -636,8 +633,6 @@ class Decompose:
         :return: A tuple consisting of the head node and its dependency label, or Nones if no head is found.
         :rtype: Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]
         """
-        children_rels = sorted(children_rels,
-                               key=lambda c, r: (int(c.attrib['begin']), int(c.attrib['end']), int(c.attrib['id'])))
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in self.head_candidates:
                 return candidate, rel
@@ -729,15 +724,16 @@ class Decompose:
 
         # find all of the node's siblings
         siblings = grouped[current]
+        # impose some linear order
+        siblings = Decompose.order_siblings(siblings)
         # pick a head
         headchild, headrel = self.choose_head(siblings)
+        # exclude the head from siblings
+        siblings.remove((headchild, headrel))
 
         # if no type given from above, assign one now (no nested types)
         if top_type is None:
             top_type = self.get_type(current, grouped)
-
-        # pose some linear order and exclude the picked head
-        siblings = Decompose.order_siblings(siblings, exclude=headchild)
 
         if headchild is not None:
             # classify the headchild
