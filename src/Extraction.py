@@ -17,7 +17,7 @@ from warnings import warn
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
 Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
-ColoredType = kleene_star_type_constructor
+ColoredType = non_poly_kleene_star_type_constructor
 
 
 class Lassy(Dataset):
@@ -244,7 +244,6 @@ class Decompose:
 
     def majority_vote(self, node: ET.Element, grouped: Grouped) -> str:
         """
-            todo
 
         :param node:
         :type node:
@@ -256,7 +255,10 @@ class Decompose:
         sibling_types = [self.get_type_key(n[0], grouped) for n in grouped[node]]
         votes = {c: len([x for x in sibling_types if x == c]) for c in set(sibling_types)}
         votes = sorted(votes, key=lambda x: votes[x], reverse=True)
-        return votes[0]
+
+        return 'np' if 'np' in votes or 'n' in votes \
+            else 'ap' if 'ap' in votes or 'a' in votes \
+            else votes[0]
 
     def get_type_key(self, node: ET.Element, grouped: Dict[ET.Element, List]):
         """
@@ -729,7 +731,7 @@ class Decompose:
         # pick a head
         headchild, headrel = self.choose_head(siblings)
         # exclude the head from siblings
-        siblings.remove((headchild, headrel))
+        siblings = list(filter(lambda cr: cr != (headchild, headrel), siblings))
 
         # if no type given from above, assign one now (no nested types)
         if top_type is None:
