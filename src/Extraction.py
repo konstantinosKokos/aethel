@@ -636,6 +636,8 @@ class Decompose:
         :return: A tuple consisting of the head node and its dependency label, or Nones if no head is found.
         :rtype: Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]
         """
+        children_rels = sorted(children_rels,
+                               key=lambda c, r: (int(c.attrib['begin']), int(c.attrib['end']), int(c.attrib['id'])))
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in self.head_candidates:
                 return candidate, rel
