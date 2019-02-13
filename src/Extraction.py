@@ -1,4 +1,5 @@
 from src.WordType import *
+from src.WordType import non_poly_kleene_star_type_constructor as ColoredType
 
 import os
 import xml.etree.cElementTree as ET
@@ -16,8 +17,6 @@ from warnings import warn
 
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
 Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
-
-ColoredType = non_poly_kleene_star_type_constructor
 
 
 class Lassy(Dataset):
@@ -47,7 +46,7 @@ class Lassy(Dataset):
         else:
             raise ValueError('%s and %s must be existing directories' % (root_dir, treebank_dir))
 
-        ignored = []
+        self.ignored = []
         if ignore is not None:
             try:
                 with open(ignore, 'r') as f:
@@ -226,7 +225,9 @@ class Decompose:
         self.text_pipeline = text_pipeline
         self.separation_symbol = separation_symbol
         # the function applied to convert the processed text of a node into a dictionary key
-        self.get_key = lambda node: self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id']
+        self.get_key = lambda node: \
+            self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id'] \
+                if 'word' in node.attrib.keys() else node.attrib['id']
         self.head_candidates = ('hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink')
         self.mod_candidates = ('mod', 'predm')
         self.visualize = visualize
@@ -297,11 +298,16 @@ class Decompose:
                     # we do not know the parent of this, needs post-processing
                     warn('Assigning placeholder type.')
                     return AtomicType('MOD')
+                # test = ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
+                #                    colors=('mod_'+self.get_type_key(node, grouped),))
+                # todo
+                # import pdb
+                # pdb.set_trace()
                 return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
                                    colors=('mod',))
             elif self.get_rel(rel) == 'crd':
                 # if crd, there must have been a primary crd assigned the head type
-                return AtomicType('_')  # todo
+                return AtomicType('_')
 
         # plain type assignment
         if 'cat' in node.attrib.keys():
@@ -813,32 +819,27 @@ class Decompose:
 
             # finish the head assignment
             if assign:
-                if self.is_leaf(headchild):
-                    # tying the knot
-                    if self.get_key(headchild) not in lexicon.keys():
-                        lexicon[self.get_key(headchild)] = headtype
-                    else:
-                        old_value = lexicon[self.get_key(headchild)]
-                        if old_value != headtype:
-                            headtype = CombinatorType((headtype, old_value), combinator='&')
-                            lexicon[self.get_key(headchild)] = headtype
+                if self.get_key(headchild) not in lexicon.keys():
+                    lexicon[self.get_key(headchild)] = headtype
                 else:
+                    old_value = lexicon[self.get_key(headchild)]
+                    if old_value != headtype:
+                        headtype = CombinatorType((headtype, old_value), combinator='&')
+                        lexicon[self.get_key(headchild)] = headtype
+                if not self.is_leaf(headchild):
                     self.recursive_assignment(headchild, grouped, headtype, lexicon, node_dict)
 
         # now deal with the siblings
         for sib, rel in siblings:
             if not is_gap(sib):
                 sib_type = self.get_type(sib, grouped, rel, parent=current)
-                if Decompose.is_leaf(sib):
-                    # assign to lexicon
-                    lexicon[self.get_key(sib)] = sib_type
-                else:
+                lexicon[self.get_key(sib)] = sib_type
+                if not self.is_leaf(sib):
                     # .. or iterate down
                     if self.get_rel(rel) in self.mod_candidates:
                         self.recursive_assignment(sib, grouped, sib_type, lexicon, node_dict)
                     else:
                         self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
-
             else:
                 pass
                 # raise ValueError('??')
@@ -888,7 +889,10 @@ class Decompose:
         :return: None
         """
         for lex_key in lexicon:
-            key_id = lex_key.split(self.separation_symbol)[1]
+            if self.separation_symbol in lex_key:
+                key_id = lex_key.split(self.separation_symbol)[1]
+            else:
+                key_id = lex_key
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
 
     def __call__(self, grouped: Grouped) -> \
@@ -1035,13 +1039,14 @@ class ToGraphViz:
 
         return graph
 
-    def grouped_to_gv(self, grouped: Grouped) -> graphviz.Digraph:
+    def grouped_to_gv(self, grouped: Grouped, show_sentence: bool) -> graphviz.Digraph:
         graph = graphviz.Digraph()
-        reduced_sentence = ' '.join([x.attrib['word'] for x in sorted(
-            set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
-            key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
+        if show_sentence:
+            reduced_sentence = ' '.join([x.attrib['word'] for x in sorted(
+                set(grouped.keys()).union(set([y[0] for x in grouped.values() for y in x])),
+                key=lambda x: (int(x.attrib['begin']), int(x.attrib['end']), int(x.attrib['id']))) if 'word' in x.attrib])
 
-        graph.node('title', label=reduced_sentence, shape='none')
+            graph.node('title', label=reduced_sentence, shape='none')
 
         for parent in grouped.keys():
             node_label = self.construct_node_label(parent.attrib)
@@ -1053,7 +1058,9 @@ class ToGraphViz:
                            label=self.construct_edge_label(rel))
         return graph
 
-    def __call__(self, parse: Union[Grouped, ET.ElementTree], output: str='gv_output', view: bool=True) -> None:
-        graph = self.xml_to_gv(parse) if isinstance(parse, ET.ElementTree) else self.grouped_to_gv(parse)
+    def __call__(self, parse: Union[Grouped, ET.ElementTree], output: str='gv_output', view: bool=True,
+                 show_sentence: bool = True) -> None:
+        graph = self.xml_to_gv(parse) if isinstance(parse, ET.ElementTree) \
+            else self.grouped_to_gv(parse, show_sentence)
         if output:
             graph.render(output, view=view)

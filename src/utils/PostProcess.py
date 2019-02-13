@@ -1,6 +1,10 @@
-from typing import Tuple, List, Sequence, TypeVar, Set, Optional, Dict, Any
+from typing import Tuple, List, Sequence, TypeVar, Set, Optional, Dict
 from collections import Counter
 from itertools import chain
+try:
+    from src.WordType import AtomicType
+except ImportError:
+    from LassyExtraction.src.WordType import AtomicType
 
 """
 Post-processing of the extraction output
@@ -8,6 +12,7 @@ Post-processing of the extraction output
 
 T1 = TypeVar('T1')
 T2 = TypeVar('T2')
+UNK = AtomicType('UNK')
 
 
 # # # # # # # # # # # # # # # # Search and Exploration Tools # # # # # # # # # # # # # # # #
@@ -52,8 +57,8 @@ def annotated_matchings(X: List[Tuple[int, Sequence[T1]]], Y: List[Sequence[T1]]
     return d
 
 
-def indexize(X: Set[T1]) -> Dict[T1, int]:
-    return {x: i+1 for i, x in enumerate(X)}
+def indexize(X: Set[T1], special: Sequence[T1]=tuple()) -> Dict[T1, int]:
+    return {**{x: i+1 for i, x in enumerate(X)}, **{s: 0 for s in special}}
 
 
 def freqsort(counter: Dict[T1, int], indices: Dict[T1, int]):
@@ -73,7 +78,8 @@ def search_by_id(i: int, inverted: Dict[int, T1], X: Dict[T1, Sequence[Tuple[int
 # # # # # # # # # # # # # # # # Filtering Tools # # # # # # # # # # # # # # # #
 
 
-def filter_by_occurrence(Y: List[Sequence[T2]], mode: str, threshold: int, counter: Dict[T2, int]=None) -> List[int]:
+def filter_by_occurrence(Y: List[Sequence[T2]], mode: str, threshold: int, counter: Optional[Dict[T2, int]]=None) \
+        -> List[int]:
     if counter is None:
         counter = count_occurrences(Y)
     if mode == 'max':
@@ -91,29 +97,64 @@ def filter_by_length(X: List[Sequence[T1]], threshold: int) -> List[int]:
     return [i for i, x in enumerate(X) if len(x) < threshold]
 
 
+def replace_by_occurrence(Y: List[Sequence[T2]], threshold: int, default: T2, counter: Optional[Dict[T2, int]]=None) \
+        -> List[Sequence[T2]]:
+    if counter is None:
+        counter = count_occurrences(Y)
+    return list(map(lambda x: replace_one(x, threshold, counter, default), Y))
+
+
+def replace_one(y: Sequence[T2], threshold: int, counter: Dict[T2, int], default: T2) -> Sequence[T2]:
+    return [default if counter[item] < threshold else item for item in y]
+
+# # # # # # # # # # # # # # # Quickstart Scripts # # # # # # # # # # # # # # #
+
+
 def create_dataset():
     from src import Extraction
     L0, L, tg = Extraction.main()
     aX, aY, aZ = Extraction.iterate(L, num_workers=8, batch_size=128)
     X, Y, Z = deannotate(aX), deannotate(aY), deannotate(aZ)
+    print('Unique Types: {}'.format(len(get_unique(Y))))
     high_freq_indices = filter_by_occurrence(Y, 'min', 10, count_occurrences(Y))
     fX = [X[i] for i in high_freq_indices]
     fY = [Y[i] for i in high_freq_indices]
     fZ = [Z[i] for i in high_freq_indices]
+    print('Frequent Types: {}'.format(len(get_unique(fY))))
+    low_len_indices = filter_by_length(fX, 40)
+    lfX = [fX[i] for i in low_len_indices]
+    lfY = [fY[i] for i in low_len_indices]
+    lfZ = [fZ[i] for i in low_len_indices]
+    print('Type Coverage: {}'.format(len(fX)/len(X)))
+    return lfX, lfY, lfZ, indexize(get_unique(lfY), special=[UNK])
+
+
+def create_dataset_with_replace():
+    from src import Extraction
+    L0, L, tg = Extraction.main()
+    aX, aY, aZ = Extraction.iterate(L, num_workers=8, batch_size=128)
+    X, Y, Z = deannotate(aX), deannotate(aY), deannotate(aZ)
+    print('Unique Types: {}'.format(len(get_unique(Y))))
+    from src.WordType import AtomicType
+    default = AtomicType('UNK')
+    fX = X
+    fY = replace_by_occurrence(Y, 10, default, count_occurrences(Y))
+    fZ = Z
+    print('Frequent Types: {}'.format(len(get_unique(fY))))
     low_len_indices = filter_by_length(fX, 25)
     lfX = [fX[i] for i in low_len_indices]
     lfY = [fY[i] for i in low_len_indices]
     lfZ = [fZ[i] for i in low_len_indices]
-    return lfX, lfY, lfZ
+    return lfX, lfY, lfZ, indexize(get_unique(lfY), special=[UNK])
 
 
 def create_stats():
     from src import Extraction
 
     L0, L, tg = Extraction.main()
-    aX, aY, aZ = Extraction.iterate(L)
+    aX, aY, aZ = Extraction.iterate(L, num_workers=8, batch_size=128)
     X, Y, Z = deannotate(aX), deannotate(aY), deannotate(aZ)
-
+    print(len(get_unique(Y)))
     m = annotated_matchings(aY, X)
     reverse_m = annotated_matchings(aX, Y)
     indices = indexize(get_unique(Y))
