@@ -221,7 +221,7 @@ class ColoredType(ComplexType):
         else:
             return (self.arguments, self.colors) == (other.arguments, other.colors) and self.result == other.result
 
-    def decolor(self) -> 'ComplexType':
+    def decolor(self) -> ComplexType:
         return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
 
 
@@ -253,6 +253,10 @@ class DirectedColoredType(ColoredType):
         else:
             return self.arguments == other.arguments and self.result == other.result and \
                    self.colors == other.colors and self.direction == other.direction
+
+    def decolor(self) -> DirectedComplexType:
+        return DirectedComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)),
+                                   result=self.result.decolor(), direction=self.direction)
 
 
 class CombinatorType(WordType):
