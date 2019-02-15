@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from functools import reduce
 from typing import Union, Set, Sequence
 
-
 class WordType(ABC):
     @abstractmethod
     def __str__(self) -> str:
@@ -35,6 +34,7 @@ class WordType(ABC):
     @abstractmethod
     def retrieve_atomic(self) -> Set[str]:
         pass
+
 
 WordTypes = Sequence[WordType]
 strings = Sequence[str]
@@ -161,6 +161,33 @@ class ComplexType(WordType):
             return reduce(set.union, [a.retrieve_atomic() for a in self.arguments])
 
 
+class DirectedComplexType(ComplexType):
+    def __init__(self, arguments: WordTypes, result: WordType, direction: str) -> None:
+        super(DirectedComplexType, self).__init__(arguments, result)
+        if not isinstance(direction, str):
+            raise TypeError('Expected direction to be a string, received {} instead.'.format(type(direction)))
+        if direction == 'left':
+            self.dir_symbol = '\\'
+        elif direction == 'right':
+            self.dir_symbol = '/'
+        else:
+            raise ValueError('Invalid direction given ({}). Expected one of "left", "right"'.format(direction))
+        self.direction = direction
+
+    def __str__(self) -> str:
+        if len(self.arguments) > 1 or not isinstance(self.arguments[0], AtomicType):
+            return '(' + ', '.join(map(str, self.arguments)) + ') ' + self.dir_symbol + ' ' + str(self.result)
+        else:
+            return str(self.arguments[0]) + ' ' + self.dir_symbol + ' ' + str(self.result)
+
+    def __eq__(self, other: WordType) -> bool:
+        if not isinstance(other, DirectedComplexType):
+            return False
+        else:
+            return self.arguments == other.arguments and self.result == other.result \
+                   and self.direction == other.direction
+
+
 class ColoredType(ComplexType):
     def __init__(self, arguments: WordTypes, result: WordType, colors: strings):
         if not isinstance(colors, tuple):
@@ -196,6 +223,36 @@ class ColoredType(ComplexType):
 
     def decolor(self) -> 'ComplexType':
         return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+
+
+class DirectedColoredType(ColoredType):
+    def __init__(self, arguments: WordTypes, result: WordType, colors: strings, direction: str):
+        super(DirectedColoredType, self).__init__(arguments, result, colors)
+        if not isinstance(direction, str):
+            raise TypeError('Expected direction to be a string, received {} instead.'.format(type(direction)))
+        if direction == 'left':
+            self.dir_symbol = '\\'
+        elif direction == 'right':
+            self.dir_symbol = '/'
+        else:
+            raise ValueError('Invalid direction given ({}). Expected one of "left", "right"'.format(direction))
+        self.direction = direction
+
+    def __str__(self) -> str:
+        if len(self.arguments) > 1 or not isinstance(self.arguments[0], AtomicType):
+            return '(' + ', '.join(map(lambda x: '{' + x[0].__repr__() + ': ' + x[1].__repr__() + '}',
+                                       zip(self.arguments, self.colors))) + ') ' + self.dir_symbol + ' ' \
+                   + str(self.result)
+        else:
+            return '{' + str(self.arguments[0]) + ': ' + self.colors[0] + '} ' + self.dir_symbol + ' ' \
+                   + str(self.result)
+
+    def __eq__(self, other: WordType) -> bool:
+        if not isinstance(other, DirectedColoredType):
+            return False
+        else:
+            return self.arguments == other.arguments and self.result == other.result and \
+                   self.colors == other.colors and self.direction == other.direction
 
 
 class CombinatorType(WordType):
