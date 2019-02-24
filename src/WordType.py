@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Union, Set, Sequence
+from typing import Union, Set, Sequence, Dict
 
 class WordType(ABC):
     @abstractmethod
@@ -340,3 +340,29 @@ def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType
         return ColoredType(arguments, result, tuple(['cnj' for _ in range(len(arguments))]))
     else:
         return flat_colored_type_constructor(arguments, result, colors)
+
+
+class Unflatten(object):
+    def __init__(self):
+        self.type_hierarchy = None
+
+    def __call__(self, wordtype: WordType) -> WordType:
+        return unflatten_fn(wordtype, self.type_hierarchy)
+
+
+def unflatten_fn(wordtype: WordType, hierarchy: Dict[str, int]) -> WordType:
+    if isinstance(wordtype, ColoredType):
+        ordered_colors = [color for idx, color in enumerate(sorted(wordtype.colors, key=lambda x: hierarchy[x]))]
+        ordered_args = [wordtype.arguments[idx] for idx, _ in enumerate(ordered_colors)]
+        ordered_args = list(map(lambda x: unflatten_fn(x, hierarchy), ordered_args))
+        return reduce(lambda x, y: ColoredType(result=x,
+                                               arguments=(y[0],),
+                                               colors=(y[1],)),
+                      zip(ordered_args[::-1], ordered_colors[::-1]),
+                      unflatten_fn(wordtype.result, hierarchy))
+    elif isinstance(wordtype, CombinatorType):
+        return CombinatorType(list(map(lambda x: unflatten_fn(x, hierarchy), wordtype.types)), wordtype.combinator)
+    elif isinstance(wordtype, AtomicType):
+        return wordtype
+    else:
+        raise NotImplementedError
