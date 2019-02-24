@@ -366,3 +366,12 @@ def unflatten_fn(wordtype: WordType, hierarchy: Dict[str, int]) -> WordType:
         return wordtype
     else:
         raise NotImplementedError
+
+
+def polish(wordtype: WordType) -> str:
+    if isinstance(wordtype, ColoredType):
+        return wordtype.colors[0] + ' ' + polish(wordtype.arguments[0]) + ' ' + polish(wordtype.result)
+    elif isinstance(wordtype, AtomicType):
+        return str(wordtype)
+    else:
+        raise NotImplementedError
