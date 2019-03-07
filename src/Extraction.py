@@ -207,10 +207,11 @@ class Decompose:
         :type visualize: bool
         """
         # type_dict: POS → Type
-        cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'conj': 'CONJ', 'cp': 'CP', 'detp': 'DETP', 'du': 'DU',
+        # removed: conj, top
+        cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'du': 'DU',
                     'inf': 'INF', 'np': 'NP', 'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES',
                     'rel': 'REL', 'smain': 'SMAIN', 'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI',
-                    'top': 'TOP', 'whq': 'WHQ', 'whrel': 'WHREL', 'whsub': 'WHSUB'}
+                    'whq': 'WHQ', 'whrel': 'WHREL', 'whsub': 'WHSUB'}
         pos_dict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
                     'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
                     'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
@@ -229,7 +230,7 @@ class Decompose:
             self.text_pipeline(node.attrib['word']) + self.separation_symbol + node.attrib['id'] \
                 if 'word' in node.attrib.keys() else node.attrib['id']
         self.head_candidates = ('hd', 'rhd', 'whd', 'cmp', 'crd', 'dlink')
-        self.mod_candidates = ('mod', 'predm')
+        self.mod_candidates = ('mod', 'predm', 'app')
         self.visualize = visualize
 
     @staticmethod
@@ -293,7 +294,7 @@ class Decompose:
         :rtype:
         """
         if rel is not None:
-            if self.get_rel(rel) in ('mod', 'predm'):
+            if self.get_rel(rel) in self.mod_candidates:
                 if parent is None:
                     # we do not know the parent of this, needs post-processing
                     warn('Assigning placeholder type.')
@@ -304,7 +305,7 @@ class Decompose:
                 # import pdb
                 # pdb.set_trace()
                 return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
-                                   colors=('mod',))
+                                   colors=(self.get_rel(rel),))
             elif self.get_rel(rel) == 'crd':
                 # if crd, there must have been a primary crd assigned the head type
                 return AtomicType('_')
@@ -459,7 +460,11 @@ class Decompose:
 
             if main_parent.attrib['cat'] not in ('ssub', 'smain', 'sv1'):
                 continue
-            real_so = list(filter(lambda x: x[1] in (('su', 'secondary'), ('obj1', 'secondary')),
+            real_so = list(filter(lambda x: x[1] in (('su', 'secondary'),
+                                                     ('obj', 'secondary'),
+                                                     ('obj1', 'secondary'),
+                                                     ('sup', 'secondary'),
+                                                     ('obj2', 'secondary')),
                                   [x for x in grouped[main_parent]]))
             if not real_so:
                 continue
@@ -629,6 +634,40 @@ class Decompose:
                 new_children_rels += [(children_rels[det_idx][0], new_hd), (children_rels[hd_idx][0], new_det)]
                 grouped[parent] = new_children_rels
 
+                # # assertions
+                # rels = list(map(self.get_rel, [x[1] for x in new_children_rels]))
+                # if 'det' in rels and 'invdet' in rels:
+                #     ToGraphViz()(grouped)
+                #     raise NotImplementedError
+
+        return grouped
+
+    def refine_body(self, grouped: Grouped) -> Grouped:
+        for parent in grouped:
+            children_rels = grouped[parent]
+            rels = list(map(self.get_rel, [x[1] for x in children_rels]))
+            if 'body' in rels:
+                body_idx = rels.index('body')
+                if 'cmp' in rels:
+                    continue
+                elif 'rhd' in rels:
+                    if isinstance(children_rels[body_idx][1], Rel):
+                        new_body = Rel(label='rhd_body', rank=children_rels[body_idx][1].rank)
+                    else:
+                        new_body = 'rhd_body'
+                elif 'whd' in rels:
+                    if isinstance(children_rels[body_idx][1], Rel):
+                        new_body = Rel(label='whd_body', rank=children_rels[body_idx][1].rank)
+                    else:
+                        new_body = 'whd_body'
+                else:
+                    ToGraphViz()(grouped)
+                    raise NotImplementedError('Unknown head?')
+
+                children_rels[body_idx][0].attrib['rel'][parent.attrib['id']] = new_body
+                new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != body_idx]
+                new_children_rels += [(children_rels[body_idx][0], new_body)]
+                grouped[parent] = new_children_rels
         return grouped
 
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
@@ -749,7 +788,7 @@ class Decompose:
 
             # pick all the arguments
             arglist = [[self.get_type(sib, grouped, parent=current, rel=self.get_rel(rel)), self.get_rel(rel)]
-                       for sib, rel in siblings if self.get_rel(rel) not in ('mod', 'predm', 'crd')]
+                       for sib, rel in siblings if self.get_rel(rel) not in self.mod_candidates + ('crd',)]
 
             # whether to type assign on this head -- True by default
             assign = True
@@ -898,7 +937,7 @@ class Decompose:
     def __call__(self, grouped: Grouped) -> \
             Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], Iterable[WordType]]:
 
-        top_nodes = Decompose.get_disconnected(grouped)
+        top_nodes = list(Decompose.get_disconnected(grouped))
 
         # might be useful if the tagger is trained on the phrase level
         top_node_types = tuple(map(lambda x: self.get_type(x, grouped), top_nodes))
@@ -907,7 +946,8 @@ class Decompose:
                      set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
 
         # init one dict per disjoint sequence
-        dicts = [dict() for _ in top_nodes]
+        dicts = [{self.get_key(x): y} for x, y in top_node_types]
+
         for i, top_node in enumerate(top_nodes):
             # recursively iterate each
             self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
@@ -942,6 +982,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
                            lambda x: [x[0], decomposer.swap_determiner_head(x[1])],
+                           lambda x: [x[0], decomposer.refine_body(x[1])],
                            lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer)
@@ -958,7 +999,7 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
                   transformation.
     :type lassy: Lassy
     :param kwargs: If any of num_workers, batch_size is provided as a kwarg, the iteration will be done in parallel.
-                   Set num_workers to the number of your CPU cores and batch_size to a power of 2 between 1 and 128.
+                   Set num_workers to the number of your CPU threads and batch_size to a power of 2 between 1 and 128.
     :type kwargs: int
     :return: X: A list of tuples (i, S) where S a list of words forming a sentence and i the index indicating which
              data sample this sentence came from, and a corresponding list of tuples (i, T) where T is the list of
@@ -1003,7 +1044,7 @@ class ToGraphViz:
         for key in self.to_show:
             if key != 'span':
                 try:
-                    label += child[key] + '\n'
+                    label += str(child[key]) + '\n'
                 except KeyError:
                     pass
             else:
