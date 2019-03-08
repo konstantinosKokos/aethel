@@ -643,6 +643,14 @@ class Decompose:
         return grouped
 
     def refine_body(self, grouped: Grouped) -> Grouped:
+        """
+            Turns the uninformative 'body' dependency label into a richer variant that indicates what it is the body to.
+
+        :param grouped: The DAG to operate on.
+        :type grouped: Grouped
+        :return: The transformed DAG.
+        :rtype: Grouped
+        """
         for parent in grouped:
             children_rels = grouped[parent]
             rels = list(map(self.get_rel, [x[1] for x in children_rels]))
@@ -669,6 +677,79 @@ class Decompose:
                 new_children_rels += [(children_rels[body_idx][0], new_body)]
                 grouped[parent] = new_children_rels
         return grouped
+
+    def tw_to_mod(self, grouped: Grouped) -> Grouped:
+        """
+
+        :param grouped:
+        :type grouped:
+        :return:
+        :rtype:
+        """
+        ## de anderhalve 
+        ## een enkele // de beide : lid vnw
+        ## geen enekele: vnw vnw
+
+        to_add = []
+        for parent in grouped:
+            children_rels = grouped[parent]
+            dets = [(i, c, r) for i, (c, r) in enumerate(children_rels) if self.get_rel(r) == 'det']
+            if len(dets) > 1:
+                if all(list(map(lambda x: 'pt' in x[1].attrib.keys(), dets))):
+                    tw = [x for x in dets if x[1].attrib['pt'] == 'tw']
+                    # de tw construction -- convert tw to mod
+                    if tw:
+                        tw = tw[0]
+                        if isinstance(tw[2], Rel):
+                            new_tw = Rel(label='mod', rank=children_rels[tw[0]][1].rank)
+                        else:
+                            new_tw = 'mod'
+                        tw[1].attrib['rel'][parent.attrib['id']] = new_tw
+                        new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != tw[0]]
+                        new_children_rels += [(tw[1], new_tw)]
+                        grouped[parent] = new_children_rels
+                else:
+                    # chained detp with internal tw construction -- convert detp to mod
+                    detp = [x for x in list(filter(lambda x: 'cat' in x[1].attrib.keys(), dets))
+                            if x[1].attrib['cat'] == 'detp'][0]
+                    # assert any(list(map(lambda x: x[0].attrib['pt'] == 'tw', grouped[detp[1]])))
+
+                    if isinstance(detp[2], Rel):
+                        new_detp = Rel(label='mod', rank=detp[2].rank)
+                    else:
+                        new_detp = 'mod'
+
+                    children_rels[detp[0]][0].attrib['rel'][parent.attrib['id']] = new_detp
+                    new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != detp[0]]
+                    new_children_rels += [(detp[1], new_detp)]
+                    grouped[parent] = new_children_rels
+
+        return grouped
+        #
+        #
+        #
+        #     rels = list(map(self.get_rel, [x[1] for x in children_rels]))
+        #     if rels.count('det') > 1:
+        #         try:
+        #             tw = [(i, c, r) for i, (c, r) in enumerate(children_rels)
+        #                   if c.attrib['pt'] == 'tw' and self.get_rel(r) == 'det'][0]
+        #         except:
+        #             weird = list(filter(lambda x: self.get_rel(x[1]) == 'det', children_rels))
+        #             print(list(map(lambda x: x[0].attrib['id'], weird)))
+        #             ToGraphViz()(grouped)
+        #             import pdb
+        #             pdb.set_trace()
+        #             return grouped
+        #         if isinstance(tw[2], Rel):
+        #             new_tw = Rel(label='mod', rank=children_rels[tw[0]][1].rank)
+        #         else:
+        #             new_tw = 'mod'
+        #
+        #         tw[1].attrib['rel'][parent.attrib['id']] = new_tw
+        #         new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != tw[0]]
+        #         new_children_rels += [(tw[1], new_tw)]
+        #         grouped[parent] = new_children_rels
+        # return grouped
 
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
             -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
@@ -940,13 +1021,14 @@ class Decompose:
         top_nodes = list(Decompose.get_disconnected(grouped))
 
         # might be useful if the tagger is trained on the phrase level
-        top_node_types = tuple(map(lambda x: self.get_type(x, grouped), top_nodes))
+        top_node_types = tuple(map(lambda x: (x, self.get_type(x, grouped)), top_nodes))
 
         node_dict = {node.attrib['id']: node for node in
                      set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
 
         # init one dict per disjoint sequence
         dicts = [{self.get_key(x): y} for x, y in top_node_types]
+        top_node_types = list(map(lambda x: x[1], top_node_types))
 
         for i, top_node in enumerate(top_nodes):
             # recursively iterate each
@@ -981,8 +1063,9 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
-                           lambda x: [x[0], decomposer.swap_determiner_head(x[1])],
                            lambda x: [x[0], decomposer.refine_body(x[1])],
+                           lambda x: [x[0], decomposer.tw_to_mod(x[1])],
+                           lambda x: [x[0], decomposer.swap_determiner_head(x[1])],
                            lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer)
