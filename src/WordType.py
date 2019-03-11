@@ -294,7 +294,7 @@ def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> C
         arguments += (x.argument,)
         colors += (x.color,)
         x = x.result
-    return binarizer(arguments, result, colors)
+    return binarizer(arguments, x, colors)
 
 
 def dependency_sort(argcolors: Iterable[Tuple[WordType, str]]) -> Sequence[Tuple[WordType, str]]:
@@ -326,14 +326,14 @@ def kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors:
     if all(list(map(lambda x: x == 'cnj', colors))) and len(set(arguments)) == 1:
         return ColoredType(ModalType(arguments[0], modality='*'), result, 'cnj')
     else:
-        return flatten_binary(arguments, result, colors)
+        return binarizer(arguments, result, colors)
 
 
 def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
     if all(list(map(lambda x: x == 'cnj', colors))):
         arguments = tuple((set(arguments)))
         arguments = tuple(map(lambda x: ModalType(x, modality='*'), arguments))
-    return flatten_binary(arguments, result, colors)
+    return binarizer(arguments, result, colors)
 
 
 def polish(wordtype: WordType) -> str:
