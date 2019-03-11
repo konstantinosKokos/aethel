@@ -1,5 +1,6 @@
 from src.WordType import *
 from src.WordType import non_poly_kleene_star_type_constructor as ColoredType
+from src.WordType import associative_combinator as CombinatorType
 
 import os
 import xml.etree.cElementTree as ET
@@ -306,8 +307,8 @@ class Decompose:
                 # pdb.set_trace()
                 return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
                                    colors=(self.get_rel(rel),))
-            elif self.get_rel(rel) == 'crd':
-                # if crd, there must have been a primary crd assigned the head type
+            elif self.get_rel(rel) in ('crd', 'det'):
+                # if crd or det, there must have been a primary crd/det assigned the head type
                 return AtomicType('_')
 
         # plain type assignment
@@ -586,7 +587,8 @@ class Decompose:
                         nodes = Decompose.order_siblings(grouped[key])
                         collapsed_text = ' '.join([x[0].attrib['word'] for x in nodes])
                         key.attrib['word'] = collapsed_text  # update the parent text
-                        key.attrib['cat'] = self.majority_vote(key, grouped)  # todo
+                        del key.attrib['cat']
+                        key.attrib['pt'] = self.majority_vote(key, grouped)  # todo
                         to_remove.append(key)
 
         # parent is not a parent anymore (since no children are inherited)
@@ -606,10 +608,11 @@ class Decompose:
         """
         for parent in grouped:
             children_rels = grouped[parent]
+            children_rels = self.order_siblings(children_rels)
             rels = list(map(self.get_rel, [x[1] for x in children_rels]))
             if 'det' in rels:
-                det_idx = rels.index('det')
-                hd_idx = rels.index('hd')
+                det_idx = rels.index('det')  # the first determiner in the phrase
+                hd_idx = rels.index('hd')  # originally the noun
 
                 if isinstance(children_rels[det_idx][1], Rel):
                     # det becomes a hd, inheriting the rank of previous det
@@ -690,13 +693,12 @@ class Decompose:
         ## een enkele // de beide : lid vnw
         ## geen enekele: vnw vnw
 
-        to_add = []
         for parent in grouped:
             children_rels = grouped[parent]
             dets = [(i, c, r) for i, (c, r) in enumerate(children_rels) if self.get_rel(r) == 'det']
             if len(dets) > 1:
                 if all(list(map(lambda x: 'pt' in x[1].attrib.keys(), dets))):
-                    tw = [x for x in dets if x[1].attrib['pt'] == 'tw']
+                    tw = [x for x in dets if x[1].attrib['pt'] == 'tw' or x[1].attrib['word'] == 'beide']
                     # de tw construction -- convert tw to mod
                     if tw:
                         tw = tw[0]
@@ -708,10 +710,11 @@ class Decompose:
                         new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != tw[0]]
                         new_children_rels += [(tw[1], new_tw)]
                         grouped[parent] = new_children_rels
+                    # note: no catch-all rule for other cases; type assigner defaults to a blank type (mwu det)
                 else:
                     # chained detp with internal tw construction -- convert detp to mod
-                    detp = [x for x in list(filter(lambda x: 'cat' in x[1].attrib.keys(), dets))
-                            if x[1].attrib['cat'] == 'detp'][0]
+                    detp = [x for x in list(filter(lambda x: 'cat' in x[1].attrib.keys(), dets))][0]
+
                     # assert any(list(map(lambda x: x[0].attrib['pt'] == 'tw', grouped[detp[1]])))
 
                     if isinstance(detp[2], Rel):
@@ -725,31 +728,6 @@ class Decompose:
                     grouped[parent] = new_children_rels
 
         return grouped
-        #
-        #
-        #
-        #     rels = list(map(self.get_rel, [x[1] for x in children_rels]))
-        #     if rels.count('det') > 1:
-        #         try:
-        #             tw = [(i, c, r) for i, (c, r) in enumerate(children_rels)
-        #                   if c.attrib['pt'] == 'tw' and self.get_rel(r) == 'det'][0]
-        #         except:
-        #             weird = list(filter(lambda x: self.get_rel(x[1]) == 'det', children_rels))
-        #             print(list(map(lambda x: x[0].attrib['id'], weird)))
-        #             ToGraphViz()(grouped)
-        #             import pdb
-        #             pdb.set_trace()
-        #             return grouped
-        #         if isinstance(tw[2], Rel):
-        #             new_tw = Rel(label='mod', rank=children_rels[tw[0]][1].rank)
-        #         else:
-        #             new_tw = 'mod'
-        #
-        #         tw[1].attrib['rel'][parent.attrib['id']] = new_tw
-        #         new_children_rels = [children_rels[i] for i in range(len(children_rels)) if i != tw[0]]
-        #         new_children_rels += [(tw[1], new_tw)]
-        #         grouped[parent] = new_children_rels
-        # return grouped
 
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
             -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
@@ -869,7 +847,7 @@ class Decompose:
 
             # pick all the arguments
             arglist = [[self.get_type(sib, grouped, parent=current, rel=self.get_rel(rel)), self.get_rel(rel)]
-                       for sib, rel in siblings if self.get_rel(rel) not in self.mod_candidates + ('crd',)]
+                       for sib, rel in siblings if self.get_rel(rel) not in self.mod_candidates + ('crd', 'det')]
 
             # whether to type assign on this head -- True by default
             assign = True
@@ -910,6 +888,7 @@ class Decompose:
                         headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
                         # (X -> Y): argdeps[0] -> Z
                 else:
+                    # combinator type within the hypothesis
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
                     for internal_head, internal_edge in set(internal_edges):
@@ -943,7 +922,7 @@ class Decompose:
                     lexicon[self.get_key(headchild)] = headtype
                 else:
                     old_value = lexicon[self.get_key(headchild)]
-                    if old_value != headtype:
+                    if not rightwards_inclusion(headtype, old_value):
                         headtype = CombinatorType((headtype, old_value), combinator='&')
                         lexicon[self.get_key(headchild)] = headtype
                 if not self.is_leaf(headchild):

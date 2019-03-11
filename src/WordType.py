@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Union, Set, Sequence, Dict, Tuple, Iterable
+from typing import Union, Set, Sequence, Tuple, Iterable
 from collections import defaultdict
+from itertools import chain
 
 
 class WordType(ABC):
@@ -34,11 +35,11 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def retrieve_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[str]:
         pass
 
     @abstractmethod
-    def retrieve_colors(self) -> Set[str]:
+    def get_colors(self) -> Set[str]:
         pass
 
 
@@ -76,10 +77,10 @@ class AtomicType(WordType):
     def decolor(self) -> 'AtomicType':
         return self
 
-    def retrieve_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[str]:
         return {self.__repr__()}
 
-    def retrieve_colors(self) -> Set[str]:
+    def get_colors(self) -> Set[str]:
         return set()
 
 
@@ -119,11 +120,11 @@ class ModalType(WordType):
     def decolor(self) -> 'ModalType':
         return ModalType(result=(self.result.decolor()), modality=self.modality)
 
-    def retrieve_atomic(self) -> Set[str]:
-        return self.result.retrieve_atomic()
+    def get_atomic(self) -> Set[str]:
+        return self.result.get_atomic()
 
-    def retrieve_colors(self) -> Set[str]:
-        return self.result.retrieve_colors()
+    def get_colors(self) -> Set[str]:
+        return self.result.get_colors()
 
 
 class ComplexType(WordType):
@@ -155,11 +156,11 @@ class ComplexType(WordType):
     def decolor(self) -> 'ComplexType':
         return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
 
-    def retrieve_atomic(self) -> Set[str]:
-        return set.union(self.argument.retrieve_atomic(), self.result.retrieve_atomic())
+    def get_atomic(self) -> Set[str]:
+        return set.union(self.argument.get_atomic(), self.result.get_atomic())
 
-    def retrieve_colors(self) -> Set[str]:
-        return set.union(self.argument.retrieve_colors(), self.result.retrieve_colors())
+    def get_colors(self) -> Set[str]:
+        return set.union(self.argument.get_colors(), self.result.get_colors())
 
 
 class DirectedComplexType(ComplexType):
@@ -212,9 +213,8 @@ class ColoredType(ComplexType):
     def decolor(self) -> ComplexType:
         return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
 
-
-    def retrieve_colors(self) -> Set[str]:
-        return set.union(super(ColoredType, self).retrieve_colors(), self.color)
+    def get_colors(self) -> Set[str]:
+        return set.union(super(ColoredType, self).get_colors(), {self.color})
 
 
 class DirectedColoredType(DirectedComplexType):
@@ -240,11 +240,11 @@ class DirectedColoredType(DirectedComplexType):
         return DirectedComplexType(argument=self.argument.decolor(), result=self.result.decolor(),
                                    direction=self.direction)
 
-    def retrieve_atomic(self):
-        return ComplexType.retrieve_atomic(self)
+    def get_atomic(self):
+        return ComplexType.get_atomic(self)
 
-    def retrieve_colors(self):
-        return ColoredType.retrieve_colors(self)
+    def get_colors(self):
+        return ColoredType.get_colors(self)
 
 
 class CombinatorType(WordType):
@@ -275,11 +275,11 @@ class CombinatorType(WordType):
     def decolor(self) -> 'CombinatorType':
         return CombinatorType(types=tuple(map(lambda x: x.decolor(), self.types)), combinator=self.combinator)
 
-    def retrieve_atomic(self) -> Set[str]:
-        return reduce(set.union, [a.retrieve_atomic() for a in self.types])
+    def get_atomic(self) -> Set[str]:
+        return reduce(set.union, [a.get_atomic() for a in self.types])
 
-    def retrieve_colors(self) -> Set[str]:
-        return reduce(set.union, [a.retrieve_colors() for a in self.types])
+    def get_colors(self) -> Set[str]:
+        return reduce(set.union, [a.get_colors() for a in self.types])
 
 
 def binarizer(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
@@ -290,7 +290,7 @@ def binarizer(arguments: WordTypes, result: WordType, colors: strings) -> Colore
 
 def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
     x = result
-    while isinstance(x, ColoredType):
+    while isinstance(x, ColoredType) and x.color not in ('mod', 'predm', 'app'):
         arguments += (x.argument,)
         colors += (x.color,)
         x = x.result
@@ -298,27 +298,28 @@ def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> C
 
 
 def dependency_sort(argcolors: Iterable[Tuple[WordType, str]]) -> Sequence[Tuple[WordType, str]]:
-    priority = defaultdict(lambda : -1, {'mod': 6, 'svp': 5, 'ld': 4, 'me': 4, 'vc': 4, 'predc': 3, 'obj2': 3, 'se': 3,
+    priority = defaultdict(lambda : -1, {'mod': 6, 'app': 6, 'predm': 6,
+                                         'svp': 5, 'ld': 4, 'me': 4, 'vc': 4, 'predc': 3, 'obj2': 3, 'se': 3,
                                          'pc': 3, 'hdf': 3, 'obj1': 2, 'pobj': 2, 'su': 2, 'sup': 1, 'cnj': 0})
-    return sorted(argcolors, key=lambda x: (priority[x[1]], x[0]), reverse=True)
+    return sorted(argcolors, key=lambda x: (priority[x[1]], str(x[0])), reverse=True)
 
 
 def decolor(colored_type: WordType) -> Union[AtomicType, ModalType, ComplexType]:
     return colored_type.decolor()
 
 
-def retrieve_atomic(something: Union[WordTypes, WordType]) -> Set[str]:
+def get_atomic(something: Union[WordTypes, WordType]) -> Set[str]:
     if isinstance(something, Sequence):
-        return reduce(set.union, [retrieve_atomic(s) for s in something])
+        return reduce(set.union, [get_atomic(s) for s in something])
     else:
-        return something.retrieve_atomic()
+        return something.get_atomic()
 
 
-def retrieve_colors(something: Union[WordTypes, WordType]) -> Set[str]:
+def get_colors(something: Union[WordTypes, WordType]) -> Set[str]:
     if isinstance(something, Sequence):
-        return reduce(set.union, [retrieve_colors(s) for s in something])
+        return reduce(set.union, [get_colors(s) for s in something])
     else:
-        return something.retrieve_colors()
+        return something.get_colors()
 
 
 def kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
@@ -332,9 +333,7 @@ def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType
     if all(list(map(lambda x: x == 'cnj', colors))):
         arguments = tuple((set(arguments)))
         arguments = tuple(map(lambda x: ModalType(x, modality='*'), arguments))
-        return kleene_star_type_constructor(arguments, result, tuple(['cnj' for _ in range(len(arguments))]))
-    else:
-        return flatten_binary(arguments, result, colors)
+    return flatten_binary(arguments, result, colors)
 
 
 def polish(wordtype: WordType) -> str:
@@ -348,3 +347,17 @@ def polish(wordtype: WordType) -> str:
         return wordtype.combinator + ' ' + polish(wordtype.types[0]) + ' ' + polish(wordtype.types[1])
     else:
         raise NotImplementedError
+
+
+def associative_combinator(types: WordTypes, combinator: str) -> CombinatorType:
+    new_types = tuple(set(chain.from_iterable([t.types if isinstance(t, CombinatorType) and t.combinator == combinator
+                                              else [t] for t in types])))
+    new_types = sorted(new_types, key=lambda x: str(x))
+    return CombinatorType(new_types, combinator)
+
+
+def rightwards_inclusion(left: WordType, right: WordType) -> bool:
+    if isinstance(right, CombinatorType):
+        return any([left == t for t in right.types])
+    else:
+        return left == right
