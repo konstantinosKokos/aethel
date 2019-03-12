@@ -298,9 +298,9 @@ def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> C
 
 
 def dependency_sort(argcolors: Iterable[Tuple[WordType, str]]) -> Sequence[Tuple[WordType, str]]:
-    priority = defaultdict(lambda : -1, {'mod': 6, 'app': 6, 'predm': 6,
-                                         'svp': 5, 'ld': 4, 'me': 4, 'vc': 4, 'predc': 3, 'obj2': 3, 'se': 3,
-                                         'pc': 3, 'hdf': 3, 'obj1': 2, 'pobj': 2, 'su': 2, 'sup': 1, 'cnj': 0})
+    priority = defaultdict(lambda: -1, {'mod': 7, 'app': 7, 'predm': 7, 'body': 6, 'rhd_body': 6, 'whd_body': 6,
+                                        'svp': 5, 'ld': 4, 'me': 4, 'vc': 4, 'predc': 3, 'obj2': 3, 'se': 3,
+                                        'pc': 3, 'hdf': 3, 'obj1': 2, 'pobj': 2, 'su': 2, 'sup': 1, 'cnj': 0})
     return sorted(argcolors, key=lambda x: (priority[x[1]], str(x[0])), reverse=True)
 
 
@@ -333,7 +333,7 @@ def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType
     if all(list(map(lambda x: x == 'cnj', colors))):
         arguments = tuple((set(arguments)))
         arguments = tuple(map(lambda x: ModalType(x, modality='*'), arguments))
-    return binarizer(arguments, result, colors)
+    return flatten_binary(arguments, result, colors)
 
 
 def polish(wordtype: WordType) -> str:
