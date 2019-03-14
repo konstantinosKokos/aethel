@@ -338,15 +338,17 @@ def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType
 
 def polish(wordtype: WordType) -> str:
     if isinstance(wordtype, ColoredType):
-        return wordtype.colors[0] + ' ' + polish(wordtype.arguments[0]) + ' ' + polish(wordtype.result)
+        return wordtype.color + ' ' + polish(wordtype.argument) + ' ' + polish(wordtype.result)
     elif isinstance(wordtype, AtomicType):
         return str(wordtype)
     elif isinstance(wordtype, CombinatorType):
         if len(wordtype.types) != 2:
-            raise NotImplementedError
+            raise NotImplementedError('Polish not implemented for {}-ary CombinatorTypes'.format(len(wordtype.types)))
         return wordtype.combinator + ' ' + polish(wordtype.types[0]) + ' ' + polish(wordtype.types[1])
+    elif isinstance(wordtype, ModalType):
+        return wordtype.modality + ' ' + polish(wordtype.result)
     else:
-        raise NotImplementedError
+        raise NotImplementedError('Polish not implemented for {}'.format(type(wordtype)))
 
 
 def associative_combinator(types: WordTypes, combinator: str) -> CombinatorType:
@@ -361,3 +363,4 @@ def rightwards_inclusion(left: WordType, right: WordType) -> bool:
         return any([left == t for t in right.types])
     else:
         return left == right
+
