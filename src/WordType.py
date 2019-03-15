@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Union, Set, Sequence, Dict
+from typing import Union, Set, Sequence, Tuple, Iterable
+from collections import defaultdict
+from itertools import chain
+
 
 class WordType(ABC):
     @abstractmethod
@@ -32,7 +35,11 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def retrieve_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[str]:
+        pass
+
+    @abstractmethod
+    def get_colors(self) -> Set[str]:
         pass
 
 
@@ -70,8 +77,11 @@ class AtomicType(WordType):
     def decolor(self) -> 'AtomicType':
         return self
 
-    def retrieve_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[str]:
         return {self.__repr__()}
+
+    def get_colors(self) -> Set[str]:
+        return set()
 
 
 class ModalType(WordType):
@@ -110,28 +120,20 @@ class ModalType(WordType):
     def decolor(self) -> 'ModalType':
         return ModalType(result=(self.result.decolor()), modality=self.modality)
 
-    def retrieve_atomic(self) -> Set[str]:
-        return self.result.retrieve_atomic()
+    def get_atomic(self) -> Set[str]:
+        return self.result.get_atomic()
+
+    def get_colors(self) -> Set[str]:
+        return self.result.get_colors()
 
 
 class ComplexType(WordType):
-    def __init__(self, arguments: WordTypes, result: WordType) -> None:
-        if not isinstance(result, WordType):
-            raise TypeError('Expected result to be of type WordType, received {} instead.'.format(type(result)))
+    def __init__(self, argument: WordType, result: WordType) -> None:
         self.result = result
-        if not isinstance(arguments, Sequence):
-            raise TypeError('Expected arguments to be a Sequence of WordTypes, received {} instead.'.
-                            format(type(arguments)))
-        if not all(map(lambda x: isinstance(x, WordType), arguments)) or len(arguments) == 0:
-            raise TypeError('Expected arguments to be a non-empty Sequence of WordTypes, '
-                            'received a Sequence containing {} instead.'.format(list(map(type, arguments))))
-        self.arguments = sorted(arguments, key=lambda x: x.__repr__())
+        self.argument = argument
 
     def __str__(self) -> str:
-        if len(self.arguments) > 1:
-            return '(' + ', '.join(map(str, self.arguments)) + ') → ' + str(self.result)
-        else:
-            return str(self.arguments[0]) + ' → ' + str(self.result)
+        return str(self.argument) + ' → ' + str(self.result)
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -140,7 +142,7 @@ class ComplexType(WordType):
         return self.__str__().__hash__()
 
     def get_arity(self) -> int:
-        return max(max(map(lambda x: x.get_arity() + 1, self.arguments)), self.result.get_arity())
+        return max(self.argument.get_arity() + 1, self.result.get_arity())
 
     def __call__(self) -> str:
         return self.__str__()
@@ -149,23 +151,21 @@ class ComplexType(WordType):
         if not isinstance(other, ComplexType):
             return False
         else:
-            return self.arguments == other.arguments and self.result == other.result
+            return self.argument == other.argument and self.result == other.result
 
     def decolor(self) -> 'ComplexType':
-        return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+        return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
 
-    def retrieve_atomic(self) -> Set[str]:
-        if len(self.arguments) == 1:
-            return set.union(self.arguments[0].retrieve_atomic(), self.result.retrieve_atomic())
-        else:
-            return reduce(set.union, [a.retrieve_atomic() for a in self.arguments])
+    def get_atomic(self) -> Set[str]:
+        return set.union(self.argument.get_atomic(), self.result.get_atomic())
+
+    def get_colors(self) -> Set[str]:
+        return set.union(self.argument.get_colors(), self.result.get_colors())
 
 
 class DirectedComplexType(ComplexType):
-    def __init__(self, arguments: WordTypes, result: WordType, direction: str) -> None:
-        super(DirectedComplexType, self).__init__(arguments, result)
-        if not isinstance(direction, str):
-            raise TypeError('Expected direction to be a string, received {} instead.'.format(type(direction)))
+    def __init__(self, argument: WordType, result: WordType, direction: str) -> None:
+        super(DirectedComplexType, self).__init__(argument, result)
         if direction == 'left':
             self.dir_symbol = '\\'
         elif direction == 'right':
@@ -175,39 +175,28 @@ class DirectedComplexType(ComplexType):
         self.direction = direction
 
     def __str__(self) -> str:
-        if len(self.arguments) > 1 or not isinstance(self.arguments[0], AtomicType):
-            return '(' + ', '.join(map(str, self.arguments)) + ') ' + self.dir_symbol + ' ' + str(self.result)
+        if self.direction == 'right':
+            return str(self.argument) + ' ' + self.dir_symbol + ' ' + str(self.result)
         else:
-            return str(self.arguments[0]) + ' ' + self.dir_symbol + ' ' + str(self.result)
+            return str(self.result) + ' ' + self.dir_symbol + ' ' + str(self.argument)
 
     def __eq__(self, other: WordType) -> bool:
         if not isinstance(other, DirectedComplexType):
             return False
         else:
-            return self.arguments == other.arguments and self.result == other.result \
-                   and self.direction == other.direction
+            return super(DirectedComplexType, self).__eq__(other) and self.direction == other.direction
 
 
 class ColoredType(ComplexType):
-    def __init__(self, arguments: WordTypes, result: WordType, colors: strings):
-        if not isinstance(colors, tuple):
-            raise TypeError('Expected color to be  a Sequence of strings, received {} instead.'.format(type(colors)))
-        if not all(map(lambda x: isinstance(x, str), colors)) or len(colors) == 0:
-            raise TypeError('Expected arguments to be a non-empty Sequence of strings,'
-                            ' received a Sequence containing {} instead.'.format(list(map(type, colors))))
-        if len(colors) != len(arguments):
-            raise ValueError('Uneven amount of arguments ({}) and colors ({}).'.format(len(arguments), len(colors)))
-        sorted_ac = sorted([ac for ac in zip(arguments, colors)], key=lambda x: x[0].__repr__() + x[1].__repr__())
-        arguments, colors = list(zip(*sorted_ac))
-        super(ColoredType, self).__init__(arguments, result)
-        self.colors = colors
+    def __init__(self, argument: WordType, result: WordType, color: str):
+        super(ColoredType, self).__init__(argument, result)
+        assert(isinstance(argument, WordType))
+        assert(isinstance(result, WordType))
+        assert(isinstance(color, str))
+        self.color = color
 
     def __str__(self) -> str:
-        if len(self.arguments) > 1:
-            return '(' + ', '.join(map(lambda x: '{' + x[0].__repr__() + ': ' + x[1].__repr__() + '}',
-                                       zip(self.arguments, self.colors))) + ') → ' + str(self.result)
-        else:
-            return '{' + str(self.arguments[0]) + ': ' + self.colors[0] + '} → ' + str(self.result)
+        return '{' + str(self.argument) + ': ' + self.color + '} → ' + str(self.result)
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -219,56 +208,48 @@ class ColoredType(ComplexType):
         if not isinstance(other, ColoredType):
             return False
         else:
-            return (self.arguments, self.colors) == (other.arguments, other.colors) and self.result == other.result
+            return super(ColoredType, self).__eq__(other) and self.color == other.color
 
     def decolor(self) -> ComplexType:
-        return ComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)), result=self.result.decolor())
+        return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
+
+    def get_colors(self) -> Set[str]:
+        return set.union(super(ColoredType, self).get_colors(), {self.color})
 
 
-class DirectedColoredType(ColoredType):
-    def __init__(self, arguments: WordTypes, result: WordType, colors: strings, direction: str):
-        super(DirectedColoredType, self).__init__(arguments, result, colors)
-        if not isinstance(direction, str):
-            raise TypeError('Expected direction to be a string, received {} instead.'.format(type(direction)))
-        if direction == 'left':
-            self.dir_symbol = '\\'
-        elif direction == 'right':
-            self.dir_symbol = '/'
-        else:
-            raise ValueError('Invalid direction given ({}). Expected one of "left", "right"'.format(direction))
-        self.direction = direction
+class DirectedColoredType(DirectedComplexType):
+    def __init__(self, argument: WordType, result: WordType, color: str, direction: str):
+        super(DirectedColoredType, self).__init__(argument, result, direction)
+        self.color = color
 
     def __str__(self) -> str:
-        if len(self.arguments) > 1 or not isinstance(self.arguments[0], AtomicType):
-            return '(' + ', '.join(map(lambda x: '{' + x[0].__repr__() + ': ' + x[1].__repr__() + '}',
-                                       zip(self.arguments, self.colors))) + ') ' + self.dir_symbol + ' ' \
-                   + str(self.result)
+        if self.direction == 'right':
+            compact = '{' + str(self.argument) + '}: ' + self.color + ' ' + self.dir_symbol + ' ' + str(self.result)
+            return compact if isinstance(self.argument, AtomicType) else '(' + compact + ')'
         else:
-            return '{' + str(self.arguments[0]) + ': ' + self.colors[0] + '} ' + self.dir_symbol + ' ' \
-                   + str(self.result)
+            compact = str(self.result) + ' ' + self.dir_symbol + '{' + str(self.argument) + '}: ' + self.color
+            return compact if isinstance(self.argument, AtomicType) else '(' + compact + ')'
 
     def __eq__(self, other: WordType) -> bool:
         if not isinstance(other, DirectedColoredType):
             return False
         else:
-            return self.arguments == other.arguments and self.result == other.result and \
-                   self.colors == other.colors and self.direction == other.direction
+            return super(DirectedColoredType, self).__eq__(other) and self.color == other.color
 
     def decolor(self) -> DirectedComplexType:
-        return DirectedComplexType(arguments=tuple(map(lambda x: x.decolor(), self.arguments)),
-                                   result=self.result.decolor(), direction=self.direction)
+        return DirectedComplexType(argument=self.argument.decolor(), result=self.result.decolor(),
+                                   direction=self.direction)
+
+    def get_atomic(self):
+        return ComplexType.get_atomic(self)
+
+    def get_colors(self):
+        return ColoredType.get_colors(self)
 
 
 class CombinatorType(WordType):
     def __init__(self, types: WordTypes, combinator: str):
-        if not isinstance(types, tuple):
-            raise TypeError('Expected types to be  a Sequence of WordTypes, received {} instead.'.format(type(types)))
-        if not all(map(lambda x: isinstance(x, WordType), types)) or len(types) < 1:
-            raise TypeError('Expected types to be a non-empty Sequence of WordTypes,'
-                            ' received a Sequence containing {} instead.'.format(list(map(type, types))))
-        if not isinstance(combinator, str):
-            raise TypeError('Expected combinator to be of type str, received {} instead.'.format(type(combinator)))
-        self.types = sorted(types, key=lambda x: x.__repr__())
+        self.types = types
         self.combinator = combinator
 
     def __str__(self) -> str:
@@ -288,90 +269,98 @@ class CombinatorType(WordType):
 
     def __eq__(self, other: WordType):
         if isinstance(other, CombinatorType) and self.types == other.types and self.combinator == other.combinator:
-                return True
+            return True
         return False
 
     def decolor(self) -> 'CombinatorType':
         return CombinatorType(types=tuple(map(lambda x: x.decolor(), self.types)), combinator=self.combinator)
 
-    def retrieve_atomic(self) -> Set[WordType]:
-        return reduce(set.union, [a.retrieve_atomic() for a in self.types])
+    def get_atomic(self) -> Set[str]:
+        return reduce(set.union, [a.get_atomic() for a in self.types])
+
+    def get_colors(self) -> Set[str]:
+        return reduce(set.union, [a.get_colors() for a in self.types])
 
 
-def compose(base_types: WordTypes, base_colors: strings, result: WordType):
-    if len(base_types) != len(base_colors):
-        raise ValueError('Uneven number of types ({}) and colors ({}).'.format(len(base_types), len(base_colors)))
-    return reduce(lambda x, y: ColoredType(result=x, arguments=y[0], colors=y[1]),
-                  zip(base_types[::-1], base_colors[::-1]),
-                  result)
+def binarizer(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
+    argcolors = zip(arguments, colors)
+    argcolors = list(dependency_sort(argcolors))
+    return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), argcolors, result)
+
+
+def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
+    x = result
+    while isinstance(x, ColoredType) and x.color not in ('mod', 'predm', 'app'):
+        arguments += (x.argument,)
+        colors += (x.color,)
+        x = x.result
+    return binarizer(arguments, x, colors)
+
+
+def dependency_sort(argcolors: Iterable[Tuple[WordType, str]]) -> Sequence[Tuple[WordType, str]]:
+    priority = defaultdict(lambda: -1, {'mod': 7, 'app': 7, 'predm': 7, 'body': 6, 'rhd_body': 6, 'whd_body': 6,
+                                        'svp': 5, 'ld': 4, 'me': 4, 'vc': 4, 'predc': 3, 'obj2': 3, 'se': 3,
+                                        'pc': 3, 'hdf': 3, 'obj1': 2, 'pobj': 2, 'su': 2, 'sup': 1, 'cnj': 0})
+    return sorted(argcolors, key=lambda x: (priority[x[1]], str(x[0])), reverse=True)
 
 
 def decolor(colored_type: WordType) -> Union[AtomicType, ModalType, ComplexType]:
     return colored_type.decolor()
 
 
-def retrieve_atomic(something: Union[WordTypes, WordType]):
+def get_atomic(something: Union[WordTypes, WordType]) -> Set[str]:
     if isinstance(something, Sequence):
-        return reduce(set.union, [retrieve_atomic(s) for s in something])
+        return reduce(set.union, [get_atomic(s) for s in something])
     else:
-        return something.retrieve_atomic()
+        return something.get_atomic()
 
 
-def flat_colored_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
-    if isinstance(result, ColoredType):
-        all_args = tuple([x for x in list(arguments)+list(result.arguments)])
-        all_colors = tuple([x for x in list(colors)+list(result.colors)])
-        return ColoredType(all_args, result.result, all_colors)
+def get_colors(something: Union[WordTypes, WordType]) -> Set[str]:
+    if isinstance(something, Sequence):
+        return reduce(set.union, [get_colors(s) for s in something])
     else:
-        return ColoredType(arguments, result, colors)
+        return something.get_colors()
 
 
 def kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
     if all(list(map(lambda x: x == 'cnj', colors))) and len(set(arguments)) == 1:
-        return ColoredType((ModalType(arguments[0], modality='*'),), result, ('cnj',))
+        return ColoredType(ModalType(arguments[0], modality='*'), result, 'cnj')
     else:
-        return flat_colored_type_constructor(arguments, result, colors)
+        return binarizer(arguments, result, colors)
 
 
 def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
     if all(list(map(lambda x: x == 'cnj', colors))):
         arguments = tuple((set(arguments)))
         arguments = tuple(map(lambda x: ModalType(x, modality='*'), arguments))
-        return ColoredType(arguments, result, tuple(['cnj' for _ in range(len(arguments))]))
-    else:
-        return flat_colored_type_constructor(arguments, result, colors)
-
-
-class Unflatten(object):
-    def __init__(self):
-        self.type_hierarchy = None
-
-    def __call__(self, wordtype: WordType) -> WordType:
-        return unflatten_fn(wordtype, self.type_hierarchy)
-
-
-def unflatten_fn(wordtype: WordType, hierarchy: Dict[str, int]) -> WordType:
-    if isinstance(wordtype, ColoredType):
-        ordered_colors = [color for idx, color in enumerate(sorted(wordtype.colors, key=lambda x: hierarchy[x]))]
-        ordered_args = [wordtype.arguments[idx] for idx, _ in enumerate(ordered_colors)]
-        ordered_args = list(map(lambda x: unflatten_fn(x, hierarchy), ordered_args))
-        return reduce(lambda x, y: ColoredType(result=x,
-                                               arguments=(y[0],),
-                                               colors=(y[1],)),
-                      zip(ordered_args[::-1], ordered_colors[::-1]),
-                      unflatten_fn(wordtype.result, hierarchy))
-    elif isinstance(wordtype, CombinatorType):
-        return CombinatorType(list(map(lambda x: unflatten_fn(x, hierarchy), wordtype.types)), wordtype.combinator)
-    elif isinstance(wordtype, AtomicType):
-        return wordtype
-    else:
-        raise NotImplementedError
+    return flatten_binary(arguments, result, colors)
 
 
 def polish(wordtype: WordType) -> str:
     if isinstance(wordtype, ColoredType):
-        return wordtype.colors[0] + ' ' + polish(wordtype.arguments[0]) + ' ' + polish(wordtype.result)
+        return wordtype.color + ' ' + polish(wordtype.argument) + ' ' + polish(wordtype.result)
     elif isinstance(wordtype, AtomicType):
         return str(wordtype)
+    elif isinstance(wordtype, CombinatorType):
+        if len(wordtype.types) != 2:
+            raise NotImplementedError('Polish not implemented for {}-ary CombinatorTypes'.format(len(wordtype.types)))
+        return wordtype.combinator + ' ' + polish(wordtype.types[0]) + ' ' + polish(wordtype.types[1])
+    elif isinstance(wordtype, ModalType):
+        return wordtype.modality + ' ' + polish(wordtype.result)
     else:
-        raise NotImplementedError
+        raise NotImplementedError('Polish not implemented for {}'.format(type(wordtype)))
+
+
+def associative_combinator(types: WordTypes, combinator: str) -> CombinatorType:
+    new_types = tuple(set(chain.from_iterable([t.types if isinstance(t, CombinatorType) and t.combinator == combinator
+                                              else [t] for t in types])))
+    new_types = sorted(new_types, key=lambda x: str(x))
+    return CombinatorType(new_types, combinator)
+
+
+def rightwards_inclusion(left: WordType, right: WordType) -> bool:
+    if isinstance(right, CombinatorType):
+        return any([left == t for t in right.types])
+    else:
+        return left == right
+
