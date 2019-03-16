@@ -1,9 +1,9 @@
 from src.WordType import polish, WordType, CombinatorType
 from src.utils.PostProcess import deannotate
-from typing import Tuple, List, Sequence, TypeVar, Set, Optional, Dict
+from typing import Tuple, List, Sequence, TypeVar, Callable
 from itertools import chain
 from collections import Counter
-import re
+from functools import reduce
 import pickle
 
 T = TypeVar('T')
@@ -64,11 +64,24 @@ def BPE(Y: List[str], max_merges: int=5000) -> List[Tuple[Tuple[str, str], int]]
     return merges
 
 
+def functionalize_merges(merges: List[Tuple[Tuple[str, str], int]]) -> Callable:
+    fst = lambda x: x[0]
+    merges = list(map(fst, merges))
+    return lambda s: reduce(lambda x, y: replace_one(x, y), merges, s)
+
+
+def encode(Y: List[Sequence[str]], merges: List[Tuple[Tuple[str, str], int]]) -> List[Sequence[str]]:
+    merge_fn = functionalize_merges(merges)
+    return list(map(lambda y: list(map(merge_fn, y)), Y))
+
+
 def do_everything():
     with open('XYZ.p', 'rb') as f:
-        _, Y, _ = pickle.load(f)
+        X, Y, _ = pickle.load(f)
+    # todo: make a proper dataset
     Y = deannotate(Y)
-    Y = flatten(Y)
-    Y = list(filter(lambda x: not (isinstance(x, CombinatorType) and len(x.types)>2), Y))
-    Y = polish_many(Y)
-    return BPE(Y)
+    Y = list(filter(lambda y: not any(list(map(lambda t: isinstance(t, CombinatorType) and len(t.types) > 2, y))), Y))
+    Y_p = flatten(Y)
+    Y_p = list(filter(lambda x: not (isinstance(x, CombinatorType) and len(x.types)>2), Y))
+    Y_p = polish_many(Y)
+    merges = BPE(Y_p)

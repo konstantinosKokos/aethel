@@ -13,7 +13,6 @@ from src.WordType import get_colors, get_atomic
 import math
 
 
-
 def get_sentence_lengths(L0: Lassy) -> List[int]:
     return list(map(get_sample_length, L0))
 

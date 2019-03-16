@@ -61,7 +61,7 @@ def indexize(X: Set[T1], special: Sequence[T1]=tuple()) -> Dict[T1, int]:
     return {**{x: i+1 for i, x in enumerate(X)}, **{s: 0 for s in special}}
 
 
-def freqsort(counter: Dict[T1, int], indices: Dict[T1, int]):
+def freqsort(counter: Dict[T1, int], indices: Dict[T1, int]) -> List[Tuple[int, T1, int]]:
     counter = sorted([(k, v) for k, v in counter.items()], key=lambda x: x[1], reverse=True)
     ret = [(indices[c], c, freq) for c, freq in counter]
     return ret
@@ -106,6 +106,7 @@ def replace_by_occurrence(Y: List[Sequence[T2]], threshold: int, default: T2, co
 
 def replace_one(y: Sequence[T2], threshold: int, counter: Dict[T2, int], default: T2) -> Sequence[T2]:
     return [default if counter[item] < threshold else item for item in y]
+
 
 # # # # # # # # # # # # # # # Quickstart Scripts # # # # # # # # # # # # # # #
 
