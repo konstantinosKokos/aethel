@@ -689,7 +689,7 @@ class Decompose:
         :return:
         :rtype:
         """
-        ## de anderhalve 
+        ## de anderhalve
         ## een enkele // de beide : lid vnw
         ## geen enekele: vnw vnw
 
@@ -1007,7 +1007,6 @@ class Decompose:
 
         # init one dict per disjoint sequence
         dicts = [{self.get_key(x): y} for x, y in top_node_types]
-        top_node_types = list(map(lambda x: x[1], top_node_types))
 
         for i, top_node in enumerate(top_nodes):
             # recursively iterate each
