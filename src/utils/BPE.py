@@ -5,16 +5,25 @@ from itertools import chain
 from collections import Counter
 from functools import reduce
 import pickle
+from src.utils.PostProcess import get_unique, indexize
 
 T = TypeVar('T')
+
+
+def is_non_binary_comb(x: WordType):
+    return True if isinstance(x, CombinatorType) and len(x.types) != 2 else False
+
+
+def index_non_binary_combs(Y: List[Sequence[WordType]]) -> List[int]:
+    return [i for i, y in enumerate(Y) if not any(list(map(is_non_binary_comb, y)))]
 
 
 def flatten(Y: List[Sequence[T]]) -> List[T]:
     return list(chain.from_iterable(Y))
 
 
-def polish_many(Y: List[WordType]) -> List[str]:
-    return list(map(polish, Y))
+def polish_many(y: List[WordType]) -> List[str]:
+    return list(map(polish, y))
 
 
 def pair(y: str) -> List[Tuple[str, str]]:
@@ -78,10 +87,24 @@ def encode(Y: List[Sequence[str]], merges: List[Tuple[Tuple[str, str], int]]) ->
 def do_everything():
     with open('XYZ.p', 'rb') as f:
         X, Y, _ = pickle.load(f)
-    # todo: make a proper dataset
     Y = deannotate(Y)
-    Y = list(filter(lambda y: not any(list(map(lambda t: isinstance(t, CombinatorType) and len(t.types) > 2, y))), Y))
+    I = index_non_binary_combs(Y)
+    X = [X[i] for i in I]
+    Y = [Y[i] for i in I]
     Y_p = flatten(Y)
-    Y_p = list(filter(lambda x: not (isinstance(x, CombinatorType) and len(x.types)>2), Y))
-    Y_p = polish_many(Y)
+    Y_p = list(filter(lambda x: not (isinstance(x, CombinatorType) and len(x.types) > 2), Y_p))
+    Y_p = polish_many(Y_p)
     merges = BPE(Y_p)
+
+    Y_enc = encode(Y, merges[:100])  # List[Sequence[str]]
+    Y_enc_joined = list(map(lambda y: ' <TE> '.join(y), Y_enc))
+    unique = get_unique(Y_enc_joined)
+    type_to_int = indexize(unique)
+    int_to_type = {v: k for k, v in type_to_int.items()}
+    # todo
+
+    Y_enc = list(map(lambda y:
+                     list(map(lambda ts:
+                              list(map(lambda t: type_to_int[t], ts)),
+                              y)),
+                     Y_enc_split))
