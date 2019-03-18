@@ -92,19 +92,14 @@ def do_everything():
     X = [X[i] for i in I]
     Y = [Y[i] for i in I]
     Y_p = flatten(Y)
-    Y_p = list(filter(lambda x: not (isinstance(x, CombinatorType) and len(x.types) > 2), Y_p))
     Y_p = polish_many(Y_p)
     merges = BPE(Y_p)
 
-    Y_enc = encode(Y, merges[:100])  # List[Sequence[str]]
+    Y_enc = encode(list(map(polish_many, Y)), merges[:100])
     Y_enc_joined = list(map(lambda y: ' <TE> '.join(y), Y_enc))
+    Y_enc_split = list(map(lambda y: y.split(), Y_enc_joined))
     unique = get_unique(Y_enc_joined)
     type_to_int = indexize(unique)
     int_to_type = {v: k for k, v in type_to_int.items()}
-    # todo
 
-    Y_enc = list(map(lambda y:
-                     list(map(lambda ts:
-                              list(map(lambda t: type_to_int[t], ts)),
-                              y)),
-                     Y_enc_split))
+    Y_int = list(map(lambda y: list(map(lambda t: type_to_int[t], y)), Y_enc_split))
