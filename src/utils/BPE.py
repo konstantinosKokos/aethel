@@ -85,8 +85,8 @@ def encode(Y: List[Sequence[str]], merges: List[Tuple[Tuple[str, str], int]]) ->
 
 
 def do_everything():
-    with open('XYZ.p', 'rb') as f:
-        X, Y, _ = pickle.load(f)
+    with open('XY.p', 'rb') as f:
+        X, Y = pickle.load(f)
     Y = deannotate(Y)
     I = index_non_binary_combs(Y)
     X = [X[i] for i in I]
@@ -98,8 +98,35 @@ def do_everything():
     Y_enc = encode(list(map(polish_many, Y)), merges[:100])
     Y_enc_joined = list(map(lambda y: ' <TE> '.join(y), Y_enc))
     Y_enc_split = list(map(lambda y: y.split(), Y_enc_joined))
-    unique = get_unique(Y_enc_joined)
+    unique = get_unique(Y_enc_split)
     type_to_int = indexize(unique)
     int_to_type = {v: k for k, v in type_to_int.items()}
 
     Y_int = list(map(lambda y: list(map(lambda t: type_to_int[t], y)), Y_enc_split))
+
+
+def no_merges():
+    with open('XY.p', 'rb') as f:
+        X, Y = pickle.load(f)
+    X, Y = deannotate(X), deannotate(Y)
+
+    binary_only = index_non_binary_combs(Y)
+
+    X = [X[i] for i in binary_only]
+    Y = [Y[i] for i in binary_only]
+
+    short_only = [i for i in range(len(Y)) if len(Y[i]) < 20]
+
+    X = [X[i] for i in short_only]
+    Y = [Y[i] for i in short_only]
+    Y_p = list(map(polish_many, Y))
+    Y_joined = list(map(lambda y: ' <TE> '.join(y), Y_p))
+    Y_split = list(map(lambda y: y.split(), Y_joined))
+    unique = get_unique(Y_split)
+    type_to_int = indexize(unique)
+
+    Y_int = list(map(lambda y: list(map(lambda t: type_to_int[t], y)), Y_split))
+
+
+
+
