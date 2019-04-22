@@ -875,6 +875,8 @@ class Decompose:
                                                       rel=internal_edges[0][1],
                                                       parent=internal_edges[0][0])
                         # (X: mod -> X)
+                        internal_type = ColoredType(arguments=(internal_type,), result=argtypes[0],
+                                                    colors=(internal_edges[0][1],))
                         headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
                         # (X: mod -> X): argdeps[0] -> Z
                     else:
@@ -944,7 +946,7 @@ class Decompose:
                 # raise ValueError('??')
 
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped, to_sequences: bool=True) \
-            -> Union[List[Tuple[str, WordType]], Tuple[Iterable[str], Iterable[WordType]]]:
+            -> Tuple[Iterable[str], Iterable[WordType]]:
         """
             Takes a dictionary and a lexicon partially mapping dictionary leaves to types and converts it to either an
         iterable of (word, WordType) tuples, if to_sequences=True, or two iterables of words and WordTypes otherwise.
@@ -972,10 +974,7 @@ class Decompose:
         ret = [(enum[i].split(self.separation_symbol)[0], sublex[enum[i]])
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
 
-        if to_sequences:
-            # convert to two tuples (word1, word2, ..), (type1, type2, ..)
-            return tuple(zip(*ret))
-        return ret
+        return tuple(zip(*ret))
 
     def annotate_nodes(self, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
         """
@@ -995,7 +994,7 @@ class Decompose:
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
 
     def __call__(self, grouped: Grouped) -> \
-            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], Iterable[WordType]]:
+            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]]]:
 
         top_nodes = list(Decompose.get_disconnected(grouped))
 
@@ -1018,7 +1017,7 @@ class Decompose:
         if self.visualize:
             ToGraphViz()(grouped)
 
-        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), top_node_types
+        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
@@ -1051,7 +1050,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
 
 
 def iterate(lassy: Lassy, **kwargs: int) -> \
-        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]], List[Tuple[int, WordType]]]:
+        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]:
     """
         Iterates over a Lassy dataset as returned by main(), either serially or in parallel. To enable parallel mode
         provide num_workers and/or batch_size as keyword arguments.
@@ -1068,7 +1067,7 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
     :rtype: Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]], List[Tuple[int], WordType]]
     """
 
-    X, Y, Z = [], [], []
+    X, Y, = [], []
 
     # parallel case
     if kwargs:
@@ -1078,16 +1077,14 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
                 idx = sample[0]
                 X.extend([(idx, x[0]) for x in sample[1][1]])
                 Y.extend([(idx, x[1]) for x in sample[1][1]])
-                Z.extend([(idx, x) for x in sample[1][2]])
-        return X, Y, Z
+        return X, Y
 
     # sequential case
     for i in range(len(lassy)):
         l = lassy[i][1]
         X.extend([(i, x[0]) for x in l[1]])
         Y.extend([(i, x[1]) for x in l[1]])
-        Z.extend([(i, x) for x in l[2]])
-    return X, Y, Z
+    return X, Y
 
 # # # # # # # # Visualization Utility # # # # # # # #
 
