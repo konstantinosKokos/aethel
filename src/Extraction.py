@@ -876,9 +876,10 @@ class Decompose:
                                                       parent=internal_edges[0][0])
                         # (X: mod -> X)
                         internal_type = ColoredType(arguments=(internal_type,), result=argtypes[0],
-                                                    colors=(internal_edges[0][1],))
+                                                    colors=('embedded',))
+                        # todo missing name between X-X and Y
                         headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                        # (X: mod -> X): argdeps[0] -> Z
+                        # (X: mod -> X) -> Y: argdeps[0] -> Z
                     else:
                         # construct the internal type (which includes a hypothesis for the gap)
                         internal_type = ColoredType(arguments=(self.get_type(headchild, grouped,
