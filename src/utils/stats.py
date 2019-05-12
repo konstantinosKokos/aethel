@@ -39,8 +39,8 @@ def stuff():
     from matplotlib import pyplot as plt
     import numpy as np
 
-    with open('XYZ.p', 'rb') as f:
-        X, Y, _ = pickle.load(f)
+    with open('XY.p', 'rb') as f:
+        X, Y = pickle.load(f)
 
     X = deannotate(X)
     Y = deannotate(Y)
@@ -53,10 +53,11 @@ def stuff():
     unique_values = sorted(set(countY.values()))
     sum_values = sum(countY.values())
 
-    def at_least(i):
+    def at_least_(i):
         return len([x for x in countY if countY[x]>=i])
 
-    _at_least = list(map(at_least, unique_values))
+
+    _at_least = list(map(at_least_, unique_values))
 
     def plot_at_least():
         f, ax = plt.subplots()
@@ -66,14 +67,47 @@ def stuff():
         ax.grid(which='major', linewidth=0.5)
         ylabels = [item.get_text() for item in ax.get_yticklabels(minor=False)]
         ylabels[1] = '0'
-        ylabels[2] = str(int(0.2 * len(countY))) + ' (20)'
-        ylabels[3] = str(int(0.4 * len(countY))) + ' (40)'
-        ylabels[4] = str(int(0.8 * len(countY))) + ' (60)'
-        ylabels[5] = str(int(0.8 * len(countY))) + ' (80)'
-        ylabels[6] = str(len(countY)) + ' (100)'
+        ylabels[2] = '20'  #str(int(0.2 * len(countY))) + ' (20)'
+        ylabels[3] = '40'  #str(int(0.4 * len(countY))) + ' (40)'
+        ylabels[4] = '60'  #str(int(0.8 * len(countY))) + ' (60)'
+        ylabels[5] = '80'  #str(int(0.8 * len(countY))) + ' (80)'
+        ylabels[6] = '100' #str(len(countY)) + ' (100)'
         ax.set_yticklabels(ylabels, minor=False)
-        ax.set_xlabel('# Occurrences (log)', family='serif')
-        ax.set_ylabel('# of Unique Types (%)', family='serif')
+        for tick in ax.xaxis.get_major_ticks():
+            tick.label.set_fontsize(16)
+        for tick in ax.yaxis.get_major_ticks():
+            tick.label.set_fontsize(16)
+        ax.set_xlabel('# Occurrences (log)', family='serif', fontsize='24')
+        ax.set_ylabel('% of Unique Types', family='serif', fontsize='24')
+        return f, ax
+
+    def plot_paper_stuff():
+        f, ax = plt.subplots()
+        ct = np.array(list(map(lambda x: x / len(countY), _at_least)))
+        cs = np.array(list(map(lambda y: y / len(Y), _sentences_covered)))
+        markevery = [i for i, uv in enumerate(unique_values) if uv in [2, 10, 101, 1008, 10049]]
+        ax.semilogx(unique_values, ct, color='#e41a1c', linewidth='2',
+                    marker='o', markevery=markevery, markersize='10')
+        ax.semilogx(unique_values, cs, color='#4daf4a', linewidth='2',
+                    marker='s', markevery=markevery, markersize='10')
+        ax.set_yticks([0.1, 0.3, 0.5, 0.7, 0.9], minor=True)
+        ax.grid(which='minor', linewidth=0.15, linestyle='--')
+        ax.grid(which='major', linewidth=0.5)
+        ylabels = [item.get_text() for item in ax.get_yticklabels(minor=False)]
+        ylabels[1] = '0'
+        ylabels[2] = '20'  # str(int(0.2 * len(countY))) + ' (20)'
+        ylabels[3] = '40'  # str(int(0.4 * len(countY))) + ' (40)'
+        ylabels[4] = '60'  # str(int(0.8 * len(countY))) + ' (60)'
+        ylabels[5] = '80'  # str(int(0.8 * len(countY))) + ' (80)'
+        ylabels[6] = '100'  # str(len(countY)) + ' (100)'
+        ax.set_yticklabels(ylabels, minor=False)
+        for tick in ax.xaxis.get_major_ticks():
+            tick.label.set_fontsize(24)
+        for tick in ax.yaxis.get_major_ticks():
+            tick.label.set_fontsize(24)
+        ax.set_xlabel('Threshold Type Frequency (log)', family='serif', fontsize='33')
+        ax.set_ylabel('%', family='serif', fontsize='33')
+        ax.legend(['Types Covered', 'Sentences Covered'], prop={'size': 25})
         return f, ax
 
     def sentence_min(sentence):
@@ -94,11 +128,11 @@ def stuff():
         ax.grid(which='major', linewidth=0.5)
         ylabels = [item.get_text() for item in ax.get_yticklabels(minor=False)]
         ylabels[1] = '0'
-        ylabels[2] = str(int(0.2 * len(Y))) + ' (20)'
-        ylabels[3] = str(int(0.4 * len(Y))) + ' (40)'
-        ylabels[4] = str(int(0.6 * len(Y))) + ' (60)'
-        ylabels[5] = str(int(0.8 * len(Y))) + ' (80)'
-        ylabels[6] = str(len(Y)) + ' (100)'
+        ylabels[2] = '20'  # str(int(0.2 * len(Y))) + ' (20)'
+        ylabels[3] = '40'  # str(int(0.4 * len(Y))) + ' (40)'
+        ylabels[4] = '60'  # str(int(0.6 * len(Y))) + ' (60)'
+        ylabels[5] = '80'  # str(int(0.8 * len(Y))) + ' (80)'
+        ylabels[6] = '100'  # str(len(Y)) + ' (100)'
         ax.set_yticklabels(ylabels, minor=False)
         ax.set_xlabel('# Occurrences (log)', family='serif')
         ax.set_ylabel('# of Sentences (%)', family='serif')

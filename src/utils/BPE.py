@@ -87,13 +87,19 @@ def encode(Y: List[Sequence[str]], merges: List[Tuple[Tuple[str, str], int]]) ->
 def do_everything():
     with open('XY.p', 'rb') as f:
         X, Y = pickle.load(f)
+    X = deannotate(X)
     Y = deannotate(Y)
     I = index_non_binary_combs(Y)
     X = [X[i] for i in I]
     Y = [Y[i] for i in I]
     Y_p = flatten(Y)
     Y_p = polish_many(Y_p)
-    merges = BPE(Y_p)
+    merges = BPE(Y_p, 500)
+
+    short_only = [i for i in range(len(Y)) if len(Y[i]) <= 20]
+
+    X = [X[i] for i in short_only]
+    Y = [Y[i] for i in short_only]
 
     Y_enc = encode(list(map(polish_many, Y)), merges[:100])
     Y_enc_joined = list(map(lambda y: ' <TE> '.join(y), Y_enc))
@@ -115,7 +121,7 @@ def no_merges():
     X = [X[i] for i in binary_only]
     Y = [Y[i] for i in binary_only]
 
-    short_only = [i for i in range(len(Y)) if len(Y[i]) < 20]
+    short_only = [i for i in range(len(Y)) if len(Y[i]) <= 20]
 
     X = [X[i] for i in short_only]
     Y = [Y[i] for i in short_only]
