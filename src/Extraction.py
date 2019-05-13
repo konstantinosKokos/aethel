@@ -300,13 +300,23 @@ class Decompose:
                     # we do not know the parent of this, needs post-processing
                     warn('Assigning placeholder type.')
                     return AtomicType('MOD')
-                # test = ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
-                #                    colors=('mod_'+self.get_type_key(node, grouped),))
-                # todo
-                # import pdb
-                # pdb.set_trace()
-                return ColoredType(arguments=(self.get_type(parent, grouped),), result=self.get_type(parent, grouped),
-                                   colors=(self.get_rel(rel),))
+                # todo: look deeper for mod^2
+                deep_parent = [k for k in grouped.keys() if parent in list(map(lambda x: x[0], grouped[k]))]
+
+                if len(deep_parent) == 1:
+                    deep_parent = deep_parent[0]
+                    deep_idx = list(map(lambda x: x[0], grouped[deep_parent])).index(parent)
+                    deep_rel = self.get_rel(grouped[deep_parent][deep_idx][1])
+                    if deep_rel in self.mod_candidates:
+                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent)
+                    else:
+                        modded_type = self.get_type(parent, grouped)
+
+                else:
+                    modded_type = self.get_type(parent, grouped)
+
+                return ColoredType(arguments=(modded_type,), result=modded_type, colors=(self.get_rel(rel),))
+
             elif self.get_rel(rel) in ('crd', 'det'):
                 # if crd or det, there must have been a primary crd/det assigned the head type
                 return AtomicType('_'+self.get_rel(rel))
@@ -877,7 +887,6 @@ class Decompose:
                         # (X: mod -> X)
                         internal_type = ColoredType(arguments=(internal_type,), result=argtypes[0],
                                                     colors=('embedded',))
-                        # todo missing name between X-X and Y
                         headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
                         # (X: mod -> X) -> Y: argdeps[0] -> Z
                     else:
@@ -995,7 +1004,7 @@ class Decompose:
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
 
     def __call__(self, grouped: Grouped) -> \
-            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]]]:
+            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
 
         top_nodes = list(Decompose.get_disconnected(grouped))
 
@@ -1018,7 +1027,7 @@ class Decompose:
         if self.visualize:
             ToGraphViz()(grouped)
 
-        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
+        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), dicts
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
@@ -1068,7 +1077,17 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
     :rtype: Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]], List[Tuple[int], WordType]]
     """
 
-    X, Y, = [], []
+    DAGS, X, Y, TD = [], [], [], []
+
+    def merge_dicts(dict_args):
+        """
+        Given any number of dicts, shallow copy and merge into a new dict,
+        precedence goes to key value pairs in latter dicts.
+        """
+        result = {}
+        for dictionary in dict_args:
+            result = {**result, **dictionary}
+        return result
 
     # parallel case
     if kwargs:
@@ -1076,9 +1095,11 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
         for b in dl:
             for sample in b:
                 idx = sample[0]
+                DAGS.extend([(idx, sample[1][0]) for _ in sample[1][1]])
                 X.extend([(idx, x[0]) for x in sample[1][1]])
                 Y.extend([(idx, x[1]) for x in sample[1][1]])
-        return X, Y
+                TD.extend([(idx, merge_dicts(sample[1][2])) for _ in sample[1][2]])
+        return DAGS, X, Y, TD
 
     # sequential case
     for i in range(len(lassy)):
