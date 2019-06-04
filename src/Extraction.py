@@ -25,8 +25,8 @@ class Lassy(Dataset):
         Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
     """
 
-    def __init__(self, root_dir: str='/home/kokos/Documents/Projects/Lassy/LassySmall 4.0',
-                 treebank_dir: str='/Treebank', transform: Optional[Compose]=None,
+    def __init__(self, root_dir: str = '/home/kokos/Documents/Projects/Lassy/LassySmall 4.0',
+                 treebank_dir: str = '/Treebank', transform: Optional[Compose] = None,
                  ignore: Optional[str] = 'src/utils/ignored.txt') -> None:
         """
             Initialize a Lassy dataset.
@@ -260,7 +260,7 @@ class Decompose:
         votes = sorted(votes, key=lambda x: votes[x], reverse=True)
 
         return 'np' if 'np' in votes or 'n' in votes \
-            else 'ap' if 'ap' in votes or 'a' in votes \
+            else 'ap' if 'ap' in votes or 'adj' in votes \
             else votes[0]
 
     def get_type_key(self, node: ET.Element, grouped: Dict[ET.Element, List]):
@@ -755,6 +755,14 @@ class Decompose:
         return None, None
 
     @staticmethod
+    def is_copy(node: ET.Element) -> bool:
+        all_incoming_edges = list(map(Decompose.get_rel, node.attrib['rel'].values()))
+        if len(all_incoming_edges) > 1 and len(set(all_incoming_edges)) == 1:
+            return True
+        return False
+
+
+    @staticmethod
     def get_rel(rel: Union[Rel, str]) -> str:
         if isinstance(rel, str):
             return rel
@@ -807,6 +815,41 @@ class Decompose:
             del(grouped[k])
         return Decompose.collapse_single_non_terminals(grouped, depth=depth+1)
 
+    def reattach_conj_mods(self, grouped: Grouped) -> Grouped:
+        """
+            Detaches modifiers applied to conjunction daughters and attaches them to conjunction parent.
+
+        :param grouped:
+        :return:
+        """
+        conj_nodes = [node for node in grouped.keys() if node.attrib['cat'] == 'conj']
+
+        to_add = []
+        to_remove = []
+
+        for node in conj_nodes:
+            for daughter, _ in grouped[node]:
+                if daughter in grouped.keys():
+                    for granddaughter, rel in grouped[daughter]:
+                        if self.get_rel(rel) in self.mod_candidates and Decompose.is_copy(granddaughter):
+                            to_remove.append((daughter, granddaughter, rel))
+                            to_add.append((node, granddaughter, self.get_rel(rel)))
+
+        to_remove = set(to_remove)
+        to_add = set(to_add)
+
+        if len(to_remove):
+            print('!')
+            for parent, child, rel in to_remove:
+                grouped[parent].remove((child, rel))
+                del child.attrib['rel'][parent.attrib['id']]
+            for parent, child, rel in to_add:
+                grouped[parent].append((child, rel))
+                child.attrib['rel'][parent.attrib['id']] = rel
+            grouped = Decompose.collapse_single_non_terminals(grouped)
+
+        return grouped
+
     def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
                              lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
         """
@@ -837,6 +880,59 @@ class Decompose:
                 return False
             else:
                 return False
+
+        def is_copy(node: ET.Element) -> bool:
+            all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
+            if len(all_incoming_edges) > 1 and len(set(all_incoming_edges)) == 1:
+                return True
+            return False
+
+        def make_crd_type(crd_parent: ET.Element, grouped: Grouped, top_type: WordType) -> WordType:
+            missing_args = set()
+            # take all non-coordinator sisters
+            sisters = [sib for sib, rel in grouped[crd_parent] if self.get_rel(rel) != 'crd']
+            for sib in sisters:
+                if sib in grouped.keys():
+                    # in ignoring mods, we force them to type-assign themselves all the way up
+                    nephews = [(c, r) for c, r in grouped[sib]
+                               if self.get_rel(r) not in self.mod_candidates]
+                    copies = list(filter(lambda nr: is_copy(nr[0]), nephews))
+
+                    # add missing arguments to the missing arg list
+                    if len(copies):
+                        missing_types = set(list(map(
+                            lambda nr:
+                            (self.get_type(node=nr[0], rel=nr[1], parent=sib, grouped=grouped),
+                             self.get_rel(nr[1])), copies)))
+                        missing_args = missing_args.union(missing_types)
+            if missing_args:
+                # todo: heads
+                # two cases:
+                #   heads are the same functors (polymorphic X)
+                #   heads differ (??)
+                # if any([self.get_rel(nr[1]) in self.head_candidates for nr in copies]):
+                #     ToGraphViz()(grouped)
+                #     # todo: only heads
+                #     if len(set([self.get_rel(nr[1]) for nr in copies])) == 1:
+                #         import pdb
+                #         pdb.set_trace()
+                #     # todo: heads and arguments (fml)
+                #     else:
+                #         import pdb
+                #         pdb.set_trace()
+
+                phrasal_argtypes, phrasal_argdeps = list(zip(*missing_args))
+                # this is the polymorphic X
+                phrasal_type = ColoredType(arguments=phrasal_argtypes, result=top_type, colors=phrasal_argdeps)
+                if len(set(argdeps)) != 1:
+                    ToGraphViz()(grouped)
+                    raise ValueError('Too many argdeps?')
+                # ToGraphViz()(grouped)
+                # import pdb
+                # pdb.set_trace()
+                return ColoredType(arguments=[phrasal_type], result=phrasal_type, colors=[argdeps[0]])
+            else:
+                return ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
 
         # find all of the node's siblings
         siblings = grouped[current]
@@ -912,8 +1008,19 @@ class Decompose:
                                            result=top_type, colors=(argdeps[0],))
             elif arglist:
                 argtypes, argdeps = list(zip(*arglist))
-                #  easy case -- stantgdard type assignment
-                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+                #  easy case -- stantdard type assignment
+
+                # not coordinator
+                if self.get_rel(headrel) != 'crd':
+                    headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
+                else:
+                    headtype = make_crd_type(current, grouped, top_type)
+                    # if headtype != ColoredType(arguments=argtypes, result=top_type, colors=argdeps):
+                    #     ToGraphViz()(grouped)
+                    #     print(headtype)
+                    #     import pdb
+                    #     pdb.set_trace()
+
             elif gap:
                 # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
                 headtype = self.get_type(headchild, grouped)
@@ -1053,6 +1160,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
                            lambda x: [x[0], decomposer.refine_body(x[1])],
                            lambda x: [x[0], decomposer.tw_to_mod(x[1])],
                            lambda x: [x[0], decomposer.swap_determiner_head(x[1])],
+                           lambda x: [x[0], decomposer.reattach_conj_mods(x[1])],
                            lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer)
