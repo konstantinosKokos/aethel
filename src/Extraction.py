@@ -383,7 +383,13 @@ class Decompose:
                     # pdb.set_trace()
                     raise NotImplementedError('conjunction of non-equal heads')
 
+                # todo: shared head with different mod
+                if not len(common_args[0]):
+                    raise NotImplementedError('shared head with unique mods')
+
+
                 phrasal_argtypes, phrasal_argdeps = list(zip(*list(common_args[0].keys())))
+
                 hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
                                       colors=phrasal_argdeps)
                 hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped), colors=['embedded'])
@@ -548,6 +554,7 @@ class Decompose:
 
             if main_parent.attrib['cat'] not in ('ssub', 'smain', 'sv1'):
                 continue
+
             real_so = list(filter(lambda x: x[1] in (('su', 'secondary'),
                                                      ('obj', 'secondary'),
                                                      ('obj1', 'secondary'),
@@ -567,6 +574,7 @@ class Decompose:
             if ti:
                 parent = ti[0][0]
 
+            # all children of the main parent that are pparts or infinites
             ppart = list(filter(lambda x: x[0].attrib['cat'] in ('ppart', 'inf'),
                                 [x for x in grouped[parent] if 'cat' in x[0].attrib]))
             if not ppart:
@@ -600,6 +608,7 @@ class Decompose:
             del abstract_so.attrib['rel'][ppart.attrib['id']]
             # convert the secondary edge to primary internally
             abstract_so.attrib['rel'][main_parent.attrib['id']] = Rel(label='su', rank='primary')
+
         return grouped
 
     @staticmethod
@@ -615,6 +624,15 @@ class Decompose:
         :return: The transformed DAG.
         :rtype: Grouped
         """
+
+        removable = []
+        for parent in grouped.keys():
+            if parent.attrib['cat'] not in ('sv1', 'smain', 'ssub'):
+                continue
+            else:
+                for child, rel in grouped[parent]:
+                    removable.append(child)
+
         for parent in grouped.keys():
             if parent.attrib['cat'] not in ('ppart', 'inf'):
                 # this is a proper secondary edge (non-abstract) and should not be removed
@@ -626,7 +644,7 @@ class Decompose:
                 red_rel = Decompose.get_rel(rel)
                 if red_rel not in candidates:
                     continue
-                if rel.rank == 'secondary':
+                if rel.rank == 'secondary' and child in removable:
                     # # # Dictionary changes
                     # remove the abstract s/o from being a child of the ppart/inf
                     grouped[parent].remove((child, rel))
