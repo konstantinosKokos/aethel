@@ -1053,8 +1053,13 @@ class Decompose:
                 #  easy case -- stantdard type assignment
 
                 # not coordinator
-                headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
-                # todo: coordinator needs different treatment X-> X, I know left X but right X is wrong
+                if headrel == 'crd':
+                    # todo: coordinator needs different treatment X-> X, I know left X but right X is wrong
+                    headtype = ColoredType(arguments=(argtypes[0],), result=argtypes[0], colors=(argdeps[0],))
+                    assert 'cnj' not in headtype.result.get_colors()
+                else:
+                    headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
+
                 # if self.is_copy(headchild):
                 #     print(headtype)
                 #     ToGraphViz()(grouped)
@@ -1259,10 +1264,17 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
         return DAGS, X, Y, TD
 
     # sequential case
+    nies = 0
     for i in range(len(lassy)):
-        l = lassy[i][1]
-        X.extend([(i, x[0]) for x in l[1]])
-        Y.extend([(i, x[1]) for x in l[1]])
+        try:
+            l = lassy[i][1]
+            X.extend([(i, x[0]) for x in l[1]])
+            Y.extend([(i, x[1]) for x in l[1]])
+        except NotImplementedError:
+            warn('Encountered NIE at index {}'.format(i))
+            nies += 1
+    if nies:
+        print('Encountered a total of {} NIEs'.format(nies))
     return X, Y
 
 # # # # # # # # Visualization Utility # # # # # # # #
