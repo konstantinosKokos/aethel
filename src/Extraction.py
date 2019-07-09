@@ -1,5 +1,5 @@
 from src.WordType import *
-from src.WordType import non_poly_kleene_star_type_constructor as ColoredType
+from src.WordType import binarizer as ColoredType
 from src.WordType import associative_combinator as CombinatorType
 
 import os
@@ -297,13 +297,25 @@ class Decompose:
         :return:
         :rtype:
         """
+        if rel is None:
+            if all(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
+                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
+
+                if len(parent) == 1:
+                    parent = parent[0]
+                    deep_idx = list(map(lambda x: x[0], grouped[parent])).index(node)
+                    deep_rel = self.get_rel(grouped[parent][deep_idx][1])
+                    return self.get_type(node, grouped, deep_rel, parent)
+            elif all(map(lambda x: x == 'cnj', node.attrib['rel'].values())):
+                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))][0]
+                return self.get_type(parent, grouped)
+
         if rel is not None:
             if self.get_rel(rel) in self.mod_candidates:
                 if parent is None:
                     # we do not know the parent of this, needs post-processing
                     warn('Assigning placeholder type.')
                     return AtomicType('MOD')
-                # todo: look deeper for mod^2
                 deep_parent = [k for k in grouped.keys() if parent in list(map(lambda x: x[0], grouped[k]))]
 
                 if len(deep_parent) == 1:
@@ -342,6 +354,20 @@ class Decompose:
             raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
     def make_cnj_type(self, node: ET.Element, grouped: Grouped, parent: ET.Element) -> WordType:
+        """
+            Responsible for inferring the X in the polymorphic conjunction X->X scheme.
+
+        :param node:
+        :type node:
+        :param grouped:
+        :type grouped:
+        :param parent:
+        :type parent:
+        :return:
+        :rtype:
+        """
+        top_type = self.get_type(parent, grouped)
+
         # todo: copying at a lower depth level
         missing_args = set()
         # take all non-coordinator sisters
@@ -387,13 +413,13 @@ class Decompose:
                 if not len(common_args[0]):
                     raise NotImplementedError('shared head with unique mods')
 
+                # todo: also a modifier somehow??
 
                 phrasal_argtypes, phrasal_argdeps = list(zip(*list(common_args[0].keys())))
 
                 hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
                                       colors=phrasal_argdeps)
                 hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped), colors=['embedded'])
-
                 return hot
             elif not any(head_argdeps):
                 # case 2: some arguments are missing
@@ -417,7 +443,7 @@ class Decompose:
                 return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
                                    colors=phrasal_argdeps)
         else:
-            return self.get_type(parent, grouped)
+            return top_type
 
     @staticmethod
     def group_by_parent(xtree: ET.ElementTree) -> Grouped:
@@ -1055,8 +1081,9 @@ class Decompose:
                 # not coordinator
                 if headrel == 'crd':
                     # todo: coordinator needs different treatment X-> X, I know left X but right X is wrong
-                    headtype = ColoredType(arguments=(argtypes[0],), result=argtypes[0], colors=(argdeps[0],))
-                    assert 'cnj' not in headtype.result.get_colors()
+                    # headtype = ColoredType(arguments=(argtypes[0],), result=argtypes[0], colors=(argdeps[0],))
+                    assert len(set(argtypes)) == 1
+                    headtype = ColoredType(arguments=argtypes, result=argtypes[0], colors=argdeps)
                 else:
                     headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
 
@@ -1116,7 +1143,7 @@ class Decompose:
                 pass
                 # raise ValueError('??')
 
-    def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped, to_sequences: bool=True) \
+    def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped) \
             -> Tuple[Iterable[str], Iterable[WordType]]:
         """
             Takes a dictionary and a lexicon partially mapping dictionary leaves to types and converts it to either an
@@ -1126,9 +1153,6 @@ class Decompose:
         :type sublex: Dict[str, WordType]
         :param grouped: The DAG that is being assigned.
         :type grouped: Grouped
-        :param to_sequences: If True, will return an iterable of words and an iterable of WordTypes. If False, will
-            return an iterable of (word, WordType) tuples.
-        :type to_sequences: bool
         :return: The partial lexicon, converted into iterable(s)
         :rtype: Union[List[Tuple[str, WordType]], List[Iterable[str], Iterable[WordType]]]
         """
@@ -1185,6 +1209,22 @@ class Decompose:
         for d in dicts:
             self.annotate_nodes(d, node_dict)
 
+        lexicons = list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
+
+        for i, l in enumerate(lexicons):
+            try:
+                if not typecheck(list(l[1]), top_node_types[i][1]):
+                    print(infer_type(list(l[1])))
+                    print(top_node_types[i][1])
+                    ToGraphViz()(grouped)
+                    import pdb
+                    pdb.set_trace()
+            except ValueError:
+                ToGraphViz()(grouped)
+                import pdb
+                pdb.set_trace()
+
+
         if self.visualize:
             ToGraphViz()(grouped)
 
@@ -1204,10 +1244,10 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
     lexicalizer = Compose([lambda x: [x[0], x[2]],  # keep only index and parse tree
                            lambda x: [x[0], Lassy.tree_to_dag(x[1])],  # convert to DAG
                            lambda x: [x[0], Decompose.group_by_parent(x[1])],  # convert to dict format
-                           lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.split_dag(x[1],  # split into disjoint trees if needed
                                                                 cats_to_remove=('du',),
                                                                 rels_to_remove=rels_to_remove)],
+                           lambda x: [x[0], decomposer.collapse_mwu(x[1])],  # remove mwus
                            lambda x: [x[0], Decompose.abstract_object_to_subject(x[1])],  # relabel abstract so's
                            lambda x: [x[0], Decompose.remove_abstract_so(x[1])],  # remove abstract so's
                            lambda x: [x[0], Decompose.collapse_single_non_terminals(x[1])],
@@ -1264,17 +1304,10 @@ def iterate(lassy: Lassy, **kwargs: int) -> \
         return DAGS, X, Y, TD
 
     # sequential case
-    nies = 0
     for i in range(len(lassy)):
-        try:
-            l = lassy[i][1]
-            X.extend([(i, x[0]) for x in l[1]])
-            Y.extend([(i, x[1]) for x in l[1]])
-        except NotImplementedError:
-            warn('Encountered NIE at index {}'.format(i))
-            nies += 1
-    if nies:
-        print('Encountered a total of {} NIEs'.format(nies))
+        l = lassy[i][1]
+        X.extend([(i, x[0]) for x in l[1]])
+        Y.extend([(i, x[1]) for x in l[1]])
     return X, Y
 
 # # # # # # # # Visualization Utility # # # # # # # #
