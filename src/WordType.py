@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from functools import reduce
 from typing import Union, Set, Sequence, Tuple, Iterable, List
-from collections import defaultdict
+from collections import defaultdict, Counter
 from itertools import chain
 from operator import add
 
@@ -341,7 +341,7 @@ def kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors:
         return binarizer(arguments, result, colors)
 
 
-def non_poly_kleene_star_type_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
+def multi_arg_kleene_star_constructor(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
     if all(list(map(lambda x: x == 'cnj', colors))):
         arguments = tuple((set(arguments)))
         arguments = tuple(map(lambda x: ModalType(x, modality='*'), arguments))
@@ -384,16 +384,18 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
         argneg, argpos = get_polarities(wordtype.argument)
         respos, resneg = get_polarities(wordtype.result)
         return argpos + respos, argneg + resneg
+    elif isinstance(wordtype, ModalType):
+        return get_polarities(wordtype.result)
 
 
 def infer_type(premises: Sequence[WordType]):
     seqpos, seqneg = list(map(lambda x: reduce(add, x), tuple(zip(*map(get_polarities, premises)))))
-    return seqneg - seqpos
+    return Counter(seqneg) - Counter(seqpos)
 
 
 def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
     inferred = infer_type(premises)
-    if list(inferred.values()) != 1:
+    if list(inferred.values()) != [1]:
         return False
     elif list(inferred.keys()) != [goal]:
         return False
