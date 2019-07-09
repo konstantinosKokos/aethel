@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from functools import reduce
-from typing import Union, Set, Sequence, Tuple, Iterable
+from typing import Union, Set, Sequence, Tuple, Iterable, List
 from collections import defaultdict
 from itertools import chain
+from operator import add
 
 
 class WordType(ABC):
@@ -374,4 +375,28 @@ def rightwards_inclusion(left: WordType, right: WordType) -> bool:
         return any([left == t for t in right.types])
     else:
         return left == right
+
+
+def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
+    if isinstance(wordtype, AtomicType):
+        return [], [wordtype]
+    elif isinstance(wordtype, ComplexType):
+        argneg, argpos = get_polarities(wordtype.argument)
+        respos, resneg = get_polarities(wordtype.result)
+        return argpos + respos, argneg + resneg
+
+
+def infer_type(premises: Sequence[WordType]):
+    seqpos, seqneg = list(map(lambda x: reduce(add, x), tuple(zip(*map(get_polarities, premises)))))
+    return seqneg - seqpos
+
+
+def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
+    inferred = infer_type(premises)
+    if list(inferred.values()) != 1:
+        return False
+    elif list(inferred.keys()) != [goal]:
+        return False
+    return True
+
 
