@@ -298,10 +298,20 @@ def flatten_binary(arguments: WordTypes, result: WordType, colors: strings) -> C
 
 
 def dependency_sort(argcolors: Iterable[Tuple[WordType, str]]) -> Sequence[Tuple[WordType, str]]:
-    priority = defaultdict(lambda: -1, {'mod': 9, 'app': 9, 'predm': 9, 'body': 8, 'rhd_body': 8, 'whd_body': 8,
-                                        'svp': 7, 'ld': 6, 'me': 6, 'vc': 6, 'predc': 5, 'obj2': 5, 'se': 5,
-                                        'pc': 5, 'hdf': 5, 'obj1': 4, 'pobj': 2, 'su': 1, 'invdet': 0,
-                                        'sup': -1, 'cnj': -2})
+    obliqueness_order = (  # upper is inner
+        ('mod', 'app', 'predm'),  # modifiers
+        ('body', 'rhd_body', 'whd_body'),  # clause bodies
+        ('svp',),  # phrasal verb part
+        ('ld', 'me', 'vc'),  # verb complements
+        ('predc', 'obj2', 'se', 'pc', 'hdf'),  # verb secondary arguments
+        ('obj1',),  # primary object
+        ('pobj',),  # preliminary object
+        ('su',),  # primary subject
+        ('sup',),  # preliminary subject
+        ('invdet',),  # NP head
+    )
+    priority = {k: i for i, k in enumerate(reversed(list(chain.from_iterable(obliqueness_order))))}
+    priority = defaultdict(lambda: -1, {**priority, **{'cnj': -2}})
     return sorted(argcolors, key=lambda x: (priority[x[1]], str(x[0])), reverse=True)
 
 
