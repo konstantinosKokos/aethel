@@ -377,7 +377,7 @@ class Decompose:
             if sib in grouped.keys():
                 # in ignoring mods, we force them to type-assign themselves all the way up
                 nephews = [(c, r) for c, r in grouped[sib]
-                           if self.get_rel(r) not in self.mod_candidates]
+                           if self.get_rel(r) not in self.mod_candidates + ('det',)]
                 copies = list(filter(lambda nr: Decompose.is_copy(nr[0]), nephews))
                 non_copies = list(filter(lambda nr: not Decompose.is_copy(nr[0]), nephews))
                 non_missing_types = Counter(list(map(
@@ -1217,13 +1217,9 @@ class Decompose:
                     print(infer_type(list(l[1])))
                     print(top_node_types[i][1])
                     ToGraphViz()(grouped)
-                    import pdb
-                    pdb.set_trace()
-            except ValueError:
-                ToGraphViz()(grouped)
-                import pdb
-                pdb.set_trace()
-
+                    raise ValueError
+            except TypeError:
+                print('te')
 
         if self.visualize:
             ToGraphViz()(grouped)
