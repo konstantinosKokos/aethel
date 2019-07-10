@@ -280,12 +280,14 @@ class Decompose:
             return node.attrib['cat']
         return node.attrib[self.pos_set]
 
-    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]]=None,
-                 parent: Optional[ET.Element]=None) -> WordType:
+    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]] = None,
+                 parent: Optional[ET.Element] = None, lexicon: Dict[str, WordType] = None) -> WordType:
         """
             Assign a word a type. The type assigned depends on the node itself and its local context, as described by
             its dependency role wrt to its parent.
 
+        :param lexicon:
+        :type lexicon:
         :param node:
         :type node:
         :param grouped:
@@ -298,17 +300,32 @@ class Decompose:
         :rtype:
         """
         if rel is None:
+            # rel not provided (nested call)
             if all(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
+                # modifier typing at high depth
                 parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
 
                 if len(parent) == 1:
+                    # single parent case
                     parent = parent[0]
                     deep_idx = list(map(lambda x: x[0], grouped[parent])).index(node)
                     deep_rel = self.get_rel(grouped[parent][deep_idx][1])
-                    return self.get_type(node, grouped, deep_rel, parent)
+                    return self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
+                else:
+                    # todo: multi parent case
+                    pass
+
             elif all(map(lambda x: x == 'cnj', node.attrib['rel'].values())):
                 parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))][0]
-                return self.get_type(parent, grouped)
+                return self.get_type(parent, grouped, lexicon=lexicon)
+
+            elif all(map(lambda x: x in self.head_candidates, node.attrib['rel'].values())):
+                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
+
+                if len(parent) == 1:
+                    return lexicon[node.attrib['id']]
+                else:
+                    raise ValueError('honestly what is going on')
 
         if rel is not None:
             if self.get_rel(rel) in self.mod_candidates:
@@ -323,12 +340,12 @@ class Decompose:
                     deep_idx = list(map(lambda x: x[0], grouped[deep_parent])).index(parent)
                     deep_rel = self.get_rel(grouped[deep_parent][deep_idx][1])
                     if deep_rel in self.mod_candidates:
-                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent)
+                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent, lexicon=lexicon)
                     else:
-                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent)
+                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent, lexicon=lexicon)
 
                 else:
-                    modded_type = self.get_type(parent, grouped)
+                    modded_type = self.get_type(parent, grouped, lexicon=lexicon)
 
                 return ColoredType(arguments=(modded_type,), result=modded_type, colors=(self.get_rel(rel),))
 
@@ -336,7 +353,7 @@ class Decompose:
                 # if crd or det, there must have been a primary crd/det assigned the head type
                 return AtomicType('_'+self.get_rel(rel))
             elif rel == 'cnj':
-                return self.make_cnj_type(node, grouped, parent)
+                return self.make_cnj_type(node, grouped, parent, lexicon)
 
         # plain type assignment
         if 'cat' in node.attrib.keys():
@@ -353,10 +370,13 @@ class Decompose:
         else:
             raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
 
-    def make_cnj_type(self, node: ET.Element, grouped: Grouped, parent: ET.Element) -> WordType:
+    def make_cnj_type(self, node: ET.Element, grouped: Grouped, parent: ET.Element,
+                      lexicon: Dict[str, WordType]) -> WordType:
         """
             Responsible for inferring the X in the polymorphic conjunction X->X scheme.
 
+        :param lexicon:
+        :type lexicon:
         :param node:
         :type node:
         :param grouped:
@@ -366,7 +386,7 @@ class Decompose:
         :return:
         :rtype:
         """
-        top_type = self.get_type(parent, grouped)
+        top_type = self.get_type(parent, grouped, lexicon=lexicon)
 
         # todo: copying at a lower depth level
         missing_args = set()
@@ -382,7 +402,7 @@ class Decompose:
                 non_copies = list(filter(lambda nr: not Decompose.is_copy(nr[0]), nephews))
                 non_missing_types = Counter(list(map(
                     lambda nr:
-                    (self.get_type(node=nr[0], rel=nr[1], parent=sib, grouped=grouped),
+                    (self.get_type(node=nr[0], grouped=grouped, rel=nr[1], parent=sib, lexicon=lexicon),
                      self.get_rel(nr[1])), non_copies)))
                 # gather the common arguments present per daughter that are lexically unique
                 common_args.append(non_missing_types)
@@ -391,7 +411,7 @@ class Decompose:
                 if len(copies):
                     missing_types = set(list(map(
                         lambda nr:
-                        (self.get_type(node=nr[0], rel=nr[1], parent=sib, grouped=grouped),
+                        (self.get_type(node=nr[0], grouped=grouped, rel=nr[1], parent=sib, lexicon=lexicon),
                          self.get_rel(nr[1])), copies)))
                     missing_args = missing_args.union(missing_types)
         if missing_args:
@@ -417,13 +437,14 @@ class Decompose:
 
                 phrasal_argtypes, phrasal_argdeps = list(zip(*list(common_args[0].keys())))
 
-                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
+                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
                                       colors=phrasal_argdeps)
-                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped), colors=['embedded'])
+                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped, lexicon=lexicon),
+                                  colors=['embedded'])
                 return hot
             elif not any(head_argdeps):
                 # case 2: some arguments are missing
-                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
+                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
                                    colors=phrasal_argdeps)
             else:
                 # case 3: the head plus some arguments are missing
@@ -433,14 +454,14 @@ class Decompose:
                                     if x not in self.head_candidates]
                 phrasal_argdeps = [x for x in phrasal_argdeps
                                    if x not in self.head_candidates]
-                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
+                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
                                       colors=phrasal_argdeps)
-                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped), colors=['embedded'])
+                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped, lexicon=lexicon), colors=['embedded'])
                 # print(hot)
                 # ToGraphViz()(grouped)
                 # import pdb
                 # pdb.set_trace()
-                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped),
+                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
                                    colors=phrasal_argdeps)
         else:
             return top_type
@@ -1013,14 +1034,15 @@ class Decompose:
 
         # if no type given from above, assign one now (no nested types)
         if top_type is None:
-            top_type = self.get_type(current, grouped)
+            top_type = self.get_type(current, grouped, lexicon=lexicon)
 
         if headchild is not None:
             # classify the headchild
             gap = is_gap(headchild)
 
             # pick all the arguments
-            arglist = [[self.get_type(sib, grouped, parent=current, rel=self.get_rel(rel)), self.get_rel(rel)]
+            arglist = [[self.get_type(sib, grouped, rel=self.get_rel(rel), parent=current, lexicon=lexicon),
+                        self.get_rel(rel)]
                        for sib, rel in siblings if self.get_rel(rel) not in self.mod_candidates + ('crd', 'det')]
 
             # whether to type assign on this head -- True by default
@@ -1045,9 +1067,8 @@ class Decompose:
                 if len(set([x[1] for x in internal_edges])) == 1:
                     # modifier gap case
                     if internal_edges[0][1] in self.mod_candidates:
-                        internal_type = self.get_type(headchild, grouped,
-                                                      rel=internal_edges[0][1],
-                                                      parent=internal_edges[0][0])
+                        internal_type = self.get_type(headchild, grouped, rel=internal_edges[0][1],
+                                                      parent=internal_edges[0][0], lexicon=lexicon)
                         # (X: mod -> X)
                         internal_type = ColoredType(arguments=(internal_type,), result=argtypes[0],
                                                     colors=('embedded',))
@@ -1055,9 +1076,9 @@ class Decompose:
                         # (X: mod -> X) -> Y: argdeps[0] -> Z
                     else:
                         # construct the internal type (which includes a hypothesis for the gap)
-                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped,
-                                                                             rel=internal_edges[0][1],
-                                                                             parent=internal_edges[0][0]),),
+                        internal_type = ColoredType(arguments=(
+                        self.get_type(headchild, grouped, rel=internal_edges[0][1], parent=internal_edges[0][0],
+                                      lexicon=lexicon),),
                                                     result=argtypes[0], colors=(internal_edges[0][1],))
                         # (X: internal_edges[0][1] -> Y)
                         # construct the external type (which takes the internal type back to the top type)
@@ -1068,8 +1089,9 @@ class Decompose:
                     assert len(argdeps) == 1  # not even sure why but this is necessary
                     types = []
                     for internal_head, internal_edge in set(internal_edges):
-                        internal_type = ColoredType(arguments=(self.get_type(headchild, grouped, rel=internal_edge,
-                                                                             parent=internal_head),),
+                        internal_type = ColoredType(arguments=(
+                        self.get_type(headchild, grouped, rel=internal_edge, parent=internal_head,
+                                      lexicon=lexicon),),
                                                     result=argtypes[0], colors=(internal_edge,))
                         types.append(internal_type)
                     headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
@@ -1104,7 +1126,7 @@ class Decompose:
 
             elif gap:
                 # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
-                headtype = self.get_type(headchild, grouped)
+                headtype = self.get_type(headchild, grouped, lexicon=lexicon)
                 # we avoid type assigning here
                 assign = False
                 # raise NotImplementedError('[What is this?] Case of head with only modifier siblings {}.'
@@ -1131,7 +1153,7 @@ class Decompose:
         # now deal with the siblings
         for sib, rel in siblings:
             if not is_gap(sib):
-                sib_type = self.get_type(sib, grouped, rel, parent=current)
+                sib_type = self.get_type(sib, grouped, rel, parent=current, lexicon=lexicon)
                 lexicon[self.get_key(sib)] = sib_type
                 if not self.is_leaf(sib):
                     # .. or iterate down
