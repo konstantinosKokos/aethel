@@ -299,7 +299,7 @@ class Decompose:
         :return:
         :rtype:
         """
-        if rel is None:
+        if rel is None and len(node.attrib['rel'].values()):
             # rel not provided (nested call)
             if all(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
                 # modifier typing at high depth
@@ -311,9 +311,12 @@ class Decompose:
                     deep_idx = list(map(lambda x: x[0], grouped[parent])).index(node)
                     deep_rel = self.get_rel(grouped[parent][deep_idx][1])
                     return self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
-                else:
+                elif len(parent) > 1:
                     # todo: multi parent case
-                    pass
+                    raise NotImplementedError('High depth modifier with multiple parents')
+
+            elif any(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
+                raise NotImplementedError('High depth modifier with multiple dependencies')
 
             elif all(map(lambda x: x == 'cnj', node.attrib['rel'].values())):
                 parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))][0]
@@ -325,7 +328,7 @@ class Decompose:
                 if len(parent) == 1:
                     return lexicon[node.attrib['id']]
                 else:
-                    raise ValueError('honestly what is going on')
+                    raise NotImplementedError('High depth head with multiple parents')
 
         if rel is not None:
             if self.get_rel(rel) in self.mod_candidates:
@@ -526,6 +529,8 @@ class Decompose:
                         keys_to_remove.append(key)
 
         for key in keys_to_remove:
+            for c, r in grouped[key]:
+                del c.attrib['rel'][key.attrib['id']]
             del grouped[key]  # here we delete the node from being a parent (outgoing edges)
 
         # here we remove children
@@ -1109,28 +1114,12 @@ class Decompose:
                 else:
                     headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
 
-                # if self.is_copy(headchild):
-                #     print(headtype)
-                #     ToGraphViz()(grouped)
-                #     import pdb
-                #     pdb.set_trace()
-                # if self.get_rel(headrel) != 'crd':
-                #     headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)  # /W EXCHANGE
-                # else:
-                #     headtype = make_crd_type(current, grouped, top_type)
-                    # if headtype != ColoredType(arguments=argtypes, result=top_type, colors=argdeps):
-                    #     ToGraphViz()(grouped)
-                    #     print(headtype)
-                    #     import pdb
-                    #     pdb.set_trace()
-
             elif gap:
                 # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
                 headtype = self.get_type(headchild, grouped, lexicon=lexicon)
                 # we avoid type assigning here
                 assign = False
-                # raise NotImplementedError('[What is this?] Case of head with only modifier siblings {}.'
-                #                           .format(headchild.attrib['id']))
+                # minor todo here
             else:
                 # neither gap nor has siblings -- must be the end
                 headtype = top_type
@@ -1163,7 +1152,6 @@ class Decompose:
                         self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
             else:
                 pass
-                # raise ValueError('??')
 
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped) \
             -> Tuple[Iterable[str], Iterable[WordType]]:
@@ -1236,12 +1224,9 @@ class Decompose:
         for i, l in enumerate(lexicons):
             try:
                 if not typecheck(list(l[1]), top_node_types[i][1]):
-                    print(infer_type(list(l[1])))
-                    print(top_node_types[i][1])
-                    ToGraphViz()(grouped)
-                    raise ValueError
+                    raise NotImplementedError('Generic type-checking error')
             except TypeError:
-                print('te')
+                raise NotImplementedError('Additive type')
 
         if self.visualize:
             ToGraphViz()(grouped)
