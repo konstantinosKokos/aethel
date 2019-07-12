@@ -301,7 +301,7 @@ class Decompose:
         """
         if rel is None and len(node.attrib['rel'].values()):
             # rel not provided (nested call)
-            if all(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
+            if all(map(lambda x: self.get_rel(x) in self.mod_candidates, node.attrib['rel'].values())):
                 # modifier typing at high depth
                 parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
 
@@ -312,23 +312,22 @@ class Decompose:
                     deep_rel = self.get_rel(grouped[parent][deep_idx][1])
                     return self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
                 elif len(parent) > 1:
-                    # todo: multi parent case
+                    # ToGraphViz()(grouped)
+                    # print([node.attrib['rel'].keys()])
+                    # print([node.attrib['rel'].values()])
+                    # import pdb
+                    # pdb.set_trace()
                     raise NotImplementedError('High depth modifier with multiple parents')
 
-            elif any(map(lambda x: x in self.mod_candidates, node.attrib['rel'].values())):
-                raise NotImplementedError('High depth modifier with multiple dependencies')
+            elif any(map(lambda x: self.get_rel(x) in self.mod_candidates, node.attrib['rel'].values())):
+                return lexicon[node.attrib['id']]
 
             elif all(map(lambda x: x == 'cnj', node.attrib['rel'].values())):
                 parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))][0]
                 return self.get_type(parent, grouped, lexicon=lexicon)
 
-            elif all(map(lambda x: x in self.head_candidates, node.attrib['rel'].values())):
-                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
-
-                if len(parent) == 1:
-                    return lexicon[node.attrib['id']]
-                else:
-                    raise NotImplementedError('High depth head with multiple parents')
+            elif all(map(lambda x: self.get_rel(x) in self.head_candidates, node.attrib['rel'].values())):
+                return lexicon[node.attrib['id']]
 
         if rel is not None:
             if self.get_rel(rel) in self.mod_candidates:
@@ -434,6 +433,9 @@ class Decompose:
 
                 # todo: shared head with different mod
                 if not len(common_args[0]):
+                    # ToGraphViz()(grouped)
+                    # import pdb
+                    # pdb.set_trace()
                     raise NotImplementedError('shared head with unique mods')
 
                 # todo: also a modifier somehow??
@@ -967,7 +969,6 @@ class Decompose:
 
         :param grouped:
         :return:
-        :param removal_canidates:
         """
         conj_nodes = [node for node in grouped.keys() if node.attrib['cat'] == 'conj']
 
@@ -995,6 +996,41 @@ class Decompose:
                 grouped[parent].append((child, rel))
                 child.attrib['rel'][parent.attrib['id']] = rel
             grouped = Decompose.collapse_single_non_terminals(grouped)
+        return self.detatch_low_conj_mods(grouped)
+
+    def detatch_low_conj_mods(self, grouped: Grouped) -> Grouped:
+        """
+            Detaches modifiers attached both high and low in a conjunction.
+
+        :param grouped:
+        :type grouped:
+        :return:
+        :rtype:
+        """
+        non_cnj_mod_fathers = [(node, [x for x in grouped[node] if self.get_rel(x[1]) in self.mod_candidates])
+                               for node in grouped.keys() if node.attrib['cat'] != 'conj'
+                               and any(list(map(lambda x: self.get_rel(x[1]) in self.mod_candidates, grouped[node])))]
+        cnj_mod_fathers = [(node, [x for x in grouped[node] if self.get_rel(x[1]) in self.mod_candidates])
+                           for node in grouped.keys() if node.attrib['cat'] == 'conj'
+                           and any(list(map(lambda x: self.get_rel(x[1]) in self.mod_candidates, grouped[node])))]
+
+        to_remove = []
+
+        for non_cnj_father, non_cnj_mods in non_cnj_mod_fathers:
+            for cnj_father, cnj_mods in cnj_mod_fathers:
+                for non_cnj_mod in non_cnj_mods:
+                    for cnj_mod in cnj_mods:
+                        if non_cnj_mod[0] == cnj_mod[0]:
+                            to_remove.append((non_cnj_father, non_cnj_mod[0], non_cnj_mod[1]))
+
+        to_remove = set(to_remove)
+
+        if len(to_remove):
+            for parent, child, rel in to_remove:
+                grouped[parent].remove((child, rel))
+                del child.attrib['rel'][parent.attrib['id']]
+            grouped = Decompose.collapse_single_non_terminals(grouped)
+
         return grouped
 
     def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
@@ -1224,6 +1260,7 @@ class Decompose:
         for i, l in enumerate(lexicons):
             try:
                 if not typecheck(list(l[1]), top_node_types[i][1]):
+                    # ToGraphViz()(grouped)
                     raise NotImplementedError('Generic type-checking error')
             except TypeError:
                 raise NotImplementedError('Additive type')
