@@ -734,7 +734,7 @@ class Decompose:
         return grouped
 
     def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
-            -> Union[Tuple[ET.Element, Union[Rel, str]], Tuple[None, None]]:
+            -> Optional[Tuple[ET.Element, Union[Rel, str]]]:
         """
             Takes a list of siblings and returns their head and its dependency label. Returns Nones if no head is found.
 
@@ -746,7 +746,7 @@ class Decompose:
         for i, (candidate, rel) in enumerate(children_rels):
             if Decompose.get_rel(rel) in self.head_candidates:
                 return candidate, rel
-        return None, None
+        return None
 
     @staticmethod
     def is_copy(node: ET.Element) -> bool:
@@ -898,7 +898,10 @@ class Decompose:
 
     def update_lexicon(self, lexicon: Dict[str, WordType], wt: Sequence[Tuple[ET.Element, WordType]]) -> None:
         for k, t in wt:
-            lexicon[k.attrib['id']] = t
+            try:
+                lexicon[k.attrib['id']] = t
+            except AttributeError as e:
+                raise e
 
     def type_assign(self, grouped: Grouped, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> Any:
         """
@@ -915,7 +918,6 @@ class Decompose:
         root_type = self.type_assign_top(grouped, lexicon)
         self.type_assign_bot(grouped, lexicon)
         self.type_assign_mods(grouped, lexicon)
-        self.annotate_nodes(lexicon, node_dict)
         self.type_assign_heads(grouped, lexicon)
         self.type_assign_gaps(grouped, lexicon)
         self.type_assign_copies(grouped, lexicon)
@@ -997,17 +999,15 @@ class Decompose:
 
     def type_assign_head_single_branch(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         head = self.choose_head(grouped[parent])
+        if head is None:
+            return head
         arglist = [x for x in grouped[parent] if self.get_rel(snd(x)) not in self.mod_candidates + ('crd', 'det')
                    and x != head]
         if arglist:
             args, colors = list(zip(*map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
                                          arglist)))
-            try:
-                head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
-            except KeyError as e:
-                print(args)
-                ToGraphViz()(grouped)
-                raise e
+            head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
+
         else:
             head_type = lexicon[parent.attrib['id']]
         self.update_lexicon(lexicon, [(head[0], head_type)])
@@ -1039,6 +1039,10 @@ class Decompose:
 
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
         daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd',)]
+        secondary_coordinators = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'crd'
+                                  and (d, r) != self.choose_head(grouped[conj])]
+        crd_placeholders = list(map(lambda x: (fst(x), AtomicType('_CRD')), secondary_coordinators))
+        self.update_lexicon(lexicon, crd_placeholders)
 
         copied = []
         non_copied = []
@@ -1160,12 +1164,6 @@ class Decompose:
             if not typecheck(list(l[1]), top_types[i]):
                 ToGraphViz()(grouped)
                 raise NotImplementedError('Generic type-checking error')
-            if any(list(map(lambda x: isinstance(x, ComplexType) and x.color in self.mod_candidates and
-                                      x.get_arity()>1 and x.argument.color not in self.mod_candidates,
-                            l[1]))):
-                ToGraphViz()(grouped)
-                import pdb
-                pdb.set_trace()
 
     # def __call__(self, grouped: Grouped) -> \
     #         Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
