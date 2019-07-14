@@ -1089,6 +1089,7 @@ class Decompose:
         self.type_assign_mods(grouped, lexicon)
         self.type_assign_heads(grouped, lexicon)
         self.type_assign_gaps(grouped, lexicon)
+        self.type_assign_copies(grouped, lexicon)
         self.annotate_nodes(lexicon, node_dict)
         ToGraphViz()(grouped)
 
@@ -1119,7 +1120,6 @@ class Decompose:
         fringe = filter(lambda x: is_fringe(fst(x)), chain.from_iterable(grouped.values()))
         fringe_types = tuple(map(lambda x: (fst(x), self.get_type_plain(fst(x), grouped)), fringe))
         self.update_lexicon(lexicon, fringe_types)
-        print(fringe_types)
         if fringe_types:
             self.type_assign_bot(grouped, lexicon)
 
@@ -1138,15 +1138,6 @@ class Decompose:
         self.update_lexicon(lexicon, cnj_types)
         for f in filter(lambda x: x[0] in grouped.keys(), branch):
             self.type_assign_mod_recursive(f[0], grouped, lexicon)
-
-    def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
-        for k in grouped.keys():
-            gaps = list(filter(lambda x: self.is_gap(fst(x)), grouped[k]))
-            gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
-            gaptypes = list(map(lambda x: (fst(x), self.get_type_gap(fst(x), self.get_rel(snd(x)),
-                                                                     lexicon[x[0].attrib['id']], grouped)),
-                                gaps))
-            self.update_lexicon(lexicon, gaptypes)
 
     def is_gap(self, node: ET.Element) -> bool:
         all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
@@ -1174,7 +1165,8 @@ class Decompose:
 
     def type_assign_head_single_branch(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         head = self.choose_head(grouped[parent])
-        arglist = [x for x in grouped[parent] if self.get_rel(snd(x)) not in self.mod_candidates and x != head]
+        arglist = [x for x in grouped[parent] if self.get_rel(snd(x)) not in self.mod_candidates + ('crd', 'det')
+                   and x != head]
         if arglist:
             args, colors = list(zip(*map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
                                          arglist)))
@@ -1182,6 +1174,83 @@ class Decompose:
         else:
             head_type = lexicon[parent.attrib['id']]
         self.update_lexicon(lexicon, [(head[0], head_type)])
+
+    def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        # todo: what if something is a copied gap? gap but under diff parents
+        for k in grouped.keys():
+            gaps = list(filter(lambda x: self.is_gap(fst(x)), grouped[k]))
+            gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
+            gaptypes = list(map(lambda x: (fst(x), self.get_type_gap(fst(x), self.get_rel(snd(x)),
+                                                                     lexicon[x[0].attrib['id']], grouped)),
+                                gaps))
+            self.update_lexicon(lexicon, gaptypes)
+
+    def type_assign_copies(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        cnjs = [k for k in grouped.keys() if k.attrib['cat'] == 'conj']
+        for cnj in cnjs:
+            head = self.choose_head(grouped[cnj])
+            headtype = self.iterate_conj(cnj, grouped, lexicon)
+            if headtype:
+                self.update_lexicon(lexicon, [(head, headtype)])
+
+    def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
+        daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd',)]
+
+        copied = []
+        non_copied = []
+
+        for daughter, rel in daughters:
+            if daughter in grouped.keys():
+                granddaughters = [(n, r) for (n, r) in grouped[daughter]
+                                  if self.get_rel(r) not in self.mod_candidates + ('det',)]
+
+                shared = list(filter(lambda nr: self.is_copy(fst(nr)), granddaughters))
+                non_shared = list(filter(lambda nr: fst(nr) not in shared, granddaughters))
+
+                # multiset of types shared between conj daughters
+                shared_types = Counter(list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
+                                                shared)))
+                # multiset of types unique to each conj daughter
+                non_shared_types = Counter(list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
+                                            non_shared)))
+
+                copied.append(shared_types)
+                non_copied.append(non_shared_types)
+
+        if not any(list(map(len, copied))):
+            return None
+        else:
+            assert all(list(map(lambda x: x == copied[0], copied[1::])))
+
+            copies = list(copied[0].keys())
+
+            copied_types, copied_deps = list(zip(*copies))
+            copied_heads = [x in self.head_candidates for x in copied_deps]
+
+            # case management:
+            if all(copied_heads):
+                # Case of head copying
+                if not len(non_copied):
+                    raise NotImplementedError('Copied head with no arguments.')
+                if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
+                    raise NotImplementedError('Copied head with different arguments.')
+                polymorphic_x = ColoredType(arguments=(copied_types[0],), colors=('embedded',), result=copied_types[0].result)
+            elif not any(copied_heads):
+                # Case of argument copying
+                polymorphic_x = ColoredType(arguments=tuple(copied_types), result=lexicon[conj.attrib['id']],
+                                            colors=tuple(copied_deps))
+            else:
+                # Case of mixed copying
+                copied_args = list(filter(lambda c: snd(c) not in self.head_candidates, copies))
+                copied_argtypes, copied_argdeps = list(zip(*copied_args))
+                copied_heads = list(filter(lambda c: snd(c) in self.head_candidates, copies))
+                copied_headtypes, copied_headargs = list(zip(*copied_heads))
+                hot = ColoredType(arguments=copied_args, result=copied_headtypes[0], colors=copied_argdeps)
+                polymorphic_x = ColoredType(arguments=(hot,), result=copied_headtypes[0].result, colors=('cnj',))
+
+            return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(copied_heads))),
+                               colors=tuple('cnj' for _ in range(len(copied_heads))),
+                               result=polymorphic_x)
 
 
     def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
