@@ -308,202 +308,13 @@ class Decompose:
                               result=prior_type.argument)
         return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
 
-    def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]] = None,
-                 parent: Optional[ET.Element] = None, lexicon: Dict[str, WordType] = None) -> WordType:
-        """
-            Assign a word a type. The type assigned depends on the node itself and its local context, as described by
-            its dependency role wrt to its parent.
+    def get_type_gap_mod(self, rel: str, prior_type: ColoredType, parent_type: WordType) -> WordType:
+        mod_type = ColoredType(arguments=(parent_type,), colors=(rel,), result=parent_type)
+        new_arg = ColoredType(arguments=(mod_type,),
+                              colors=('embedded',),
+                              result=prior_type.argument)
+        return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
 
-        :param lexicon:
-        :type lexicon:
-        :param node:
-        :type node:
-        :param grouped:
-        :type grouped:
-        :param rel:
-        :type rel:
-        :param parent:
-        :type parent:
-        :return:
-        :rtype:
-        """
-        if rel is None and len(node.attrib['rel'].values()):
-            # rel not provided (nested call)
-            if all(map(lambda x: self.get_rel(x) in self.mod_candidates, node.attrib['rel'].values())):
-                # modifier typing at high depth
-                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))]
-
-                if len(parent) == 1:
-                    # single parent case
-                    parent = parent[0]
-                    deep_idx = list(map(lambda x: x[0], grouped[parent])).index(node)
-                    deep_rel = self.get_rel(grouped[parent][deep_idx][1])
-                    # t = self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
-                    # if t.get_arity() > 1 and t.argument.color not in self.mod_candidates:
-                    #     print(t)
-                    #     ToGraphViz()(grouped)
-                    #     import pdb
-                    #     pdb.set_trace()
-                    return self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
-                elif len(parent) > 1:
-                    # ToGraphViz()(grouped)
-                    # print([node.attrib['rel'].keys()])
-                    # print([node.attrib['rel'].values()])
-                    # import pdb
-                    # pdb.set_trace()
-                    raise NotImplementedError('High depth modifier with multiple parents')
-
-            elif any(map(lambda x: self.get_rel(x) in self.mod_candidates, node.attrib['rel'].values())):
-                return lexicon[node.attrib['id']]
-
-            elif all(map(lambda x: x == 'cnj', node.attrib['rel'].values())):
-                parent = [k for k in grouped.keys() if node in list(map(lambda x: x[0], grouped[k]))][0]
-                return self.get_type(parent, grouped, lexicon=lexicon)
-
-            elif all(map(lambda x: self.get_rel(x) in self.head_candidates, node.attrib['rel'].values())):
-                return lexicon[node.attrib['id']]
-
-        if rel is not None:
-            if self.get_rel(rel) in self.mod_candidates:
-                if parent is None:
-                    # we do not know the parent of this, needs post-processing
-                    warn('Assigning placeholder type.')
-                    return AtomicType('MOD')
-                deep_parent = [k for k in grouped.keys() if parent in list(map(lambda x: x[0], grouped[k]))]
-
-                if len(deep_parent) == 1:
-                    deep_parent = deep_parent[0]
-                    deep_idx = list(map(lambda x: x[0], grouped[deep_parent])).index(parent)
-                    deep_rel = self.get_rel(grouped[deep_parent][deep_idx][1])
-                    if deep_rel in self.mod_candidates:
-                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent, lexicon=lexicon)
-                    else:
-                        modded_type = self.get_type(parent, grouped, deep_rel, deep_parent, lexicon=lexicon)
-
-                else:
-                    modded_type = self.get_type(parent, grouped, lexicon=lexicon)
-
-                return ColoredType(arguments=(modded_type,), result=modded_type, colors=(self.get_rel(rel),))
-
-            elif self.get_rel(rel) in ('crd', 'det'):
-                # if crd or det, there must have been a primary crd/det assigned the head type
-                return AtomicType('_'+self.get_rel(rel))
-            elif rel == 'cnj':
-                return self.make_cnj_type(node, grouped, parent, lexicon)
-
-        # plain type assignment
-        if 'cat' in node.attrib.keys():
-            # non-terminal node
-            if node.attrib['cat'] == 'conj':
-                # conjunction
-                return self.type_dict[self.majority_vote(node, grouped)]
-            else:
-                # non-conjunction
-                return self.type_dict[node.attrib['cat']]
-        elif self.pos_set in node.attrib.keys():
-            # terminal node
-            return self.type_dict[node.attrib[self.pos_set]]
-        else:
-            raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
-
-    def make_cnj_type(self, node: ET.Element, grouped: Grouped, parent: ET.Element,
-                      lexicon: Dict[str, WordType]) -> WordType:
-        """
-            Responsible for inferring the X in the polymorphic conjunction X->X scheme.
-
-        :param lexicon:
-        :type lexicon:
-        :param node:
-        :type node:
-        :param grouped:
-        :type grouped:
-        :param parent:
-        :type parent:
-        :return:
-        :rtype:
-        """
-        top_type = self.get_type(parent, grouped, lexicon=lexicon)
-
-        # todo: copying at a lower depth level
-        missing_args = set()
-        # take all non-coordinator sisters
-        sisters = [sib for sib, rel in grouped[parent] if self.get_rel(rel) not in self.mod_candidates + ('crd',)]
-        common_args = []
-        for sib in sisters:
-            if sib in grouped.keys():
-                # in ignoring mods, we force them to type-assign themselves all the way up
-                nephews = [(c, r) for c, r in grouped[sib]
-                           if self.get_rel(r) not in self.mod_candidates + ('det',)]
-                copies = list(filter(lambda nr: Decompose.is_copy(nr[0]), nephews))
-                non_copies = list(filter(lambda nr: not Decompose.is_copy(nr[0]), nephews))
-                non_missing_types = Counter(list(map(
-                    lambda nr:
-                    (self.get_type(node=nr[0], grouped=grouped, rel=nr[1], parent=sib, lexicon=lexicon),
-                     self.get_rel(nr[1])), non_copies)))
-                # gather the common arguments present per daughter that are lexically unique
-                common_args.append(non_missing_types)
-
-                # add missing arguments to the missing arg list
-                if len(copies):
-                    missing_types = set(list(map(
-                        lambda nr:
-                        (self.get_type(node=nr[0], grouped=grouped, rel=nr[1], parent=sib, lexicon=lexicon),
-                         self.get_rel(nr[1])), copies)))
-                    missing_args = missing_args.union(missing_types)
-        if missing_args:
-            phrasal_argtypes, phrasal_argdeps = list(zip(*missing_args))
-            head_argdeps = [x in self.head_candidates for x in phrasal_argdeps]
-            # case management
-            if all(head_argdeps):
-                #  case 1: the head is copied
-
-                # todo: conjunction of uneven parts
-                if not all(list(map(lambda x: x == common_args[0], common_args[1:]))):
-                    # print(common_args)
-                    # ToGraphViz()(grouped)
-                    # import pdb
-                    # pdb.set_trace()
-                    raise NotImplementedError('conjunction of non-equal heads')
-
-                # todo: shared head with different mod
-                if not len(common_args[0]):
-                    # ToGraphViz()(grouped)
-                    # import pdb
-                    # pdb.set_trace()
-                    raise NotImplementedError('shared head with unique mods')
-
-                # todo: also a modifier somehow??
-
-                phrasal_argtypes, phrasal_argdeps = list(zip(*list(common_args[0].keys())))
-
-                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
-                                      colors=phrasal_argdeps)
-                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped, lexicon=lexicon),
-                                  colors=['embedded'])
-                return hot
-            elif not any(head_argdeps):
-                # case 2: some arguments are missing
-                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
-                                   colors=phrasal_argdeps)
-            else:
-                # case 3: the head plus some arguments are missing
-
-                # same story as 1
-                phrasal_argtypes = [x for i, x in enumerate(phrasal_argtypes)
-                                    if x not in self.head_candidates]
-                phrasal_argdeps = [x for x in phrasal_argdeps
-                                   if x not in self.head_candidates]
-                hot_arg = ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
-                                      colors=phrasal_argdeps)
-                hot = ColoredType(arguments=[hot_arg], result=self.get_type(node, grouped, lexicon=lexicon), colors=['embedded'])
-                # print(hot)
-                # ToGraphViz()(grouped)
-                # import pdb
-                # pdb.set_trace()
-                return ColoredType(arguments=phrasal_argtypes, result=self.get_type(node, grouped, lexicon=lexicon),
-                                   colors=phrasal_argdeps)
-        else:
-            return top_type
 
     @staticmethod
     def group_by_parent(xtree: ET.ElementTree) -> Grouped:
@@ -1067,11 +878,29 @@ class Decompose:
 
         return grouped
 
+    def split_grouped(self, grouped: Grouped) -> Sequence[Grouped]:
+        def reconstruct_grouped(new_grouped, fringe):
+            new_grouped[fringe] = grouped[fringe]
+            for k in new_grouped[fringe]:
+                if k[0] in grouped.keys():
+                    reconstruct_grouped(new_grouped, k[0])
+
+        top_nodes = Decompose.get_disconnected(grouped)
+        if len(top_nodes) == 1:
+            return [grouped]
+        else:
+            out = []
+            for tn in top_nodes:
+                o = dict()
+                reconstruct_grouped(o, tn)
+                out.append(o)
+            return out
+
     def update_lexicon(self, lexicon: Dict[str, WordType], wt: Sequence[Tuple[ET.Element, WordType]]) -> None:
         for k, t in wt:
             lexicon[k.attrib['id']] = t
 
-    def type_assign(self, grouped: Grouped, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
+    def type_assign(self, grouped: Grouped, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> Any:
         """
 
         :param grouped:
@@ -1083,27 +912,29 @@ class Decompose:
         :return:
         :rtype:
         """
-        import pdb
-        self.type_assign_top(grouped, lexicon)
+        root_type = self.type_assign_top(grouped, lexicon)
         self.type_assign_bot(grouped, lexicon)
         self.type_assign_mods(grouped, lexicon)
+        self.annotate_nodes(lexicon, node_dict)
         self.type_assign_heads(grouped, lexicon)
         self.type_assign_gaps(grouped, lexicon)
         self.type_assign_copies(grouped, lexicon)
         self.annotate_nodes(lexicon, node_dict)
-        ToGraphViz()(grouped)
+        return root_type
 
-    def type_assign_top(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+    def type_assign_top(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> Any:
         top_nodes = Decompose.get_disconnected(grouped)
+        assert len(top_nodes) == 1
         top_node_types = tuple(map(lambda x: (x, self.get_type_plain(x, grouped)), top_nodes))
         self.update_lexicon(lexicon, top_node_types)
+        return top_node_types[0][1]
 
     def type_assign_bot(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
 
         def is_fringe(node: ET.Element) -> bool:
             if node.attrib['id'] in lexicon.keys():
                 return False
-            if any(map(lambda r: self.get_rel(r) in self.mod_candidates,
+            if all(map(lambda r: self.get_rel(r) in self.mod_candidates,
                        node.attrib['rel'].values())):
                 return False
             if 'word' in node.attrib.keys():
@@ -1131,7 +962,8 @@ class Decompose:
     def type_assign_mod_recursive(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         branch = grouped[parent]
         mods = filter(lambda child: self.get_rel(snd(child)) in self.mod_candidates, branch)
-        mod_types = list(map(lambda x: (fst(x), self.get_type_mod(snd(x), lexicon[parent.attrib['id']])), mods))
+        mod_types = list(map(lambda x: (fst(x), self.get_type_mod(self.get_rel(snd(x)),
+                                                                  lexicon[parent.attrib['id']])), mods))
         cnjs = filter(lambda child: self.get_rel(snd(child)) == 'cnj', branch)
         cnj_types = list(map(lambda x: (fst(x), lexicon[parent.attrib['id']]), cnjs))
         self.update_lexicon(lexicon, mod_types)
@@ -1170,7 +1002,12 @@ class Decompose:
         if arglist:
             args, colors = list(zip(*map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
                                          arglist)))
-            head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
+            try:
+                head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
+            except KeyError as e:
+                print(args)
+                ToGraphViz()(grouped)
+                raise e
         else:
             head_type = lexicon[parent.attrib['id']]
         self.update_lexicon(lexicon, [(head[0], head_type)])
@@ -1180,9 +1017,16 @@ class Decompose:
         for k in grouped.keys():
             gaps = list(filter(lambda x: self.is_gap(fst(x)), grouped[k]))
             gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
+            gap_mods = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, gaps))
+            gap_non_mods = list(filter(lambda x: x not in gap_mods, gaps))
             gaptypes = list(map(lambda x: (fst(x), self.get_type_gap(fst(x), self.get_rel(snd(x)),
-                                                                     lexicon[x[0].attrib['id']], grouped)),
-                                gaps))
+                                                                     lexicon[fst(x).attrib['id']], grouped)),
+                                gap_non_mods))
+            self.update_lexicon(lexicon, gaptypes)
+            gaptypes = list(map(lambda x: (fst(x), self.get_type_gap_mod(self.get_rel(snd(x)),
+                                                                         lexicon[fst(x).attrib['id']],
+                                                                         lexicon[k.attrib['id']])),
+                                gap_mods))
             self.update_lexicon(lexicon, gaptypes)
 
     def type_assign_copies(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
@@ -1191,7 +1035,7 @@ class Decompose:
             head = self.choose_head(grouped[cnj])
             headtype = self.iterate_conj(cnj, grouped, lexicon)
             if headtype:
-                self.update_lexicon(lexicon, [(head, headtype)])
+                self.update_lexicon(lexicon, [(fst(head), headtype)])
 
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
         daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd',)]
@@ -1234,7 +1078,8 @@ class Decompose:
                     raise NotImplementedError('Copied head with no arguments.')
                 if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
                     raise NotImplementedError('Copied head with different arguments.')
-                polymorphic_x = ColoredType(arguments=(copied_types[0],), colors=('embedded',), result=copied_types[0].result)
+                polymorphic_x = ColoredType(arguments=(copied_types[0],), colors=('embedded',),
+                                            result=copied_types[0].result)
             elif not any(copied_heads):
                 # Case of argument copying
                 polymorphic_x = ColoredType(arguments=tuple(copied_types), result=lexicon[conj.attrib['id']],
@@ -1248,166 +1093,9 @@ class Decompose:
                 hot = ColoredType(arguments=copied_args, result=copied_headtypes[0], colors=copied_argdeps)
                 polymorphic_x = ColoredType(arguments=(hot,), result=copied_headtypes[0].result, colors=('cnj',))
 
-            return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(copied_heads))),
-                               colors=tuple('cnj' for _ in range(len(copied_heads))),
+            return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(copied))),
+                               colors=tuple('cnj' for _ in range(len(copied))),
                                result=polymorphic_x)
-
-
-    def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
-                             lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
-        """
-            Blah.
-        :param current:
-        :type current:
-        :param grouped:
-        :type grouped:
-        :param top_type:
-        :type top_type:
-        :param lexicon:
-        :type lexicon:
-        :param node_dict:
-        :type node_dict:
-        :return:
-        :rtype:
-        """
-        # ToGraphViz()(grouped)
-
-        def is_gap(node: ET.Element) -> bool:
-            # this node is involved in some sort of magic trickery if it has more than one incoming edges
-            all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
-            if len(all_incoming_edges) > 1:
-                head_edges = ([x for x in all_incoming_edges if x in self.head_candidates])
-                if head_edges:
-                    if len(set(head_edges)) != 1 or len(head_edges) < len(all_incoming_edges):
-                        return True
-                return False
-            else:
-                return False
-
-        # find all of the node's siblings
-        siblings = grouped[current]
-        # impose some linear order
-        siblings = Decompose.order_siblings(siblings)
-        # pick a head
-        headchild, headrel = self.choose_head(siblings)
-        # exclude the head from siblings
-        siblings = list(filter(lambda cr: cr != (headchild, headrel), siblings))
-
-        # if no type given from above, assign one now (no nested types)
-        if top_type is None:
-            top_type = self.get_type(current, grouped, lexicon=lexicon)
-
-        if headchild is not None:
-            # classify the headchild
-            gap = is_gap(headchild)
-
-            # pick all the arguments
-            arglist = [[self.get_type(sib, grouped, rel=self.get_rel(rel), parent=current, lexicon=lexicon),
-                        self.get_rel(rel)]
-                       for sib, rel in siblings if self.get_rel(rel) not in self.mod_candidates + ('crd', 'det')]
-
-            # whether to type assign on this head -- True by default
-            assign = True
-
-            # case management
-            if arglist and gap:
-                argtypes, argdeps = list(zip(*arglist))
-
-                # hard case first -- gap with siblings
-                # assert that there is just one argument to project into
-                if len(argtypes) != 1:
-                    print(argtypes)
-                    ToGraphViz()(grouped)
-                    raise NotImplementedError('Case of non-terminal gap with many arguments {} {}.'.
-                                              format(headchild.attrib['id'], current.attrib['id']))
-                # find the dependencies not projected by current head
-                internal_edges = list(filter(lambda x: x[0] != current.attrib['id'], headchild.attrib['rel'].items()))
-                internal_edges = list(map(lambda x: (node_dict[x[0]], self.get_rel(x[1])), internal_edges))
-
-                # assert that there is just one (class) of those
-                if len(set([x[1] for x in internal_edges])) == 1:
-                    # modifier gap case
-                    if internal_edges[0][1] in self.mod_candidates:
-                        internal_type = self.get_type(headchild, grouped, rel=internal_edges[0][1],
-                                                      parent=internal_edges[0][0], lexicon=lexicon)
-                        # (X: mod -> X)
-                        internal_type = ColoredType(arguments=(internal_type,), result=argtypes[0],
-                                                    colors=('embedded',))
-                        headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                        # (X: mod -> X) -> Y: argdeps[0] -> Z
-                    else:
-                        # construct the internal type (which includes a hypothesis for the gap)
-                        internal_type = ColoredType(arguments=(
-                        self.get_type(headchild, grouped, rel=internal_edges[0][1], parent=internal_edges[0][0],
-                                      lexicon=lexicon),),
-                                                    result=argtypes[0], colors=(internal_edges[0][1],))
-                        # (X: internal_edges[0][1] -> Y)
-                        # construct the external type (which takes the internal type back to the top type)
-                        headtype = ColoredType(arguments=(internal_type,), result=top_type, colors=(argdeps[0],))
-                        # (X -> Y): argdeps[0] -> Z
-                else:
-                    # combinator type within the hypothesis
-                    assert len(argdeps) == 1  # not even sure why but this is necessary
-                    types = []
-                    for internal_head, internal_edge in set(internal_edges):
-                        internal_type = ColoredType(arguments=(
-                        self.get_type(headchild, grouped, rel=internal_edge, parent=internal_head,
-                                      lexicon=lexicon),),
-                                                    result=argtypes[0], colors=(internal_edge,))
-                        types.append(internal_type)
-                    headtype = ColoredType(arguments=(CombinatorType(tuple(types), combinator='&'),),
-                                           result=top_type, colors=(argdeps[0],))
-            elif arglist:
-                argtypes, argdeps = list(zip(*arglist))
-                #  easy case -- stantdard type assignment
-
-                # not coordinator
-                if headrel == 'crd':
-                    # todo: coordinator needs different treatment X-> X, I know left X but right X is wrong
-                    # headtype = ColoredType(arguments=(argtypes[0],), result=argtypes[0], colors=(argdeps[0],))
-                    assert len(set(argtypes)) == 1
-                    headtype = ColoredType(arguments=argtypes, result=argtypes[0], colors=argdeps)
-                else:
-                    headtype = ColoredType(arguments=argtypes, result=top_type, colors=argdeps)
-
-            elif gap:
-                # weird case -- gap with no non-modifier siblings (most likely simply an intermediate non-terminal)
-                headtype = self.get_type(headchild, grouped, lexicon=lexicon)
-                # we avoid type assigning here
-                assign = False
-                # minor todo here
-            else:
-                # neither gap nor has siblings -- must be the end
-                headtype = top_type
-                if not self.is_leaf(headchild):
-                    raise NotImplementedError('[Dead End] Case of head non-terminal with no siblings {}.'
-                                              .format(headchild.attrib['id']))
-
-            # finish the head assignment
-            if assign:
-                if self.get_key(headchild) not in lexicon.keys():
-                    lexicon[self.get_key(headchild)] = headtype
-                else:
-                    old_value = lexicon[self.get_key(headchild)]
-                    if not rightwards_inclusion(headtype, old_value):
-                        headtype = CombinatorType((headtype, old_value), combinator='&')
-                        lexicon[self.get_key(headchild)] = headtype
-                if not self.is_leaf(headchild):
-                    self.recursive_assignment(headchild, grouped, headtype, lexicon, node_dict)
-
-        # now deal with the siblings
-        for sib, rel in siblings:
-            if not is_gap(sib):
-                sib_type = self.get_type(sib, grouped, rel, parent=current, lexicon=lexicon)
-                lexicon[self.get_key(sib)] = sib_type
-                if not self.is_leaf(sib):
-                    # .. or iterate down
-                    if self.get_rel(rel) in self.mod_candidates:
-                        self.recursive_assignment(sib, grouped, sib_type, lexicon, node_dict)
-                    else:
-                        self.recursive_assignment(sib, grouped, None, lexicon, node_dict)
-            else:
-                pass
 
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped) \
             -> Tuple[Iterable[str], Iterable[WordType]]:
@@ -1430,9 +1118,10 @@ class Decompose:
                             key=lambda x: tuple(map(int, (x.attrib['begin'], x.attrib['end'], x.attrib['id']))))
 
         # mapping from linear order to dictionary keys
-        enum = {i: self.get_key(l) for i, l in enumerate(all_leaves)}
+        enum = {i: l.attrib['id'] for i, l in enumerate(all_leaves)}
+
         # convert to a list [(word, WordType), ...]
-        ret = [(enum[i].split(self.separation_symbol)[0], sublex[enum[i]])
+        ret = [(enum[i], sublex[enum[i]])
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
 
         return tuple(zip(*ret))
@@ -1457,8 +1146,26 @@ class Decompose:
     def __call__(self, grouped: Grouped) -> Any:
         node_dict = {node.attrib['id']: node for node in
                      set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
-        d = dict()
-        self.type_assign(grouped, d, node_dict)
+
+        new_grouped = self.split_grouped(grouped)
+        dicts = [dict() for _ in range(len(new_grouped))]
+        top_types = []
+
+        for i, g in enumerate(new_grouped):
+            top_types.append(self.type_assign(g, dicts[i], node_dict))
+
+        lexicons = list(map(lambda ix: self.lexicon_to_list(ix[1], new_grouped[ix[0]]), enumerate(dicts)))
+
+        for i, l in enumerate(lexicons):
+            if not typecheck(list(l[1]), top_types[i]):
+                ToGraphViz()(grouped)
+                raise NotImplementedError('Generic type-checking error')
+            if any(list(map(lambda x: isinstance(x, ComplexType) and x.color in self.mod_candidates and
+                                      x.get_arity()>1 and x.argument.color not in self.mod_candidates,
+                            l[1]))):
+                ToGraphViz()(grouped)
+                import pdb
+                pdb.set_trace()
 
     # def __call__(self, grouped: Grouped) -> \
     #         Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
