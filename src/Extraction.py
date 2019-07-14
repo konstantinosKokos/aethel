@@ -21,6 +21,9 @@ from warnings import warn
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
 Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
 
+fst = lambda x: x[0]
+snd = lambda x: x[1]
+
 
 class Lassy(Dataset):
     """
@@ -280,6 +283,31 @@ class Decompose:
             return node.attrib['cat']
         return node.attrib[self.pos_set]
 
+    def get_type_plain(self, node: ET.Element, grouped: Grouped) -> WordType:
+        # plain type assignment
+        if 'cat' in node.attrib.keys():
+            # non-terminal node
+            if node.attrib['cat'] == 'conj':
+                # conjunction
+                return self.type_dict[self.majority_vote(node, grouped)]
+            else:
+                # non-conjunction
+                return self.type_dict[node.attrib['cat']]
+        elif self.pos_set in node.attrib.keys():
+            # terminal node
+            return self.type_dict[node.attrib[self.pos_set]]
+        else:
+            raise KeyError('No pos or cat in node {}.'.format(node.attrib['id']))
+
+    def get_type_mod(self, rel: str, parent_type: WordType) -> WordType:
+        return ColoredType(arguments=(parent_type,), colors=(rel,), result=parent_type)
+
+    def get_type_gap(self, node: ET.Element, rel: str, prior_type: ColoredType, grouped: Grouped) -> WordType:
+        new_arg = ColoredType(arguments=(self.get_type_plain(node, grouped),),
+                              colors=(rel,),
+                              result=prior_type.argument)
+        return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
+
     def get_type(self, node: ET.Element, grouped: Grouped, rel: Optional[Union[Rel, str]] = None,
                  parent: Optional[ET.Element] = None, lexicon: Dict[str, WordType] = None) -> WordType:
         """
@@ -310,6 +338,12 @@ class Decompose:
                     parent = parent[0]
                     deep_idx = list(map(lambda x: x[0], grouped[parent])).index(node)
                     deep_rel = self.get_rel(grouped[parent][deep_idx][1])
+                    # t = self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
+                    # if t.get_arity() > 1 and t.argument.color not in self.mod_candidates:
+                    #     print(t)
+                    #     ToGraphViz()(grouped)
+                    #     import pdb
+                    #     pdb.set_trace()
                     return self.get_type(node, grouped, deep_rel, parent, lexicon=lexicon)
                 elif len(parent) > 1:
                     # ToGraphViz()(grouped)
@@ -1033,6 +1067,123 @@ class Decompose:
 
         return grouped
 
+    def update_lexicon(self, lexicon: Dict[str, WordType], wt: Sequence[Tuple[ET.Element, WordType]]) -> None:
+        for k, t in wt:
+            lexicon[k.attrib['id']] = t
+
+    def type_assign(self, grouped: Grouped, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
+        """
+
+        :param grouped:
+        :type grouped:
+        :param lexicon:
+        :type lexicon:
+        :param node_dict:
+        :type node_dict:
+        :return:
+        :rtype:
+        """
+        import pdb
+        self.type_assign_top(grouped, lexicon)
+        self.type_assign_bot(grouped, lexicon)
+        self.type_assign_mods(grouped, lexicon)
+        self.type_assign_heads(grouped, lexicon)
+        self.type_assign_gaps(grouped, lexicon)
+        self.annotate_nodes(lexicon, node_dict)
+        ToGraphViz()(grouped)
+
+    def type_assign_top(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        top_nodes = Decompose.get_disconnected(grouped)
+        top_node_types = tuple(map(lambda x: (x, self.get_type_plain(x, grouped)), top_nodes))
+        self.update_lexicon(lexicon, top_node_types)
+
+    def type_assign_bot(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+
+        def is_fringe(node: ET.Element) -> bool:
+            if node.attrib['id'] in lexicon.keys():
+                return False
+            if any(map(lambda r: self.get_rel(r) in self.mod_candidates,
+                       node.attrib['rel'].values())):
+                return False
+            if 'word' in node.attrib.keys():
+                return True
+            else:
+                if all(map(lambda daughter: daughter[0].attrib['id'] in lexicon.keys(),
+                           filter(lambda child: self.get_rel(snd(child))
+                                                not in self.mod_candidates,
+                                  grouped[node]))):
+                    return True
+                else:
+                    return False
+
+        fringe = filter(lambda x: is_fringe(fst(x)), chain.from_iterable(grouped.values()))
+        fringe_types = tuple(map(lambda x: (fst(x), self.get_type_plain(fst(x), grouped)), fringe))
+        self.update_lexicon(lexicon, fringe_types)
+        print(fringe_types)
+        if fringe_types:
+            self.type_assign_bot(grouped, lexicon)
+
+    def type_assign_mods(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        fringe = Decompose.get_disconnected(grouped)
+        for f in fringe:
+            self.type_assign_mod_recursive(f, grouped, lexicon)
+
+    def type_assign_mod_recursive(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        branch = grouped[parent]
+        mods = filter(lambda child: self.get_rel(snd(child)) in self.mod_candidates, branch)
+        mod_types = list(map(lambda x: (fst(x), self.get_type_mod(snd(x), lexicon[parent.attrib['id']])), mods))
+        cnjs = filter(lambda child: self.get_rel(snd(child)) == 'cnj', branch)
+        cnj_types = list(map(lambda x: (fst(x), lexicon[parent.attrib['id']]), cnjs))
+        self.update_lexicon(lexicon, mod_types)
+        self.update_lexicon(lexicon, cnj_types)
+        for f in filter(lambda x: x[0] in grouped.keys(), branch):
+            self.type_assign_mod_recursive(f[0], grouped, lexicon)
+
+    def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        for k in grouped.keys():
+            gaps = list(filter(lambda x: self.is_gap(fst(x)), grouped[k]))
+            gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
+            gaptypes = list(map(lambda x: (fst(x), self.get_type_gap(fst(x), self.get_rel(snd(x)),
+                                                                     lexicon[x[0].attrib['id']], grouped)),
+                                gaps))
+            self.update_lexicon(lexicon, gaptypes)
+
+    def is_gap(self, node: ET.Element) -> bool:
+        all_incoming_edges = list(map(self.get_rel, node.attrib['rel'].values()))
+        # for something to be a gap it needs to have at least two different rels, of which at least one is hd
+        head_edges = [x for x in all_incoming_edges if x in self.head_candidates]
+        if len(head_edges) >= 1 and len(set(all_incoming_edges)) > 1:
+            return True
+        else:
+            return False
+
+    def type_assign_heads(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        def fringe_heads(left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
+            return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
+                                                    list(map(fst, grouped[k])))))]
+
+        done = []
+        left = list(grouped.keys())
+
+        while left:
+            fringe = fringe_heads(left, done)
+            for f in fringe:
+                self.type_assign_head_single_branch(f, grouped, lexicon)
+                left.remove(f)
+                done += [f]
+
+    def type_assign_head_single_branch(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        head = self.choose_head(grouped[parent])
+        arglist = [x for x in grouped[parent] if self.get_rel(snd(x)) not in self.mod_candidates and x != head]
+        if arglist:
+            args, colors = list(zip(*map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
+                                         arglist)))
+            head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
+        else:
+            head_type = lexicon[parent.attrib['id']]
+        self.update_lexicon(lexicon, [(head[0], head_type)])
+
+
     def recursive_assignment(self, current: ET.Element, grouped: Grouped, top_type: Optional[WordType],
                              lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
         """
@@ -1234,41 +1385,53 @@ class Decompose:
                 key_id = lex_key
             node_dict[key_id].attrib['type'] = str(lexicon[lex_key])
 
-    def __call__(self, grouped: Grouped) -> \
-            Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
-
-        top_nodes = list(Decompose.get_disconnected(grouped))
-
-        # might be useful if the tagger is trained on the phrase level
-        top_node_types = tuple(map(lambda x: (x, self.get_type(x, grouped)), top_nodes))
-
+    def __call__(self, grouped: Grouped) -> Any:
         node_dict = {node.attrib['id']: node for node in
                      set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
+        d = dict()
+        self.type_assign(grouped, d, node_dict)
 
-        # init one dict per disjoint sequence
-        dicts = [{self.get_key(x): y} for x, y in top_node_types]
-
-        for i, top_node in enumerate(top_nodes):
-            # recursively iterate each
-            self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
-
-        for d in dicts:
-            self.annotate_nodes(d, node_dict)
-
-        lexicons = list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
-
-        for i, l in enumerate(lexicons):
-            try:
-                if not typecheck(list(l[1]), top_node_types[i][1]):
-                    # ToGraphViz()(grouped)
-                    raise NotImplementedError('Generic type-checking error')
-            except TypeError:
-                raise NotImplementedError('Additive type')
-
-        if self.visualize:
-            ToGraphViz()(grouped)
-
-        return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), dicts
+    # def __call__(self, grouped: Grouped) -> \
+    #         Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
+    #
+    #     top_nodes = list(Decompose.get_disconnected(grouped))
+    #
+    #     # might be useful if the tagger is trained on the phrase level
+    #     top_node_types = tuple(map(lambda x: (x, self.get_type(x, grouped)), top_nodes))
+    #
+    #     node_dict = {node.attrib['id']: node for node in
+    #                  set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
+    #
+    #     # init one dict per disjoint sequence
+    #     dicts = [{self.get_key(x): y} for x, y in top_node_types]
+    #
+    #     for i, top_node in enumerate(top_nodes):
+    #         # recursively iterate each
+    #         self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
+    #
+    #     for d in dicts:
+    #         self.annotate_nodes(d, node_dict)
+    #
+    #     lexicons = list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
+    #
+    #     for i, l in enumerate(lexicons):
+    #         try:
+    #             if not typecheck(list(l[1]), top_node_types[i][1]):
+    #                 # ToGraphViz()(grouped)
+    #                 raise NotImplementedError('Generic type-checking error')
+    #             if any(list(map(lambda x: isinstance(x, ComplexType) and x.color in self.mod_candidates and
+    #                             x.get_arity()>1 and x.argument.color not in self.mod_candidates,
+    #                             l[1]))):
+    #                 ToGraphViz()(grouped)
+    #                 import pdb
+    #                 pdb.set_trace()
+    #         except TypeError:
+    #             raise NotImplementedError('Additive type')
+    #
+    #     if self.visualize:
+    #         ToGraphViz()(grouped)
+    #
+    #     return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), dicts
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
