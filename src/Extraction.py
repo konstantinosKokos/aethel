@@ -303,9 +303,13 @@ class Decompose:
         return ColoredType(arguments=(parent_type,), colors=(rel,), result=parent_type)
 
     def get_type_gap(self, node: ET.Element, rel: str, prior_type: ColoredType, grouped: Grouped) -> WordType:
-        new_arg = ColoredType(arguments=(self.get_type_plain(node, grouped),),
-                              colors=(rel,),
-                              result=prior_type.argument)
+        try:
+            new_arg = ColoredType(arguments=(self.get_type_plain(node, grouped),),
+                                  colors=(rel,),
+                                  result=prior_type.argument)
+        except AttributeError:
+            # todo
+            raise NotImplementedError('Modified gap.')
         return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
 
     def get_type_gap_mod(self, rel: str, prior_type: ColoredType, parent_type: WordType) -> WordType:
@@ -314,7 +318,6 @@ class Decompose:
                               colors=('embedded',),
                               result=prior_type.argument)
         return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
-
 
     @staticmethod
     def group_by_parent(xtree: ET.ElementTree) -> Grouped:
@@ -916,6 +919,7 @@ class Decompose:
         :rtype:
         """
         root_type = self.type_assign_top(grouped, lexicon)
+        # type assign constants
         self.type_assign_bot(grouped, lexicon)
         self.type_assign_mods(grouped, lexicon)
         self.type_assign_heads(grouped, lexicon)
@@ -1033,16 +1037,23 @@ class Decompose:
         cnjs = [k for k in grouped.keys() if k.attrib['cat'] == 'conj']
         for cnj in cnjs:
             head = self.choose_head(grouped[cnj])
+            if head is None:
+                raise NotImplementedError('Headless conjunction.')
+
             headtype = self.iterate_conj(cnj, grouped, lexicon)
             if headtype:
                 self.update_lexicon(lexicon, [(fst(head), headtype)])
 
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
-        daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd',)]
+        daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd', 'det')]
         secondary_coordinators = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'crd'
                                   and (d, r) != self.choose_head(grouped[conj])]
         crd_placeholders = list(map(lambda x: (fst(x), AtomicType('_CRD')), secondary_coordinators))
         self.update_lexicon(lexicon, crd_placeholders)
+        secondary_determiners = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'det'
+                                  and (d, r) != self.choose_head(grouped[conj])]
+        det_placeholders = list(map(lambda x: (fst(x), AtomicType('_DET')), secondary_determiners))
+        self.update_lexicon(lexicon, det_placeholders)
 
         copied = []
         non_copied = []
@@ -1094,7 +1105,7 @@ class Decompose:
                 copied_argtypes, copied_argdeps = list(zip(*copied_args))
                 copied_heads = list(filter(lambda c: snd(c) in self.head_candidates, copies))
                 copied_headtypes, copied_headargs = list(zip(*copied_heads))
-                hot = ColoredType(arguments=copied_args, result=copied_headtypes[0], colors=copied_argdeps)
+                hot = ColoredType(arguments=copied_argtypes, result=copied_headtypes[0], colors=copied_argdeps)
                 polymorphic_x = ColoredType(arguments=(hot,), result=copied_headtypes[0].result, colors=('cnj',))
 
             return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(copied))),
