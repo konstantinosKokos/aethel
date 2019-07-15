@@ -1051,7 +1051,7 @@ class Decompose:
         crd_placeholders = list(map(lambda x: (fst(x), AtomicType('_CRD')), secondary_coordinators))
         self.update_lexicon(lexicon, crd_placeholders)
         secondary_determiners = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'det'
-                                  and (d, r) != self.choose_head(grouped[conj])]
+                                 and (d, r) != self.choose_head(grouped[conj])]
         det_placeholders = list(map(lambda x: (fst(x), AtomicType('_DET')), secondary_determiners))
         self.update_lexicon(lexicon, det_placeholders)
 
@@ -1077,7 +1077,10 @@ class Decompose:
                 non_copied.append(non_shared_types)
 
         if not any(list(map(len, copied))):
-            return None
+            conj_type = lexicon[conj.attrib['id']]
+            daughter_types = list(map(lambda x: (fst(x), conj_type), daughters))
+            self.update_lexicon(lexicon, daughter_types)
+            polymorphic_x = conj_type
         else:
             assert all(list(map(lambda x: x == copied[0], copied[1::])))
 
@@ -1108,9 +1111,9 @@ class Decompose:
                 hot = ColoredType(arguments=copied_argtypes, result=copied_headtypes[0], colors=copied_argdeps)
                 polymorphic_x = ColoredType(arguments=(hot,), result=copied_headtypes[0].result, colors=('cnj',))
 
-            return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(copied))),
-                               colors=tuple('cnj' for _ in range(len(copied))),
-                               result=polymorphic_x)
+        return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(daughters))),
+                           colors=tuple('cnj' for _ in range(len(daughters))),
+                           result=polymorphic_x)
 
     def lexicon_to_list(self, sublex: Dict[str, WordType], grouped: Grouped) \
             -> Tuple[Iterable[str], Iterable[WordType]]:
