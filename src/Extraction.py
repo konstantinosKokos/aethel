@@ -925,6 +925,7 @@ class Decompose:
         self.type_assign_heads(grouped, lexicon)
         self.type_assign_gaps(grouped, lexicon)
         self.type_assign_copies(grouped, lexicon)
+        self.type_assign_pairs(grouped, lexicon)
         self.annotate_nodes(lexicon, node_dict)
         return root_type
 
@@ -988,8 +989,11 @@ class Decompose:
 
     def type_assign_heads(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         def fringe_heads(left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
-            return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
-                                                    list(map(fst, grouped[k])))))]
+            return [k for k in left if all(map(lambda x: k not in map(fst, grouped[x]) or x in done,
+                                               grouped.keys()))]
+        # def fringe_heads_bottom_up(left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
+        #     return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
+        #                                             list(map(fst, grouped[k])))))]
 
         done = []
         left = list(grouped.keys())
@@ -1007,11 +1011,18 @@ class Decompose:
             return head
         arglist = [x for x in grouped[parent] if self.get_rel(snd(x)) not in self.mod_candidates + ('crd', 'det')
                    and x != head]
-        if arglist:
-            args, colors = list(zip(*map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
-                                         arglist)))
-            head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
+        # exclude secondary gaps from arglist
+        gaplist = list(filter(lambda x: self.is_gap(fst(x)) and snd(x).rank == 'secondary',
+                              arglist))
 
+        arglist = list(filter(lambda x: x not in gaplist, arglist))
+        arglist = list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
+                           arglist))
+        arglist += list(map(lambda x: (self.get_type_plain(fst(x), grouped), self.get_rel(snd(x))),
+                            gaplist))
+        if arglist:
+            args, colors = list(zip(*arglist))
+            head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
         else:
             head_type = lexicon[parent.attrib['id']]
         self.update_lexicon(lexicon, [(head[0], head_type)])
@@ -1044,16 +1055,19 @@ class Decompose:
             if headtype:
                 self.update_lexicon(lexicon, [(fst(head), headtype)])
 
+    def type_assign_pairs(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        for k in grouped.keys():
+            secondary_coordinators = [(d, r) for (d, r) in grouped[k] if self.get_rel(r) == 'crd'
+                                      and (d, r) != self.choose_head(grouped[k])]
+            crd_placeholders = list(map(lambda x: (fst(x), AtomicType('_CRD')), secondary_coordinators))
+            self.update_lexicon(lexicon, crd_placeholders)
+            secondary_determiners = [(d, r) for (d, r) in grouped[k] if self.get_rel(r) == 'det'
+                                     and (d, r) != self.choose_head(grouped[k])]
+            det_placeholders = list(map(lambda x: (fst(x), AtomicType('_DET')), secondary_determiners))
+            self.update_lexicon(lexicon, det_placeholders)
+
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
         daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd', 'det')]
-        secondary_coordinators = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'crd'
-                                  and (d, r) != self.choose_head(grouped[conj])]
-        crd_placeholders = list(map(lambda x: (fst(x), AtomicType('_CRD')), secondary_coordinators))
-        self.update_lexicon(lexicon, crd_placeholders)
-        secondary_determiners = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) == 'det'
-                                 and (d, r) != self.choose_head(grouped[conj])]
-        det_placeholders = list(map(lambda x: (fst(x), AtomicType('_DET')), secondary_determiners))
-        self.update_lexicon(lexicon, det_placeholders)
 
         copied = []
         non_copied = []
@@ -1179,6 +1193,7 @@ class Decompose:
 
         for i, l in enumerate(lexicons):
             if not typecheck(list(l[1]), top_types[i]):
+                ToGraphViz()(new_grouped[i])
                 raise NotImplementedError('Generic type-checking error')
 
     # def __call__(self, grouped: Grouped) -> \
