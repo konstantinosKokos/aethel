@@ -1064,7 +1064,7 @@ class Decompose:
                                   if self.get_rel(r) not in self.mod_candidates + ('det',)]
 
                 shared = list(filter(lambda nr: self.is_copy(fst(nr)), granddaughters))
-                non_shared = list(filter(lambda nr: fst(nr) not in shared, granddaughters))
+                non_shared = list(filter(lambda nr: fst(nr) not in list(map(fst, shared)), granddaughters))
 
                 # multiset of types shared between conj daughters
                 shared_types = Counter(list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
@@ -1082,7 +1082,10 @@ class Decompose:
             self.update_lexicon(lexicon, daughter_types)
             polymorphic_x = conj_type
         else:
-            assert all(list(map(lambda x: x == copied[0], copied[1::])))
+            try:
+                assert all(list(map(lambda x: x == copied[0], copied[1::])))
+            except AssertionError:
+                raise NotImplementedError('Incompatible copies.')
 
             copies = list(copied[0].keys())
 
@@ -1092,7 +1095,7 @@ class Decompose:
             # case management:
             if all(copied_heads):
                 # Case of head copying
-                if not len(non_copied):
+                if all(map(lambda x: not len(x), non_copied)):
                     raise NotImplementedError('Copied head with no arguments.')
                 if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
                     raise NotImplementedError('Copied head with different arguments.')
@@ -1176,7 +1179,6 @@ class Decompose:
 
         for i, l in enumerate(lexicons):
             if not typecheck(list(l[1]), top_types[i]):
-                ToGraphViz()(grouped)
                 raise NotImplementedError('Generic type-checking error')
 
     # def __call__(self, grouped: Grouped) -> \
