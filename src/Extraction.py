@@ -1120,13 +1120,19 @@ class Decompose:
                 polymorphic_x = ColoredType(arguments=tuple(copied_types), result=lexicon[conj.attrib['id']],
                                             colors=tuple(copied_deps))
             else:
-                # Case of mixed copying
-                copied_args = list(filter(lambda c: snd(c) not in self.head_candidates, copies))
-                copied_argtypes, copied_argdeps = list(zip(*copied_args))
-                copied_heads = list(filter(lambda c: snd(c) in self.head_candidates, copies))
-                copied_headtypes, copied_headargs = list(zip(*copied_heads))
-                hot = ColoredType(arguments=copied_argtypes, result=copied_headtypes[0], colors=copied_argdeps)
-                polymorphic_x = ColoredType(arguments=(hot,), result=copied_headtypes[0].result, colors=('cnj',))
+                # Case of mixed
+                if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
+                    raise NotImplementedError('Copied head with different arguments.')
+                if all(map(lambda x: not len(x), non_copied)):
+                    raise NotImplementedError('Copied head and arguments with no real arguments.')
+                non_copies = list(non_copied[0].keys())
+                non_copied_argtypes, non_copied_argdeps = list(zip(*non_copies))
+                # copied_heads = list(filter(lambda c: snd(c) in self.head_candidates, copies))
+                # copied_headtypes, copied_headargs = list(zip(*copied_heads))
+
+                hot = ColoredType(arguments=non_copied_argtypes, colors=non_copied_argdeps,
+                                  result=lexicon[conj.attrib['id']])
+                polymorphic_x = ColoredType(arguments=(hot,), result=lexicon[conj.attrib['id']], colors=('cnj',))
 
         return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(daughters))),
                            colors=tuple('cnj' for _ in range(len(daughters))),
