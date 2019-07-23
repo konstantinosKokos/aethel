@@ -164,30 +164,6 @@ class ComplexType(WordType):
         return set.union(self.argument.get_colors(), self.result.get_colors())
 
 
-class DirectedComplexType(ComplexType):
-    def __init__(self, argument: WordType, result: WordType, direction: str) -> None:
-        super(DirectedComplexType, self).__init__(argument, result)
-        if direction == 'left':
-            self.dir_symbol = '\\'
-        elif direction == 'right':
-            self.dir_symbol = '/'
-        else:
-            raise ValueError('Invalid direction given ({}). Expected one of "left", "right"'.format(direction))
-        self.direction = direction
-
-    def __str__(self) -> str:
-        if self.direction == 'right':
-            return str(self.argument) + ' ' + self.dir_symbol + ' ' + str(self.result)
-        else:
-            return str(self.result) + ' ' + self.dir_symbol + ' ' + str(self.argument)
-
-    def __eq__(self, other: WordType) -> bool:
-        if not isinstance(other, DirectedComplexType):
-            return False
-        else:
-            return super(DirectedComplexType, self).__eq__(other) and self.direction == other.direction
-
-
 class ColoredType(ComplexType):
     def __init__(self, argument: WordType, result: WordType, color: str):
         super(ColoredType, self).__init__(argument, result)
@@ -216,36 +192,6 @@ class ColoredType(ComplexType):
 
     def get_colors(self) -> Set[str]:
         return set.union(super(ColoredType, self).get_colors(), {self.color})
-
-
-class DirectedColoredType(DirectedComplexType):
-    def __init__(self, argument: WordType, result: WordType, color: str, direction: str):
-        super(DirectedColoredType, self).__init__(argument, result, direction)
-        self.color = color
-
-    def __str__(self) -> str:
-        if self.direction == 'right':
-            compact = '{' + str(self.argument) + '}: ' + self.color + ' ' + self.dir_symbol + ' ' + str(self.result)
-            return compact if isinstance(self.argument, AtomicType) else '(' + compact + ')'
-        else:
-            compact = str(self.result) + ' ' + self.dir_symbol + '{' + str(self.argument) + '}: ' + self.color
-            return compact if isinstance(self.argument, AtomicType) else '(' + compact + ')'
-
-    def __eq__(self, other: WordType) -> bool:
-        if not isinstance(other, DirectedColoredType):
-            return False
-        else:
-            return super(DirectedColoredType, self).__eq__(other) and self.color == other.color
-
-    def decolor(self) -> DirectedComplexType:
-        return DirectedComplexType(argument=self.argument.decolor(), result=self.result.decolor(),
-                                   direction=self.direction)
-
-    def get_atomic(self):
-        return ComplexType.get_atomic(self)
-
-    def get_colors(self):
-        return ColoredType.get_colors(self)
 
 
 class CombinatorType(WordType):
@@ -281,6 +227,31 @@ class CombinatorType(WordType):
 
     def get_colors(self) -> Set[str]:
         return reduce(set.union, [a.get_colors() for a in self.types])
+
+
+class PolarizedIndexedType(AtomicType):
+    def __init__(self, result: str, polarity: bool, index: int) -> None:
+        super(PolarizedIndexedType, self).__init__(result=result)
+        self.polarity = polarity
+        self.index = index
+
+    def __str__(self) -> str:
+        return super(PolarizedIndexedType, self).__str__() + \
+               '(' + '+' if self.polarity else '-' + ', ' + str(self.index) + ')'
+
+
+def polarize_and_index(w: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
+    if isinstance(w, AtomicType):
+        return index+1, PolarizedIndexedType(result=w.result, polarity=polarity, index=index)
+    elif isinstance(w, ComplexType):
+        index, arg = polarize_and_index(w.argument, not polarity, index)
+        index, res = polarize_and_index(w.result, polarity, index)
+        if isinstance(w, ColoredType):
+            return index, ColoredType(argument=arg, result=res, color=w.color)
+        else:
+            return index, ComplexType(argument=arg, result=res)
+
+
 
 
 def binarizer(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
@@ -379,6 +350,8 @@ def rightwards_inclusion(left: WordType, right: WordType) -> bool:
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
     if isinstance(wordtype, AtomicType):
+        if str(wordtype)[0] == '_':
+            return [], []
         return [], [wordtype]
     elif isinstance(wordtype, ComplexType):
         argneg, argpos = get_polarities(wordtype.argument)
