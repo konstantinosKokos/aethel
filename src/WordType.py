@@ -84,6 +84,9 @@ class AtomicType(WordType):
     def get_colors(self) -> Set[str]:
         return set()
 
+    def depolarize(self) -> 'AtomicType':
+        return self
+
 
 class ModalType(WordType):
     def __init__(self, result: WordType, modality: str) -> None:
@@ -239,6 +242,9 @@ class PolarizedIndexedType(AtomicType):
         return super(PolarizedIndexedType, self).__str__() + \
                '(' + ('+' if self.polarity else '-') + ', ' + str(self.index) + ')'
 
+    def depolarize(self) -> AtomicType:
+        return AtomicType(self.result)
+
 
 def polarize_and_index(w: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
     if isinstance(w, AtomicType):
@@ -358,7 +364,7 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
     if isinstance(wordtype, AtomicType):
         if str(wordtype)[0] == '_':
             return [], []
-        return [], [wordtype]
+        return [], [wordtype.depolarize()]
     elif isinstance(wordtype, ComplexType):
         argneg, argpos = get_polarities(wordtype.argument)
         respos, resneg = get_polarities(wordtype.result)

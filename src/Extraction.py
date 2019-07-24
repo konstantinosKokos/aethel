@@ -1165,6 +1165,30 @@ class Decompose:
 
         return tuple(zip(*ret))
 
+    def update_with_polarities(self, type_dict: Dict[str, WordType], node_dict: Dict[str, ET.Element],
+                               lexlist: Tuple[Iterable[str], Iterable[WordType]],
+                               top_type: WordType, g: Grouped) -> Tuple[Sequence[str], WordTypes, PolarizedIndexedType]:
+        index_sequence = fst(lexlist)
+        type_sequence = snd(lexlist)
+        # add polarity and index information
+        l, type_sequence = polarize_and_index_many(type_sequence, 0)
+
+        top_type = PolarizedIndexedType(top_type.result, False, l)
+
+        # update the type dict
+        for (i, t) in zip(index_sequence, type_sequence):
+            type_dict[i] = t
+
+        root = list(self.get_disconnected(g))
+        assert len(root) == 1
+
+        type_dict[root[0].attrib['id']] = top_type
+
+        # update the lexicon
+        self.annotate_nodes(type_dict, node_dict)
+
+        return index_sequence, type_sequence, top_type
+
     def annotate_nodes(self, lexicon: Dict[str, WordType], node_dict: Dict[str, ET.Element]) -> None:
         """
             Writes the extracted type of a node into its attributes.
@@ -1193,14 +1217,23 @@ class Decompose:
         for i, g in enumerate(new_grouped):
             top_types.append(self.type_assign(g, dicts[i], node_dict))
 
+        # convert to sequences
         lexicons = list(map(lambda ix: self.lexicon_to_list(ix[1], new_grouped[ix[0]]), enumerate(dicts)))
+
+        # update with extra info
+        lexicons = list(map(lambda d, l, t, g:
+                            self.update_with_polarities(d, node_dict, l, t, g)
+                            ,
+                            dicts, lexicons, top_types, new_grouped))
+        # rearrange and split
+        lexicons, top_types = list(zip(*[(l[0:2], l[2]) for l in lexicons]))
 
         for i, l in enumerate(lexicons):
             if not typecheck(list(l[1]), top_types[i]):
                 ToGraphViz()(new_grouped[i])
                 raise NotImplementedError('Generic type-checking error')
 
-        return list(zip(*(new_grouped, dicts, lexicons, node_dict)))
+        return list(zip(*(new_grouped, dicts, lexicons, top_types, node_dict)))
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
@@ -1234,7 +1267,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
 
 
 def iterate(lassy: Lassy, **kwargs: int) -> \
-        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, Sequence[WordType]]]]:
+        Tuple[List[Tuple[int, Sequence[str]]], List[Tuple[int, WordTypes]]]:
     """
         Iterates over a Lassy dataset as returned by main(), either serially or in parallel. To enable parallel mode
         provide num_workers and/or batch_size as keyword arguments.
