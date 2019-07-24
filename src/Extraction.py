@@ -18,7 +18,9 @@ from typing import Optional, Iterable, Tuple, Union, Any, Generator, Dict, List,
 from warnings import warn
 
 Rel = NamedTuple('Rel', [('label', str), ('rank', str)])
-Grouped = Dict[ET.Element, List[Tuple[ET.Element, Union['Rel', str]]]]
+ChildRel = Tuple[ET.Element, Union[Rel, str]]
+ChildRels = List[ChildRel]
+Grouped = Dict[ET.Element, ChildRels]
 
 fst = lambda x: x[0]
 snd = lambda x: x[1]
@@ -559,7 +561,7 @@ class Decompose:
         return grouped
 
     @staticmethod
-    def order_siblings(siblings: List[Tuple[ET.Element, Union[Rel, str]]]) -> List[Tuple[ET.Element, Union[Rel, str]]]:
+    def order_siblings(siblings: ChildRels) -> ChildRels:
         """
             Arranges a list of sibling nodes by their order of appearance. Optionally excludes one of them (useful for
         head-daughters).
@@ -735,8 +737,7 @@ class Decompose:
 
         return grouped
 
-    def choose_head(self, children_rels: List[Tuple[ET.Element, Union[Rel, str]]]) \
-            -> Optional[Tuple[ET.Element, Union[Rel, str]]]:
+    def choose_head(self, children_rels: ChildRels) -> Optional[ChildRel]:
         """
             Takes a list of siblings and returns their head and its dependency label. Returns Nones if no head is found.
 
@@ -986,13 +987,17 @@ class Decompose:
         else:
             return False
 
+    @staticmethod
+    def fringe_heads_top_down(grouped: Grouped, left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
+        return [k for k in left if all(map(lambda x: k not in map(fst, grouped[x]) or x in done,
+                                           grouped.keys()))]
+    @staticmethod
+    def fringe_heads_bottom_up(grouped: Grouped, left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
+        return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
+                                                list(map(fst, grouped[k])))))]
+
     def type_assign_heads(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
-        def fringe_heads(left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
-            return [k for k in left if all(map(lambda x: k not in map(fst, grouped[x]) or x in done,
-                                               grouped.keys()))]
-        # def fringe_heads_bottom_up(left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
-        #     return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
-        #                                             list(map(fst, grouped[k])))))]
+        fringe_heads = lambda l, d: Decompose.fringe_heads_top_down(grouped, l, d)
 
         done = []
         left = list(grouped.keys())
@@ -1222,8 +1227,7 @@ class Decompose:
 
         # update with extra info
         lexicons = list(map(lambda d, l, t, g:
-                            self.update_with_polarities(d, node_dict, l, t, g)
-                            ,
+                            self.update_with_polarities(d, node_dict, l, t, g),
                             dicts, lexicons, top_types, new_grouped))
         # rearrange and split
         lexicons, top_types = list(zip(*[(l[0:2], l[2]) for l in lexicons]))
@@ -1233,7 +1237,7 @@ class Decompose:
                 ToGraphViz()(new_grouped[i])
                 raise NotImplementedError('Generic type-checking error')
 
-        return list(zip(*(new_grouped, dicts, lexicons, top_types, node_dict)))
+        return list(zip(*(new_grouped, dicts, lexicons, top_types)))
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
@@ -1263,7 +1267,7 @@ def main(viz: bool=False, remove_mods: bool=False) -> Any:
                            lambda x: [x[0], decomposer(x[1])],  # decompose into a lexicon
                            ])
     L = Lassy(transform=lexicalizer)
-    return L0, L, ToGraphViz()
+    return L0, L, ToGraphViz(), decomposer
 
 
 def iterate(lassy: Lassy, **kwargs: int) -> \

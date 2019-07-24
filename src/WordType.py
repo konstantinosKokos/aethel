@@ -36,7 +36,7 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def get_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set['AtomicType']:
         pass
 
     @abstractmethod
@@ -78,8 +78,8 @@ class AtomicType(WordType):
     def decolor(self) -> 'AtomicType':
         return self
 
-    def get_atomic(self) -> Set[str]:
-        return {self.__repr__()}
+    def get_atomic(self) -> Set['AtomicType']:
+        return {self}
 
     def get_colors(self) -> Set[str]:
         return set()
@@ -124,7 +124,7 @@ class ModalType(WordType):
     def decolor(self) -> 'ModalType':
         return ModalType(result=(self.result.decolor()), modality=self.modality)
 
-    def get_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[AtomicType]:
         return self.result.get_atomic()
 
     def get_colors(self) -> Set[str]:
@@ -160,7 +160,7 @@ class ComplexType(WordType):
     def decolor(self) -> 'ComplexType':
         return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
 
-    def get_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[AtomicType]:
         return set.union(self.argument.get_atomic(), self.result.get_atomic())
 
     def get_colors(self) -> Set[str]:
@@ -225,7 +225,7 @@ class CombinatorType(WordType):
     def decolor(self) -> 'CombinatorType':
         return CombinatorType(types=tuple(map(lambda x: x.decolor(), self.types)), combinator=self.combinator)
 
-    def get_atomic(self) -> Set[str]:
+    def get_atomic(self) -> Set[AtomicType]:
         return reduce(set.union, [a.get_atomic() for a in self.types])
 
     def get_colors(self) -> Set[str]:
@@ -303,7 +303,7 @@ def decolor(colored_type: WordType) -> Union[AtomicType, ModalType, ComplexType]
     return colored_type.decolor()
 
 
-def get_atomic(something: Union[WordTypes, WordType]) -> Set[str]:
+def get_atomic(something: Union[WordTypes, WordType]) -> Set[AtomicType]:
     if isinstance(something, Sequence):
         return reduce(set.union, [get_atomic(s) for s in something])
     else:
