@@ -1,6 +1,5 @@
 from src.WordType import *
 from src.WordType import binarizer as ColoredType
-from src.WordType import associative_combinator as CombinatorType
 
 import os
 import xml.etree.cElementTree as ET
@@ -1161,7 +1160,6 @@ class Decompose:
         # mapping from linear order to dictionary keys
         enum = {i: l.attrib['id'] for i, l in enumerate(all_leaves)}
 
-        # convert to a list [(word, WordType), ...]
         ret = [(enum[i], sublex[enum[i]])
                for i in range(len(all_leaves)) if enum[i] in sublex.keys()]
 
@@ -1202,47 +1200,7 @@ class Decompose:
                 ToGraphViz()(new_grouped[i])
                 raise NotImplementedError('Generic type-checking error')
 
-    # def __call__(self, grouped: Grouped) -> \
-    #         Tuple[Grouped, List[Tuple[Iterable[str], Iterable[WordType]]], List[Dict[str, WordType]]]:
-    #
-    #     top_nodes = list(Decompose.get_disconnected(grouped))
-    #
-    #     # might be useful if the tagger is trained on the phrase level
-    #     top_node_types = tuple(map(lambda x: (x, self.get_type(x, grouped)), top_nodes))
-    #
-    #     node_dict = {node.attrib['id']: node for node in
-    #                  set(grouped.keys()).union(set([v[0] for v in chain.from_iterable(grouped.values())]))}
-    #
-    #     # init one dict per disjoint sequence
-    #     dicts = [{self.get_key(x): y} for x, y in top_node_types]
-    #
-    #     for i, top_node in enumerate(top_nodes):
-    #         # recursively iterate each
-    #         self.recursive_assignment(top_node, grouped, None, dicts[i], node_dict)
-    #
-    #     for d in dicts:
-    #         self.annotate_nodes(d, node_dict)
-    #
-    #     lexicons = list(map(lambda x: self.lexicon_to_list(x, grouped), dicts))
-    #
-    #     for i, l in enumerate(lexicons):
-    #         try:
-    #             if not typecheck(list(l[1]), top_node_types[i][1]):
-    #                 # ToGraphViz()(grouped)
-    #                 raise NotImplementedError('Generic type-checking error')
-    #             if any(list(map(lambda x: isinstance(x, ComplexType) and x.color in self.mod_candidates and
-    #                             x.get_arity()>1 and x.argument.color not in self.mod_candidates,
-    #                             l[1]))):
-    #                 ToGraphViz()(grouped)
-    #                 import pdb
-    #                 pdb.set_trace()
-    #         except TypeError:
-    #             raise NotImplementedError('Additive type')
-    #
-    #     if self.visualize:
-    #         ToGraphViz()(grouped)
-    #
-    #     return grouped, list(map(lambda x: self.lexicon_to_list(x, grouped), dicts)), dicts
+        return list(zip(*(new_grouped, dicts, lexicons, node_dict)))
 
 
 def main(viz: bool=False, remove_mods: bool=False) -> Any:
