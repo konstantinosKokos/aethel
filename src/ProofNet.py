@@ -2,15 +2,17 @@ from src.Extraction import *
 
 Proof = Dict[int, int]
 
+
 class Proofify(object):
     def __init__(self, decomposer: Decompose):
         self.decomposer = decomposer
 
-    def __call__(self, grouped: Grouped, type_sequence: WordTypes, top_type: PolarizedIndexedType):
+    def __call__(self, grouped: Grouped, type_dict: Dict[str, WordType], type_sequence: WordTypes,
+                 top_type: PolarizedIndexedType):
         atomic_lexicon = reduce(lambda x, y: x.union(y.get_atomic()), type_sequence, {top_type})
-        proof = dict()
-
-        return atomic_lexicon
+        proof = iterate_top_down(grouped, type_dict, self.decomposer)
+        check_proof(atomic_lexicon, proof)
+        return proof
 
 
 def iterate_top_down(grouped: Grouped, type_dict: Dict[str, WordType], decompose: Decompose):
@@ -32,6 +34,18 @@ def iterate_top_down(grouped: Grouped, type_dict: Dict[str, WordType], decompose
     ToGraphViz()(grouped)
 
     return proof
+
+
+def check_proof(atomic_lexicon: Set[PolarizedIndexedType], proof: Proof):
+    atomic_lexicon = {a.index: (AtomicType(a.result), a.polarity) for a in atomic_lexicon}
+    for k, v in proof.items():
+        atom_neg = atomic_lexicon[k]
+        atom_pos = atomic_lexicon[v]
+        assert atom_pos[0] == atom_neg[0]
+        print(atom_neg)
+        print(atom_pos)
+        assert atom_neg[1] is False
+        assert atom_pos[1] is True
 
 
 def match_branch(parent: Optional[ET.Element], child_rels: ChildRels, type_dict: Dict[str, WordType],
@@ -63,11 +77,16 @@ def match_branch_mods(top_type: WordType, mods: ChildRels, type_dict: Dict[str, 
 
 
 def mod_match(result: WordType, mod: WordType, proof: Proof):
-    mod_atoms = sorted(list(map(lambda x: x.index, mod.argument.get_atomic())))
-    result_atoms = sorted(list(map(lambda x: x.index, result.get_atomic())))
+    mod_atoms = sorted(list(map(lambda x: (x.index, x.polarity), mod.argument.get_atomic())))
+    result_atoms = sorted(list(map(lambda x: (x.index, x.polarity), result.get_atomic())))
+    assert len(mod_atoms) == len(result_atoms)
     for m, r in zip(mod_atoms, result_atoms):
-        assert m not in proof.keys()
-        proof[m] = r
+        if m[1] is False:
+            assert m[0] not in proof.keys()
+            proof[m[0]] = r[0]
+        else:
+            assert r[0] not in proof.keys()
+            proof[r[0]] = m[0]
     return mod.result
 
 
