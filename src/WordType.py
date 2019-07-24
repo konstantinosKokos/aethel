@@ -237,7 +237,7 @@ class PolarizedIndexedType(AtomicType):
 
     def __str__(self) -> str:
         return super(PolarizedIndexedType, self).__str__() + \
-               '(' + '+' if self.polarity else '-' + ', ' + str(self.index) + ')'
+               '(' + ('+' if self.polarity else '-') + ', ' + str(self.index) + ')'
 
 
 def polarize_and_index(w: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
@@ -252,6 +252,12 @@ def polarize_and_index(w: WordType, polarity: bool = True, index: int = 0) -> Tu
             return index, ComplexType(argument=arg, result=res)
 
 
+def polarize_and_index_many(W: Sequence[WordType], index: int=0) -> Tuple[int, Sequence[WordType]]:
+    ret = []
+    for w in W:
+        index, x = polarize_and_index(w, True, index)
+        ret.append(x)
+    return index, ret
 
 
 def binarizer(arguments: WordTypes, result: WordType, colors: strings) -> ColoredType:
