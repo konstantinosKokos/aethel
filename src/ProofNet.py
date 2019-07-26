@@ -50,8 +50,6 @@ def check_proof(atomic_lexicon: Set[PolarizedIndexedType], proof: Proof):
 
 def match_branch(parent: Optional[ET.Element], child_rels: ChildRels, type_dict: Dict[str, WordType],
                  decompose: Decompose, proof: Proof):
-    # keep prim links
-    child_rels = list(filter(lambda x: isinstance(snd(x), str) or snd(x).rank == 'primary', child_rels))
     # distinguish between args and mods
     args = list(filter(lambda x: decompose.get_rel(snd(x)) not in decompose.mod_candidates, child_rels))
     # mods are ambiguous, therefore need to be sorted
@@ -60,7 +58,10 @@ def match_branch(parent: Optional[ET.Element], child_rels: ChildRels, type_dict:
     # settle arg/head first
     head = fst(decompose.choose_head(args))
     head_type = type_dict[head.attrib['id']]
-    top_type = match_branch_args(head_type, args, type_dict, decompose, proof)
+    if parent is not None and 'cat' in parent.attrib.keys() and parent.attrib['cat'] == 'conj':
+        top_type = match_branch_conj(head_type, args, type_dict, decompose, proof, False)
+    else:
+        top_type = match_branch_args(head_type, args, type_dict, decompose, proof, decompose.is_gap(head))
 
     # now do modifiers
     top_type = match_branch_mods(top_type, mods, type_dict, proof)
@@ -91,17 +92,33 @@ def mod_match(result: WordType, mod: WordType, proof: Proof):
 
 
 def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str, WordType],
-                           decompose: Decompose, proof: Proof):
+                           decompose: Decompose, proof: Proof, gap: bool):
+    if gap:
+        head_type = ColoredType(arguments=(head_type.argument.result,), result=head_type.result,
+                                colors=(head_type.color,),)
     if args:
         while isinstance(head_type, ComplexType):
             color = head_type.color
             if color in decompose.mod_candidates:
                 break
             a = [fst(a) for a in args if decompose.get_rel(snd(a)) == color]
-            assert len(a) == 1
+
+            if len(a) > 1:
+                raise AssertionError('Too many ({}) arguments with rel: {}'.format(len(a), color))
+            elif len(a) == 0:
+                # anticipate copies
+                warn('Missing argument of color {}'.format(color))
+                head_type = head_type.result
+                continue
+
             a = fst(a)
 
-            arg_match(head_type.argument, type_dict[a.attrib['id']], proof)
+            if decompose.is_gap(a):
+                a_type = type_dict[a.attrib['id']].argument.argument
+            else:
+                a_type = type_dict[a.attrib['id']]
+
+            arg_match(head_type.argument, a_type, proof)
             head_type = head_type.result
         return head_type
     else:
@@ -113,6 +130,5 @@ def arg_match(head_arg: WordType, arg: WordType, proof: Proof):
     proof[head_arg.index] = arg.index
 
 
-
-
-
+def match_branch_conj(*args):
+    raise NotImplementedError
