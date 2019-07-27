@@ -754,7 +754,8 @@ class Decompose:
     @staticmethod
     def is_copy(node: ET.Element) -> bool:
         all_incoming_edges = list(map(Decompose.get_rel, node.attrib['rel'].values()))
-        if len(all_incoming_edges) > 1 and len(set(all_incoming_edges)) == 1:
+        all_incoming_edges = Counter(all_incoming_edges)
+        if any(list(map(lambda x: x >1, all_incoming_edges.values()))):
             return True
         return False
 
