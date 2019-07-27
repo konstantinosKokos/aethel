@@ -1074,6 +1074,13 @@ class Decompose:
             self.update_lexicon(lexicon, det_placeholders)
 
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
+        def retrieve_ctype(x: ET.Element)  -> WordType:
+            if self.is_gap(x):
+                return lexicon[x.attrib['id']].argument.argument
+            else:
+                return lexicon[x.attrib['id']]
+
+
         daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd', 'det')]
 
         copied = []
@@ -1088,11 +1095,11 @@ class Decompose:
                 non_shared = list(filter(lambda nr: fst(nr) not in list(map(fst, shared)), granddaughters))
 
                 # multiset of types shared between conj daughters
-                shared_types = Counter(list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
+                shared_types = Counter(list(map(lambda x: (retrieve_ctype(fst(x)), self.get_rel(snd(x))),
                                                 shared)))
                 # multiset of types unique to each conj daughter
-                non_shared_types = Counter(list(map(lambda x: (lexicon[fst(x).attrib['id']], self.get_rel(snd(x))),
-                                            non_shared)))
+                non_shared_types = Counter(list(map(lambda x: (retrieve_ctype(fst(x)), self.get_rel(snd(x))),
+                                                    non_shared)))
 
                 copied.append(shared_types)
                 non_copied.append(non_shared_types)
