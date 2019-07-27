@@ -1033,10 +1033,12 @@ class Decompose:
         self.update_lexicon(lexicon, [(head[0], head_type)])
 
     def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
-        # todo: what if something is a copied gap? gap but under diff parents
+        # keep track of assigned gaps, dont assign twice
+        gaps_assigned = set()
         for k in grouped.keys():
-            gaps = list(filter(lambda x: self.is_gap(fst(x)), grouped[k]))
+            gaps = list(filter(lambda x: self.is_gap(fst(x)) and fst(x) not in gaps_assigned, grouped[k]))
             gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
+            gaps_assigned = gaps_assigned.union(set(list(map(fst, gaps))))
             gap_mods = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, gaps))
             gap_non_mods = list(filter(lambda x: x not in gap_mods, gaps))
             gaptypes = list(map(lambda x: (fst(x), self.get_type_gap(fst(x), self.get_rel(snd(x)),
@@ -1230,6 +1232,7 @@ class Decompose:
         lexicons = list(map(lambda d, l, t, g:
                             self.update_with_polarities(d, node_dict, l, t, g),
                             dicts, lexicons, top_types, new_grouped))
+
         # rearrange and split
         lexicons, top_types = list(zip(*[(l[0:2], l[2]) for l in lexicons]))
 
