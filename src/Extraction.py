@@ -1123,9 +1123,8 @@ class Decompose:
                     raise NotImplementedError('Copied head with no arguments.')
                 if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
                     raise NotImplementedError('Copied head with different arguments.')
-                daughter_types = list(map(lambda x: (fst(x), conj_type), daughters))
                 polymorphic_x = ColoredType(arguments=(copied_types[0],), colors=('embedded',),
-                                            result=copied_types[0].result)
+                                            result=lexicon[conj.attrib['id']])
             elif not any(copied_heads):
                 # Case of argument copying
                 polymorphic_x = ColoredType(arguments=tuple(copied_types), result=lexicon[conj.attrib['id']],
