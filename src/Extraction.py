@@ -1074,12 +1074,11 @@ class Decompose:
             self.update_lexicon(lexicon, det_placeholders)
 
     def iterate_conj(self, conj: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> Optional[ColoredType]:
-        def retrieve_ctype(x: ET.Element)  -> WordType:
+        def retrieve_ctype(x: ET.Element) -> WordType:
             if self.is_gap(x):
                 return lexicon[x.attrib['id']].argument.argument
             else:
                 return lexicon[x.attrib['id']]
-
 
         daughters = [(d, r) for (d, r) in grouped[conj] if self.get_rel(r) not in self.mod_candidates + ('crd', 'det')]
 
@@ -1105,10 +1104,7 @@ class Decompose:
                 non_copied.append(non_shared_types)
 
         if not any(list(map(len, copied))):
-            conj_type = lexicon[conj.attrib['id']]
-            daughter_types = list(map(lambda x: (fst(x), conj_type), daughters))
-            self.update_lexicon(lexicon, daughter_types)
-            polymorphic_x = conj_type
+            polymorphic_x = lexicon[conj.attrib['id']]
         else:
             try:
                 assert all(list(map(lambda x: x == copied[0], copied[1::])))
@@ -1127,6 +1123,7 @@ class Decompose:
                     raise NotImplementedError('Copied head with no arguments.')
                 if not all(list(map(lambda x: x == non_copied[0], non_copied[1::]))):
                     raise NotImplementedError('Copied head with different arguments.')
+                daughter_types = list(map(lambda x: (fst(x), conj_type), daughters))
                 polymorphic_x = ColoredType(arguments=(copied_types[0],), colors=('embedded',),
                                             result=copied_types[0].result)
             elif not any(copied_heads):
@@ -1148,6 +1145,7 @@ class Decompose:
                                   result=lexicon[conj.attrib['id']])
                 polymorphic_x = ColoredType(arguments=(hot,), result=lexicon[conj.attrib['id']], colors=('cnj',))
 
+        self.update_lexicon(lexicon, list(map(lambda x: (fst(x), polymorphic_x), daughters)))
         return ColoredType(arguments=tuple(polymorphic_x for _ in range(len(daughters))),
                            colors=tuple('cnj' for _ in range(len(daughters))),
                            result=polymorphic_x)
