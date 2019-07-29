@@ -11,6 +11,8 @@ class Proofify(object):
                  top_type: PolarizedIndexedType):
         atomic_lexicon = reduce(lambda x, y: x.union(y.get_atomic()), type_sequence, {top_type})
         proof = iterate_top_down(grouped, type_dict, self.decomposer)
+        result = type_dict[fst(list(self.decomposer.get_disconnected(grouped))).attrib['id']]
+        arg_match(top_type, result, proof)
         check_proof(atomic_lexicon, proof)
         return proof
 
@@ -26,12 +28,7 @@ def iterate_top_down(grouped: Grouped, type_dict: Dict[str, WordType], decompose
     fringe = decompose.fringe_heads_bottom_up(grouped, left, done)
     while fringe:
         for f in fringe:
-            try:
-                match_branch(f, grouped, type_dict, decompose, proof)
-            except AttributeError:
-                decompose.annotate_nodes(type_dict, node_dict)
-                ToGraphViz()(grouped)
-                raise AttributeError
+            match_branch(f, grouped, type_dict, decompose, proof)
             left.remove(f)
             done += [f]
         fringe = decompose.fringe_heads_bottom_up(grouped, left, done)
@@ -42,13 +39,18 @@ def iterate_top_down(grouped: Grouped, type_dict: Dict[str, WordType], decompose
 
 
 def check_proof(atomic_lexicon: Set[PolarizedIndexedType], proof: Proof):
-    atomic_lexicon = {a.index: (AtomicType(a.result), a.polarity) for a in atomic_lexicon}
-    for k, v in proof.items():
-        atom_neg = atomic_lexicon[k]
-        atom_pos = atomic_lexicon[v]
-        assert atom_pos[0] == atom_neg[0]
-        assert atom_neg[1] is False
-        assert atom_pos[1] is True
+    negatives = set(map(lambda x: x.index, filter(lambda x: not x.polarity, atomic_lexicon)))
+    positives = set(map(lambda x: x.index, filter(lambda x: x.polarity, atomic_lexicon)))
+    keys = set(proof.keys())
+    values = set(proof.values())
+    if not keys == negatives:
+        raise AssertionError('Disagreement between keys and negatives\n'
+                             'N-K : {} \n'
+                             'K-N : {} \n'.format(negatives.difference(keys), keys.difference(negatives)))
+    if not values == positives:
+        raise AssertionError('Disagreement between keys and negatives\n'
+                             'P-V : {} \n'
+                             'V-P : {} \n'.format(positives.difference(values), values.difference(positives)))
 
 
 def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict[str, WordType],
@@ -126,9 +128,9 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
                     owed.append((head_type.argument, color))
                 else:
                     print('1')
-                    print('h' + str(head_type))
                     print(type_dict[a.attrib['id']])
             else:
+                print('2')
                 owed.append((head_type.argument, color))
             head_type = head_type.result
             continue
@@ -140,7 +142,19 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             print('4')
             a_type = type_dict[a.attrib['id']]
 
-        arg_match(head_type.argument, a_type, proof)
+        if head_type.argument.get_arity() == 0:
+            arg_match(head_type.argument, a_type, proof)
+        elif head_type.argument.get_arity() == 1:
+            head_arg = head_type.argument
+            while isinstance(head_arg, ComplexType):
+                arg_match(a_type.argument, head_arg.argument, proof)
+                a_type = a_type.result
+                head_arg = head_arg.result
+            arg_match(head_arg, a_type, proof)
+        else:
+            raise NotImplementedError('Too hard type: ()'.format(head_type, head_type.get_arity()))
+
+        print(head_type)
         head_type = head_type.result
 
     if owed:
