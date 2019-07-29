@@ -125,10 +125,12 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
         if decompose.is_copy(a):
             if decompose.is_gap(a):
                 if Counter(list(map(lambda x: decompose.get_rel(x), a.attrib['rel'].values())))[color] > 1:
+                    print('0')
                     owed.append((head_type.argument, color))
                 else:
                     print('1')
                     print(type_dict[a.attrib['id']])
+                    raise NotImplementedError('what do we do here')
             else:
                 print('2')
                 owed.append((head_type.argument, color))
@@ -136,11 +138,15 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             continue
 
         elif decompose.is_gap(a):
-            print('3')
-            a_type = type_dict[a.attrib['id']].argument
+            a_type = type_dict[a.attrib['id']].argument.argument
         else:
             print('4')
             a_type = type_dict[a.attrib['id']]
+
+        if gap:
+            head_type = ColoredType(arguments=(head_type.argument.result,),
+                                    colors=(head_type.color,),
+                                    result=head_type.result)
 
         if head_type.argument.get_arity() == 0:
             arg_match(head_type.argument, a_type, proof)
@@ -154,7 +160,6 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
         else:
             raise NotImplementedError('Too hard type: ()'.format(head_type, head_type.get_arity()))
 
-        print(head_type)
         head_type = head_type.result
 
     if owed:
