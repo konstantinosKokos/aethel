@@ -104,55 +104,45 @@ def mod_match(result: WordType, mod: WordType, proof: Proof):
 
 def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str, WordType],
                            decompose: Decompose, proof: Proof, gap: bool):
-    if gap:
-        head_type = ColoredType(arguments=(head_type.argument.result,), result=head_type.result,
-                                colors=(head_type.color,),)
+
     owed = []
-    # todo: track owed id also and then propagate when necessary
+
     while isinstance(head_type, ComplexType):
         color = head_type.color
+
         if color in decompose.mod_candidates:
             break
+
         a = [fst(a) for a in args if decompose.get_rel(snd(a)) == color]
 
         if len(a) > 1:
             raise AssertionError('Too many ({}) arguments with rel: {}'.format(len(a), color))
-        else:
-            a = fst(a)
-            if decompose.is_copy(a):
-                if decompose.is_gap(a):
-                    if Counter(list(map(lambda x: decompose.get_rel(x), a.attrib['rel'].values())))[color] > 1:
-                        # we are inspecting a copied edge of a gap node, use embedded argument
-                        print(type_dict[a.attrib['id']])
-                    else:
-                        # we are inspecting a non-copied edge of a gap node, use result of argument
-                        # and associate the embedded argument with the head
-                        print(1)
-                    head_type = head_type.result
+
+        a = fst(a)
+
+        if decompose.is_copy(a):
+            if decompose.is_gap(a):
+                if Counter(list(map(lambda x: decompose.get_rel(x), a.attrib['rel'].values())))[color] > 1:
+                    owed.append((head_type.argument, color))
                 else:
-                    print(2)
-                #
-                #
-                #
-                # # if the argument is a copy and we are at a copied dependency
-                # if Co:
-                #     print(head_type)
-                #     owed.append((DoubleIndexedType(result=head_type.argument.result,
-                #                                    polarity=head_type.argument.polarity,
-                #                                    memory=type_dict[a.attrib['id']].argument.argument.index,
-                #                                    index=head_type.argument.polarity), color))
-                #     print(owed)
-                # else:
-                #     owed.append((DoubleIndexedType(result=head_type.result,
-                #                                    polarity=head_type.polarity,
-                #                                    memory=type_dict[a.attrib['id']].index,
-                #                                    index=head_type.polarity), color))
-                # head_type = head_type.result
-                # continue
+                    print('1')
+                    print('h' + str(head_type))
+                    print(type_dict[a.attrib['id']])
             else:
-                a_type = type_dict[a.attrib['id']]
-                arg_match(head_type.argument, a_type, proof)
-                head_type = head_type.result
+                owed.append((head_type.argument, color))
+            head_type = head_type.result
+            continue
+
+        elif decompose.is_gap(a):
+            print('3')
+            a_type = type_dict[a.attrib['id']].argument
+        else:
+            print('4')
+            a_type = type_dict[a.attrib['id']]
+
+        arg_match(head_type.argument, a_type, proof)
+        head_type = head_type.result
+
     if owed:
         arguments, colors = list(zip(*owed))
         return ColoredType(arguments=arguments, colors=colors, result=head_type)
@@ -160,13 +150,16 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
         return head_type
 
 
-def arg_match(head_arg: WordType, arg: WordType, proof: Proof):
-    assert head_arg.index not in proof.keys()
-    try:
-        proof[head_arg.index] = arg.index
-    except AttributeError:
-        print(head_arg, arg)
-        raise AttributeError
+def arg_match(negative_arg: WordType, positive_arg: WordType, proof: Proof):
+    if not isinstance(negative_arg, PolarizedIndexedType):
+        raise AssertionError('Received non-atomic negative arg {} with match {}'.format(negative_arg, positive_arg))
+    if not isinstance(positive_arg, PolarizedIndexedType):
+        raise AssertionError('Received non-atomic positive arg {} with match {}'.format(positive_arg, negative_arg))
+    assert not negative_arg.polarity
+    assert positive_arg.polarity
+    assert negative_arg.result == positive_arg.result
+    assert negative_arg.index not in proof.keys()
+    proof[negative_arg.index] = positive_arg.index
 
 
 def match_branch_conj(head_type: WordType, args: ChildRels, type_dict: Dict[str, WordType], proof: Proof) -> WordType:
@@ -192,8 +185,6 @@ def match_branch_conj(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             arg_type = type_dict[a.attrib['id']]
 
             while isinstance(arg_type, ComplexType):
-                print(arg_type)
-                print(current_conj)
                 # subargument within conjunct
                 subarg_arg = arg_type.argument
                 arg_type = arg_type.result
