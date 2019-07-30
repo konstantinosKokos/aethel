@@ -246,21 +246,6 @@ class PolarizedIndexedType(AtomicType):
         return AtomicType(self.result)
 
 
-class DoubleIndexedType(AtomicType):
-    def __init__(self, result: str, polarity: bool, index: int, memory: int) -> None:
-        super(DoubleIndexedType, self).__init__(result=result)
-        self.polarity = polarity
-        self.index = index
-        self.memory = memory
-
-    def __str__(self) -> str:
-        return super(DoubleIndexedType, self).__str__() + \
-               '(' + ('+' if self.polarity else '-') + ', ' + str(self.index) + ', ' + str(self.memory) + ')'
-
-    def depolarize(self) -> AtomicType:
-        return AtomicType(self.result)
-
-
 def polarize_and_index(w: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
     if isinstance(w, AtomicType):
         return index+1, PolarizedIndexedType(result=w.result, polarity=polarity, index=index)
