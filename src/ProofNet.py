@@ -80,7 +80,8 @@ def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict
         args = decompose.order_siblings(args)
         top_type = match_branch_conj(head_type, args, type_dict, proof, buffer, decompose)
     else:
-        top_type = match_branch_args(head_type, args, type_dict, decompose, proof, decompose.is_gap(head), buffer)
+        top_type = match_branch_args(head_type, args, type_dict, decompose, proof, decompose.is_gap(head),
+                                     decompose.is_copy(head), buffer)
 
     # now do modifiers
     if top_type.get_arity() > 0 and top_type.color not in decompose.mod_candidates:
@@ -99,13 +100,17 @@ def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict
 
 
 def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str, WordType],
-                      decompose: Decompose, proof: Proof, gap: bool, buffer: Any):
+                      decompose: Decompose, proof: Proof, gap: bool, copy: bool, buffer: Any):
 
     owed = []
 
     if gap:
         head_type = ColoredType(arguments=(head_type.argument.result,), colors=(head_type.color,),
                                 result=head_type.result)
+
+    if copy:
+        pre = []
+        post = head_type.result
 
     while isinstance(head_type, ComplexType):
         color = head_type.color
@@ -144,41 +149,22 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             a_type = type_dict[a.attrib['id']].argument.argument
 
         # if I reach this point, I know what the argument type is
-        arg_match(head_type.argument, a_type, proof)  # placeholder
+        if not copy:
+            arg_match(head_type.argument, a_type, proof)  # placeholder
+        else:
+            buffer[a_type.index] = head_type.argument
+            print(buffer)
+            pre.append((a_type, color))
         head_type = head_type.result
 
     if owed:
         arguments, colors = list(zip(*owed))
-        return ColoredType(arguments=arguments, colors=colors, result=head_type)
-    else:
-        return head_type
-
-    #     if gap:
-    #         head_type = ColoredType(arguments=(head_type.argument.result,),
-    #                                 colors=(head_type.color,),
-    #                                 result=head_type.result)
-    #
-    #     if head_type.argument.get_arity() == 0:
-    #         if a_type.get_arity() == 0:
-    #             arg_match(head_type.argument, a_type, proof)
-    #         else:
-    #             while isinstance(a_type, ComplexType):
-    #                 a_type = a_type.result
-    #             arg_match(head_type.argument, a_type, proof)
-    #     elif head_type.color in decompose.mod_candidates:
-    #         return head_type
-    #     elif head_type.argument.get_arity() == 1:
-    #         head_arg = head_type.argument
-    #         while isinstance(head_arg, ComplexType):
-    #             arg_match(a_type.argument, head_arg.argument, proof)
-    #             a_type = a_type.result
-    #             head_arg = head_arg.result
-    #         arg_match(head_arg, a_type, proof)
-    #     else:
-    #         raise NotImplementedError('Too hard type: ()'.format(head_type, head_type.get_arity()))
-    #
-    #     head_type = head_type.result
-    #
+        head_type = ColoredType(arguments=arguments, colors=colors, result=head_type)
+    if copy:
+        arguments, colors = list(zip(*pre))
+        head_type = ColoredType(arguments=arguments, colors=colors, result=post)
+        head_type = ColoredType(arguments=(head_type,), colors=('embedded',), result=post)
+    return head_type
 
 
 def arg_match(negative_arg: WordType, positive_arg: WordType, proof: Proof):
@@ -190,6 +176,7 @@ def arg_match(negative_arg: WordType, positive_arg: WordType, proof: Proof):
     assert positive_arg.polarity
     assert negative_arg.result == positive_arg.result
     assert negative_arg.index not in proof.keys()
+    assert positive_arg.index not in proof.values()
     proof[negative_arg.index] = positive_arg.index
 
 
@@ -223,8 +210,54 @@ def match_branch_conj(head_type: WordType, args: ChildRels, type_dict: Dict[str,
     arity = head_type.get_arity()
 
     if arity > 2:
-        raise NotImplementedError('Too hard ({})'.format(arity))
-    if arity == 1:
+        for a, _ in args[:-1]:
+            # each argument is a second order functor
+            current_conj = type_dict[a.attrib['id']]   # (A->T)-> T // + - -  (non-indexed)
+            current_conj = current_conj.argument   # A->T + -, partially indexed
+            crd_type = head_type.argument       # (A_>T)->T  // - + +  (indexed)
+            head_type = head_type.result        # X->X..->X
+
+            crd_type_result = crd_type.result   # T (indexed, +)
+            crd_type = crd_type.argument        # A-> T  (indexed, -)
+
+            while isinstance(crd_type, ComplexType):
+                subarg_arg = current_conj.argument
+                current_conj = current_conj.result
+                subarg_crd = crd_type.argument
+                crd_type = crd_type.result
+                arg_match(subarg_crd, subarg_arg, proof)
+                del buffer[subarg_arg.index]
+            arg_match(crd_type_result, crd_type, proof)
+
+        # last argument
+        a, _ = args[-1]
+        current_conj = type_dict[a.attrib['id']]  # (A->T)-> T // + - -  (non-indexed)
+        current_conj = current_conj.argument  # A->T + -, partially indexed
+        crd_type = head_type.argument  # (A_>T)->T  // - + +  (indexed)
+        head_type = head_type.result  #   (A->T) -> T // indexed, + - -, needs matching
+        head_type_main = head_type.argument
+        head_type_result = head_type.result
+
+        crd_type_result = crd_type.result  # T (indexed, +)
+        crd_type = crd_type.argument  # A-> T  (indexed, -)
+
+        while isinstance(crd_type, ComplexType):
+            subarg_arg = current_conj.argument
+            current_conj = current_conj.result
+            crd_type_arg = crd_type.argument
+            crd_type = crd_type.result
+            head_type_arg = head_type_main.argument
+            head_type_main = head_type_main.result
+            arg_match(crd_type_arg, subarg_arg, proof)
+            arg_match(buffer[subarg_arg.index], head_type_arg, proof)
+
+        arg_match(crd_type_result, crd_type, proof)
+        arg_match(head_type_main, current_conj, proof)
+        import pdb
+        pdb.set_trace()
+        return head_type_result
+
+    elif arity == 1:
         # simple conjunction
         for a, _ in args:
             arg_match(head_type.argument, type_dict[a.attrib['id']], proof)
