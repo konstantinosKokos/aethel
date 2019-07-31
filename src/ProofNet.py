@@ -84,7 +84,11 @@ def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict
                                      decompose.is_copy(head), buffer)
 
     # now do modifiers
-    if top_type.get_arity() > 0 and top_type.color not in decompose.mod_candidates:
+    if top_type.get_arity() == 0 or top_type.color in decompose.mod_candidates + ('invdet',):
+        # easy case; modifier of atom or modifier of modifier
+        top_type = match_branch_mods(top_type, mods, type_dict, proof, mod_gaps)
+    elif top_type.get_arity() == 1:
+        # ok case; modifier of gap
         owed = []
         while top_type.get_arity() > 0 and top_type.color not in decompose.mod_candidates:
             owed.append((top_type.argument, top_type.color))
@@ -93,7 +97,10 @@ def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict
         args, colors = list(zip(*owed))
         top_type = ColoredType(arguments=args, colors=colors, result=top_type)
     else:
-        top_type = match_branch_mods(top_type, mods, type_dict, proof, mod_gaps)
+        # must be head copy?
+        print(top_type)
+        print(top_type.get_arity())
+        raise NotImplementedError('seriously')
 
     if parent is not None:
         type_dict[parent.attrib['id']] = top_type
@@ -120,6 +127,8 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
         a = [fst(a) for a in args if decompose.get_rel(snd(a)) == color]
         if len(a) > 1:
             raise AssertionError('Too many ({}) arguments with rel: {}'.format(len(a), color))
+        elif not len(a):
+            return head_type
         a = fst(a)
 
         is_copy = decompose.is_copy(a)
@@ -137,6 +146,9 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
                 continue
             else:
                 raise NotImplementedError
+        elif is_gap:
+            # gap case -- simply take embedded argument
+            a_type = type_dict[a.attrib['id']].argument.argument
         elif is_copy:
             # propagate negative arguments upwards
             owed.append((head_type.argument, color))
@@ -144,16 +156,12 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             buffer[head_type.argument.index] = type_dict[a.attrib['id']]
             head_type = head_type.result
             continue
-        elif is_gap:
-            # gap case -- simply take embedded argument
-            a_type = type_dict[a.attrib['id']].argument.argument
 
         # if I reach this point, I know what the argument type is
         if not copy:
             arg_match(head_type.argument, a_type, proof)  # placeholder
         else:
             buffer[a_type.index] = head_type.argument
-            print(buffer)
             pre.append((a_type, color))
         head_type = head_type.result
 
@@ -172,11 +180,15 @@ def arg_match(negative_arg: WordType, positive_arg: WordType, proof: Proof):
         raise AssertionError('Received non-atomic negative arg {} with match {}'.format(negative_arg, positive_arg))
     if not isinstance(positive_arg, PolarizedIndexedType):
         raise AssertionError('Received non-atomic positive arg {} with match {}'.format(positive_arg, negative_arg))
-    assert not negative_arg.polarity
+    if negative_arg.polarity:
+        raise AssertionError('Received negative polarity arg {} with match {}'.format(negative_arg, positive_arg))
     assert positive_arg.polarity
     assert negative_arg.result == positive_arg.result
     assert negative_arg.index not in proof.keys()
-    assert positive_arg.index not in proof.values()
+    if positive_arg.index in proof.values():
+        raise AssertionError('Received positive arg {} as match to {}, '
+                             'already linked to {}'.format(positive_arg, negative_arg, [k for k in proof.keys() if
+                                                                          proof[k] == positive_arg.index][0]))
     proof[negative_arg.index] = positive_arg.index
 
 
@@ -252,9 +264,13 @@ def match_branch_conj(head_type: WordType, args: ChildRels, type_dict: Dict[str,
             arg_match(buffer[subarg_arg.index], head_type_arg, proof)
 
         arg_match(crd_type_result, crd_type, proof)
+        # todo; what if the copy here was modified?
+        # if current_conj.index in proof.values():
+        #     mod_link = [k for k in proof.keys() if proof[k] == current_conj.index][0]
+        #     print(proof)
+        #     import pdb
+        #     pdb.set_trace()
         arg_match(head_type_main, current_conj, proof)
-        import pdb
-        pdb.set_trace()
         return head_type_result
 
     elif arity == 1:
