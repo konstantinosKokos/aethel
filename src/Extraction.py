@@ -1048,6 +1048,8 @@ class Decompose:
         for k in grouped.keys():
             gaps = list(filter(lambda x: self.is_gap(fst(x)) and fst(x) not in gaps_assigned, grouped[k]))
             gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
+            if any(map(lambda x: fst(x) in grouped.keys(), gaps)):
+                raise NotImplementedError('Non-terminal gap.')
             gaps_assigned = gaps_assigned.union(set(list(map(fst, gaps))))
             gap_mods = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, gaps))
             gap_non_mods = list(filter(lambda x: x not in gap_mods, gaps))
