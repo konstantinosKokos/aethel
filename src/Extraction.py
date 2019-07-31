@@ -352,12 +352,11 @@ class Decompose:
                 continue
             newkey = list(filter(lambda x: x.attrib['id'] == str(key), nodes))[0]
             newdict[newkey] = grouped[key]
-
         return newdict
 
     @staticmethod
-    def split_dag(grouped: Grouped, cats_to_remove: Iterable[str]=('du',),
-                  rels_to_remove: Iterable[str]=('dp', 'sat', 'nucl', 'tag', '--', 'top')) -> Grouped:
+    def split_dag(grouped: Grouped, cats_to_remove: Iterable[str] = ('du',),
+                  rels_to_remove: Iterable[str] = ('dp', 'sat', 'nucl', 'tag', '--', 'top')) -> Grouped:
         """
             Takes a dictionary describing a DAG and breaks it into a possibly disconnected one by removing links between
         the category and dependency labels specified. Useful for breaking headless structures apart.
@@ -755,7 +754,7 @@ class Decompose:
     def is_copy(node: ET.Element) -> bool:
         all_incoming_edges = list(map(Decompose.get_rel, node.attrib['rel'].values()))
         all_incoming_edges = Counter(all_incoming_edges)
-        if any(list(map(lambda x: x >1, all_incoming_edges.values()))):
+        if any(list(map(lambda x: x > 1, all_incoming_edges.values()))):
             return True
         return False
 
@@ -992,6 +991,7 @@ class Decompose:
     def fringe_heads_top_down(grouped: Grouped, left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
         return [k for k in left if all(map(lambda x: k not in map(fst, grouped[x]) or x in done,
                                            grouped.keys()))]
+
     @staticmethod
     def fringe_heads_bottom_up(grouped: Grouped, left: List[ET.Element], done: List[ET.Element]) -> List[ET.Element]:
         return [k for k in left if all(list(map(lambda x: x not in grouped.keys() or x in done,
@@ -1030,7 +1030,17 @@ class Decompose:
             head_type = ColoredType(arguments=args, colors=colors, result=lexicon[parent.attrib['id']])
         else:
             head_type = lexicon[parent.attrib['id']]
-        self.update_lexicon(lexicon, [(head[0], head_type)])
+        self.update_lexicon(lexicon, [(fst(head), head_type)])
+
+        if fst(head) in grouped.keys():
+            # todo: handle this properly with a function
+            modlist = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, grouped[fst(head)]))
+            if any(list(map(lambda x: fst(x) in grouped.keys(), modlist))):
+                raise NotImplementedError('Complex head modifier.')
+            modlist = list(map(lambda x: (fst(x), ColoredType(arguments=(head_type,), colors=(self.get_rel(snd(x)),),
+                                                              result=head_type)),
+                               modlist))
+            self.update_lexicon(lexicon, modlist)
 
     def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         # keep track of assigned gaps, dont assign twice
