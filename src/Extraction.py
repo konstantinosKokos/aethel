@@ -310,7 +310,7 @@ class Decompose:
                                   result=prior_type.argument)
         except AttributeError:
             # todo
-            raise NotImplementedError('Modified gap.')
+            raise NotImplementedError('Modified gap.'.format(node.attrib['id'], prior_type))
         return ColoredType(arguments=(new_arg,), colors=(prior_type.color,), result=prior_type.result)
 
     def get_type_gap_mod(self, rel: str, prior_type: ColoredType, parent_type: WordType) -> WordType:
@@ -644,11 +644,6 @@ class Decompose:
                 new_children_rels += [(children_rels[det_idx][0], new_hd), (children_rels[hd_idx][0], new_det)]
                 grouped[parent] = new_children_rels
 
-                # # assertions
-                # rels = list(map(self.get_rel, [x[1] for x in new_children_rels]))
-                # if 'det' in rels and 'invdet' in rels:
-                #     ToGraphViz()(grouped)
-                #     raise NotImplementedError
 
         return grouped
 
@@ -921,6 +916,8 @@ class Decompose:
         root_type = self.type_assign_top(grouped, lexicon)
         # type assign constants
         self.type_assign_bot(grouped, lexicon)
+        # todo:
+        # alternate between the two until stability (mods-> heads -> mods)
         self.type_assign_mods(grouped, lexicon)
         self.type_assign_heads(grouped, lexicon)
         self.type_assign_gaps(grouped, lexicon)
@@ -930,13 +927,20 @@ class Decompose:
         return root_type
 
     def type_assign_top(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> Any:
-        top_nodes = Decompose.get_disconnected(grouped)
-        assert len(top_nodes) == 1
-        top_node_types = tuple(map(lambda x: (x, self.get_type_plain(x, grouped)), top_nodes))
-        self.update_lexicon(lexicon, top_node_types)
-        return top_node_types[0][1]
+        """
+            Types the root node.
+        """
+        top_node = Decompose.get_disconnected(grouped)
+        assert len(top_node) == 1
+        top_node = list(top_node)[0]
+        top_node_type = self.get_type_plain(top_node, grouped)
+        self.update_lexicon(lexicon, [(top_node, top_node_type)])
+        return top_node_type
 
     def type_assign_bot(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+        """
+            Types the constant leaves.
+        """
 
         def is_fringe(node: ET.Element) -> bool:
             if node.attrib['id'] in lexicon.keys():
@@ -1010,7 +1014,8 @@ class Decompose:
                 left.remove(f)
                 done += [f]
 
-    def type_assign_head_single_branch(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
+    def type_assign_head_single_branch(self, parent: ET.Element, grouped: Grouped, lexicon: Dict[str, WordType]) \
+            -> None:
         head = self.choose_head(grouped[parent])
         if head is None:
             return head
@@ -1032,15 +1037,20 @@ class Decompose:
             head_type = lexicon[parent.attrib['id']]
         self.update_lexicon(lexicon, [(fst(head), head_type)])
 
-        if fst(head) in grouped.keys():
+        if fst(head) in grouped.keys() and not self.is_gap(fst(head)):
             # todo: handle this properly with a function
             modlist = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, grouped[fst(head)]))
-            if any(list(map(lambda x: fst(x) in grouped.keys(), modlist))):
-                raise NotImplementedError('Complex head modifier.')
             modlist = list(map(lambda x: (fst(x), ColoredType(arguments=(head_type,), colors=(self.get_rel(snd(x)),),
                                                               result=head_type)),
                                modlist))
             self.update_lexicon(lexicon, modlist)
+            complex_mods = list(filter(lambda x: fst(x) in grouped.keys(), modlist))
+            for cm in complex_mods:
+                self.type_assign_head_single_branch(fst(cm), grouped, lexicon)
+                ToGraphViz()(grouped)
+                print('I just did {}'.format(fst(cm).attrib['id']))
+                import pdb
+                pdb.set_trace()
 
     def type_assign_gaps(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         # keep track of assigned gaps, dont assign twice
@@ -1048,8 +1058,6 @@ class Decompose:
         for k in grouped.keys():
             gaps = list(filter(lambda x: self.is_gap(fst(x)) and fst(x) not in gaps_assigned, grouped[k]))
             gaps = list(filter(lambda x: isinstance(snd(x), Rel) and snd(x).rank == 'secondary', gaps))
-            if any(map(lambda x: fst(x) in grouped.keys(), gaps)):
-                raise NotImplementedError('Non-terminal gap.')
             gaps_assigned = gaps_assigned.union(set(list(map(fst, gaps))))
             gap_mods = list(filter(lambda x: self.get_rel(snd(x)) in self.mod_candidates, gaps))
             gap_non_mods = list(filter(lambda x: x not in gap_mods, gaps))
@@ -1062,6 +1070,12 @@ class Decompose:
                                                                          lexicon[k.attrib['id']])),
                                 gap_mods))
             self.update_lexicon(lexicon, gaptypes)
+
+            gap_parents = list(filter(lambda x: fst(x) in grouped.keys(), gaps))
+            for g in gap_parents:
+                if any(map(lambda x: fst(x) in grouped.keys(), grouped[fst(g)])):
+                    raise NotImplementedError('Deep non-terminal gap.')
+                self.type_assign_head_single_branch(fst(g), grouped, lexicon)
 
     def type_assign_copies(self, grouped: Grouped, lexicon: Dict[str, WordType]) -> None:
         cnjs = [k for k in grouped.keys() if k.attrib['cat'] == 'conj']
@@ -1250,6 +1264,9 @@ class Decompose:
                             dicts, lexicons, top_types, new_grouped))
 
         # rearrange and split
+        if not lexicons:
+            return [[dict(), [], [], []]]
+
         lexicons, top_types = list(zip(*[(l[0:2], l[2]) for l in lexicons]))
 
         for i, l in enumerate(lexicons):
