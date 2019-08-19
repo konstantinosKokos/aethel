@@ -387,3 +387,12 @@ def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
     return True
 
 
+def str_to_type(x: Sequence[str], colors: Set[str]) -> Tuple[WordType, Sequence[str]]:
+    if x[0] in colors:
+        color = x[0]
+        arg, rem = str_to_type(x[1:], colors)
+        res, rem = str_to_type(rem, colors)
+        return ColoredType(color=color, argument=arg, result=res), rem
+    else:
+        return AtomicType(x[0]), x[1:]
+
