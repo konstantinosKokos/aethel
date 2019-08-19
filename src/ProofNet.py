@@ -1,8 +1,3 @@
-# todo conjunction of modifiers
-# todo copied mod heads
-# todo copy of heads in general..
-
-
 from src.Extraction import *
 
 Proof = Dict[int, int]
@@ -96,7 +91,7 @@ def match_branch(parent: Optional[ET.Element], grouped: Grouped, type_dict: Dict
         top_type = match_branch_mods(top_type, mods, type_dict, proof, mod_gaps)
         args, colors = list(zip(*owed))
         top_type = ColoredType(arguments=args, colors=colors, result=top_type)
-    else:
+    elif mods or mod_gaps:
         # must be head copy?
         print(top_type)
         print(top_type.get_arity())
@@ -145,7 +140,7 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
                 head_type = head_type.result
                 continue
             else:
-                raise NotImplementedError
+                raise NotImplementedError('Neither exactly copy nor gap.')
         elif is_gap:
             # gap case -- simply take embedded argument
             a_type = type_dict[a.attrib['id']].argument.argument
@@ -169,6 +164,8 @@ def match_branch_args(head_type: WordType, args: ChildRels, type_dict: Dict[str,
         arguments, colors = list(zip(*owed))
         head_type = ColoredType(arguments=arguments, colors=colors, result=head_type)
     if copy:
+        if not pre:
+            raise NotImplementedError('Copied head with no common arguments?')
         arguments, colors = list(zip(*pre))
         head_type = ColoredType(arguments=arguments, colors=colors, result=post)
         head_type = ColoredType(arguments=(head_type,), colors=('embedded',), result=post)
