@@ -396,3 +396,11 @@ def str_to_type(x: Sequence[str], colors: Set[str]) -> Tuple[WordType, Sequence[
     else:
         return AtomicType(x[0]), x[1:]
 
+
+class StrToType(object):
+    def __init__(self, colors: Set[str]):
+        self.colors = colors
+
+    def __call__(self, x: Sequence[str]) -> WordType:
+        return str_to_type(x, self.colors)[0]
+
