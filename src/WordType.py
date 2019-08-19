@@ -176,7 +176,7 @@ class ColoredType(ComplexType):
         self.color = color
 
     def __str__(self) -> str:
-        return '{' + str(self.argument) + ': ' + self.color + '} → ' + str(self.result)
+        return '<' + str(self.argument) + '> ' + self.color + ' → ' + str(self.result)
 
     def __repr__(self) -> str:
         return self.__str__()
