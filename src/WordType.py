@@ -392,6 +392,8 @@ def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
         return False
     elif list(inferred.keys()) != [goal]:
         return False
+    if operator_invariance(premises) != operator_count(goal):
+        return False
     return True
 
 
