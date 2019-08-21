@@ -383,7 +383,7 @@ def operator_count(wt: WordType) -> int:
 
 
 def operator_invariance(premises: Sequence[WordType]) -> int:
-    return reduce(add, map(operator_count, premises)) + len(premises) + 1
+    return reduce(add, map(operator_count, premises)) + len(premises) - 1
 
 
 def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
