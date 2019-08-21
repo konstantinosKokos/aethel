@@ -373,13 +373,21 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
         return get_polarities(wordtype.result)
 
 
-def infer_type(premises: Sequence[WordType]):
+def literal_invariance(premises: Sequence[WordType]):
     seqpos, seqneg = list(map(lambda x: reduce(add, x), tuple(zip(*map(get_polarities, premises)))))
     return Counter(seqneg) - Counter(seqpos)
 
 
+def operator_count(wt: WordType) -> int:
+    return 0 if isinstance(wt, AtomicType) else operator_count(wt.result) - operator_count(wt.argument) - 1
+
+
+def operator_invariance(premises: Sequence[WordType]) -> int:
+    return reduce(add, map(operator_count, premises)) + len(premises) + 1
+
+
 def typecheck(premises: Sequence[WordType], goal: WordType) -> bool:
-    inferred = infer_type(premises)
+    inferred = literal_invariance(premises)
     if list(inferred.values()) != [1]:
         return False
     elif list(inferred.keys()) != [goal]:
