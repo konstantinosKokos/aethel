@@ -68,7 +68,18 @@ class DAG(NamedTuple):
 
     def predecessors(self, node: Node) -> Nodes:
         incoming = self.incoming(node)
-        return set.union(*list(map(lambda edge: {edge.source}, incoming)))
+        return set.union(*list(map(lambda edge: {edge.source}, incoming))) if incoming else set()
+
+    def first_common_predecessor(self, nodes: Nodes) -> Optional[Node]:
+        predecessors = list(map(self.pointed_by, nodes))
+        common_predecessors = set.intersection(*predecessors) if predecessors else set()
+        upsets = list(map(lambda pred: (pred, self.pointed_by(pred)), common_predecessors))
+        upsets = list(filter(lambda upset:
+                             all(list(map(lambda comp:
+                                          comp.difference(snd(upset)) == set(),
+                                          list(map(snd, upsets))))),
+                             upsets))
+        return fst(fst(upsets)) if upsets else set()
 
     def outgoing(self, node: Node) -> Edges:
         return set(filter(lambda edge: edge.source == node, self.edges))
