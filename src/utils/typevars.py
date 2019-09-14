@@ -54,6 +54,12 @@ class DAG(NamedTuple):
     def get_root(self) -> Node:
         return fst(list(filter(lambda node: not len(self.incoming(node)), self.nodes)))
 
+    def is_leaf(self, node: Node) -> bool:
+        return not len(self.outgoing(node))
+
+    def get_edges(self, dep: Dep) -> Iterable[Edge]:
+        return filter(lambda edge: edge.dep == dep, self.edges)
+
     def occuring_nodes(self):
         return set.union(*list(map(lambda edge: edge.adjacent(), self.edges)))
 
@@ -104,17 +110,23 @@ class DAG(NamedTuple):
     def exists_path(self, node0: Node, node1: Node) -> bool:
         return node1 in self.points_to(node0)
 
-    def remove_nodes(self, condition: Callable[[Node], bool]) -> 'DAG':
+    def remove_nodes(self, condition: Callable[[Node], bool], normalize: bool = True) -> 'DAG':
         nodes = set(filter(condition, self.nodes))
-        edges = set(filter(lambda edge: edge.source in nodes and edge.target in nodes, self.edges))
         node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
-        return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+        if normalize:
+            edges = set(filter(lambda edge: edge.source in nodes and edge.target in nodes, self.edges))
+            return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+        else:
+            return DAG(nodes=nodes, edges=self.edges, attribs=node_attribs)
 
-    def remove_edges(self, condition: Callable[[Edge], bool]) -> 'DAG':
+    def remove_edges(self, condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
         edges = set(filter(condition, self.edges))
-        nodes = occuring_nodes(edges)
-        node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
-        return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+        if normalize:
+            nodes = occuring_nodes(edges)
+            node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
+            return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+        else:
+            return DAG(nodes=self.nodes, edges=edges, attribs=self.attribs)
 
     def oneway(self, node: Node) -> bool:
         return True if len(self.incoming(node)) == 1 and len(self.outgoing(node)) == 1 else False
