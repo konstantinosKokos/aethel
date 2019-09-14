@@ -133,9 +133,20 @@ def swap_dp_headedness(dag: DAG) -> DAG:
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
 
 
-def reattatch_conj_mods(dag: DAG) -> DAG:
-    # todo
-    return dag
+def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app', 'predm')) -> DAG:
+    to_add, to_remove = set(), set()
+
+    modgroups = sorted(set.union(*list(map(lambda m: set(dag.get_edges(m)), mod_candidates))), key=lambda edge: edge.source)
+    modgroups = list(map(lambda g: list(snd(g)), groupby(modgroups, key=lambda edge: edge.target)))
+    modgroups = list(filter(lambda g: len(g) > 1, modgroups))
+    for modgroup in modgroups:
+        sources = list(map(lambda edge: edge.source, modgroup))
+        common_ancestor = dag.first_common_predecessor(sources)
+        if common_ancestor is None:
+            raise ValueError('No common ancestor.')
+        to_remove = to_remove.union(set(modgroup))
+        to_add.add(Edge(source=common_ancestor, target=fst(modgroup).target, dep=fst(modgroup).dep))
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
 
 
 def test():
@@ -144,5 +155,7 @@ def test():
     dags = list(map(lambda i: convert_to_dag(L[i][2]), range(100)))
     # dags_2 = list(map(refine_body, dags))
     dags_3 = list(map(remove_secondary_dets, dags))
-    dags_5 = list(map(swap_dp_headedness, dags_3))
+    dags_4 = list(map(swap_dp_headedness, dags_3))
+    dags_5 = list(map(reattatch_conj_mods, dags_4))
+
     return list(map(snd, list(filter(lambda x: fst(x) != snd(x), zip(dags_3, dags_5)))))
