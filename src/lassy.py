@@ -4,7 +4,7 @@ from torchvision.transforms import Compose
 from src.utils.typevars import *
 from warnings import warn
 
-import glob
+from glob import glob
 import os
 import xml.etree.cElementTree as et
 
