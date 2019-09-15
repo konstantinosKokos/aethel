@@ -47,6 +47,7 @@ class DAG(NamedTuple):
     nodes: Nodes
     edges: Edges
     attribs: Dict[Node, Dict]
+    meta: Any = None
 
     def is_empty(self) -> bool:
         return len(self.nodes) == 0
@@ -126,18 +127,18 @@ class DAG(NamedTuple):
         node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
         if normalize:
             edges = set(filter(lambda edge: edge.source in nodes and edge.target in nodes, self.edges))
-            return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+            return DAG(nodes=nodes, edges=edges, attribs=node_attribs, meta=self.meta)
         else:
-            return DAG(nodes=nodes, edges=self.edges, attribs=node_attribs)
+            return DAG(nodes=nodes, edges=self.edges, attribs=node_attribs, meta=self.meta)
 
     def remove_edges(self, condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
         edges = set(filter(condition, self.edges))
         if normalize:
             nodes = occuring_nodes(edges)
             node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
-            return DAG(nodes=nodes, edges=edges, attribs=node_attribs)
+            return DAG(nodes=nodes, edges=edges, attribs=node_attribs, meta=self.meta)
         else:
-            return DAG(nodes=self.nodes, edges=edges, attribs=self.attribs)
+            return DAG(nodes=self.nodes, edges=edges, attribs=self.attribs, meta=self.meta)
 
     def oneway(self, node: Node) -> bool:
         return True if len(self.incoming(node)) == 1 and len(self.outgoing(node)) == 1 else False
@@ -190,5 +191,5 @@ class DAG(NamedTuple):
         rem_edges = set.difference(self.edges, flooded_edges)
         rem_attribs = {node: attrib for node, attrib in self.attribs.items() if node in rem_nodes}
 
-        return DAG(nodes=flooded_nodes, edges=flooded_edges, attribs=flooded_attribs), \
-               DAG(nodes=rem_nodes, edges=rem_edges, attribs=rem_attribs)
+        return (DAG(nodes=flooded_nodes, edges=flooded_edges, attribs=flooded_attribs, meta=self.meta),
+                DAG(nodes=rem_nodes, edges=rem_edges, attribs=rem_attribs, meta=self.meta))

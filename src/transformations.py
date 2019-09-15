@@ -19,7 +19,7 @@ def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
             for n in nodes}
 
 
-def convert_to_dag(tree: ElementTree) -> DAG:
+def convert_to_dag(tree: ElementTree, meta: Optional[Any] = None) -> DAG:
     nodes = set(tree.iter('node'))
     identifying_indices = identify_nodes(nodes)
     edges = [Edge(source.attrib['id'], target.attrib['id'], target.attrib['rel'])
@@ -31,8 +31,8 @@ def convert_to_dag(tree: ElementTree) -> DAG:
     occuring_nodes = filter(lambda node: node.attrib['id'] in occurring_indices or ('pt' in node.attrib.keys()
                                                                                     and node.attrib['pt'] != 'let'),
                             nodes)
-    attribs = {node.attrib['id']: {k: v for k,v in node.attrib.items() if k != 'rel'} for node in occuring_nodes}
-    return DAG(set(attribs.keys()), edges, attribs)
+    attribs = {node.attrib['id']: {k: v for k, v in node.attrib.items() if k != 'rel'} for node in occuring_nodes}
+    return DAG(nodes=set(attribs.keys()), edges=edges, attribs=attribs, meta=meta)
 
 
 def _cats_of_type(dag: DAG, cat: str) -> Nodes:
@@ -66,7 +66,7 @@ def remove_abstract_arguments(dag: DAG, candidates: Iterable[Dep] = ('su', 'obj'
     for_removal = set(filter(lambda e: is_candidate_dep(e) and is_coindexed(e.target) and is_inf_or_ppart(e.source)
                                        and has_sentential_parent(e.target), dag.edges))
 
-    return DAG(nodes=dag.nodes, edges=dag.edges.difference(for_removal), attribs=dag.attribs)
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(for_removal), attribs=dag.attribs, meta=dag.meta)
 
 
 def collapse_mwu(dag: DAG) -> DAG:
@@ -93,7 +93,7 @@ def refine_body(dag: DAG) -> DAG:
         new_dep = match.dep + '_body'
         to_add.add(Edge(source=body.source, target=body.target, dep=new_dep))
         to_remove.add(body)
-    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
 
 def remove_secondary_dets(dag: DAG) -> DAG:
@@ -118,7 +118,7 @@ def remove_secondary_dets(dag: DAG) -> DAG:
             to_remove = to_remove.union(detp)
             to_add = to_add.union(set(map(lambda edge: Edge(source=edge.source, target=edge.target, dep='mod'),
                                           detp)))
-    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
 
 def swap_dp_headedness(dag: DAG) -> DAG:
@@ -132,7 +132,7 @@ def swap_dp_headedness(dag: DAG) -> DAG:
         to_add.add(Edge(source=d.source, target=d.target, dep='hd'))
         to_add.add(Edge(source=m.source, target=m.target, dep='invdet'))
 
-    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
 
 def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app', 'predm')) -> DAG:
@@ -148,7 +148,7 @@ def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app',
             raise ValueError('No common ancestor.')
         to_remove = to_remove.union(set(modgroup))
         to_add.add(Edge(source=common_ancestor, target=fst(modgroup).target, dep=fst(modgroup).dep))
-    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
+    return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
 
 def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
@@ -164,13 +164,11 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
 def test():
     from src.lassy import Lassy
     L = Lassy()
-    dags = list(map(lambda i: convert_to_dag(L[i][2]), range(100)))
+    dags = list(map(lambda i, j: convert_to_dag(L[i][2], j), range(100), range(100)))
     dags = list(chain.from_iterable(map(remove_headless_branches, dags)))
-    import pdb
-    pdb.set_trace()
     dags_2 = list(map(refine_body, dags))
     dags_3 = list(map(remove_secondary_dets, dags))
     dags_4 = list(map(swap_dp_headedness, dags_3))
     dags_5 = list(map(reattatch_conj_mods, dags_4))
 
-    return list(map(snd, list(filter(lambda x: fst(x) != snd(x), zip(dags_3, dagsedge_5)))))
+    return dags_5
