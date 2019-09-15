@@ -45,8 +45,20 @@ def order_siblings(dag: DAG, nodes: Nodes) -> List[Node]:
                                                           dag.attribs[node]['id']))))
 
 
-def majority_vote(x: Any) -> Any:
-    return 'MAJORITY VOTED'
+def majority_vote(dag: DAG, nodes: Sequence[Node]) -> Any:
+    votes = list(map(lambda n: dag.attribs[n]['pt'] if 'pt' in dag.attribs[n].keys() else dag.attribs[n]['cat'],
+                     nodes))
+    votes = sorted(votes)
+    votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
+    votes = set(votes)
+    if 'smain' in votes:
+        return 'smain'
+    elif 'np' in votes or 'n' in votes:
+        return 'np'
+    elif 'ap' in votes or 'a' in votes:
+        return 'ap'
+    else:
+        return fst(fst(votecounts))
 
 
 def remove_abstract_arguments(dag: DAG, candidates: Iterable[Dep] = ('su', 'obj', 'obj1', 'obj2', 'sup')) -> DAG:
@@ -77,7 +89,7 @@ def collapse_mwu(dag: DAG) -> DAG:
     for mwu, succ, text in zip(mwus, successors, collapsed_texts):
         dag.attribs[mwu]['word'] = text
         del dag.attribs[mwu]['cat']
-        dag.attribs[mwu]['pt'] = majority_vote(succ)
+        dag.attribs[mwu]['pt'] = majority_vote(dag, succ)
     to_delete = set(list(chain.from_iterable(map(dag.outgoing, mwus))))
     return dag.remove_edges(lambda e: e not in to_delete)
 
@@ -88,7 +100,11 @@ def refine_body(dag: DAG) -> DAG:
     for body in bodies:
         common_source = dag.outgoing(body.source)
         match = list(filter(lambda edge: edge.dep in ('cmp', 'rhd', 'whd'), common_source))
-        assert len(match) == 1
+        if len(match) != 1:
+            from src.viz import ToGraphViz
+            import pdb
+            ToGraphViz()(dag)
+            pdb.set_trace()
         match = fst(match)
         new_dep = match.dep + '_body'
         to_add.add(Edge(source=body.source, target=body.target, dep=new_dep))
@@ -122,6 +138,7 @@ def remove_secondary_dets(dag: DAG) -> DAG:
 
 
 def swap_dp_headedness(dag: DAG) -> DAG:
+    dag = remove_secondary_dets(dag)
     to_add, to_remove = set(), set()
 
     dets = list(dag.get_edges('det'))
@@ -145,6 +162,9 @@ def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app',
         sources = list(map(lambda edge: edge.source, modgroup))
         common_ancestor = dag.first_common_predecessor(sources)
         if common_ancestor is None:
+            print(dag.meta)
+            from src.viz import ToGraphViz
+            ToGraphViz()(dag)
             raise ValueError('No common ancestor.')
         to_remove = to_remove.union(set(modgroup))
         to_add.add(Edge(source=common_ancestor, target=fst(modgroup).target, dep=fst(modgroup).dep))
@@ -157,18 +177,28 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
     dag = dag.remove_nodes(lambda n: n not in bad_nodes)
     bad_edges = set.union(*list(map(lambda dep: set(dag.get_edges(dep)), deps_to_remove)))
     dag = dag.remove_edges(lambda edge: edge not in bad_edges, normalize=False)
-    dags = dag.get_subgraphs()
+    dags = dag.get_rooted_subgraphs()
     return dags
+
+
+class Transformation(object):
+    def __init__(self):
+        self.cats_to_remove = {'du'}
+        self.deps_to_remove = {'dp', 'sat', 'nucl', 'tag'}
+        self.mod_deps = {'mod', 'app', 'predm'}
+
+    def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> Any:
+        dags = convert_to_dag(tree, meta)
+        dags = remove_headless_branches(dags, self.cats_to_remove, self.deps_to_remove)
+        dags = list(map(refine_body, dags))
+        dags = list(map(swap_dp_headedness, dags))
+        dags = list(map(lambda dag: reattatch_conj_mods(dag, self.mod_deps), dags))
+        dags = list(map(lambda dag: dag.remove_oneways, dags))
+        return dags
 
 
 def test():
     from src.lassy import Lassy
     L = Lassy()
-    dags = list(map(lambda i, j: convert_to_dag(L[i][2], j), range(100), range(100)))
-    dags = list(chain.from_iterable(map(remove_headless_branches, dags)))
-    dags_2 = list(map(refine_body, dags))
-    dags_3 = list(map(remove_secondary_dets, dags))
-    dags_4 = list(map(swap_dp_headedness, dags_3))
-    dags_5 = list(map(reattatch_conj_mods, dags_4))
-
-    return dags_5
+    T = Transformation()
+    return list(chain.from_iterable(map(T, list(map(lambda i: L[i][2], range(len(L)))), range(len(L)))))

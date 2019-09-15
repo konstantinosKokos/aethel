@@ -80,7 +80,7 @@ class DAG(NamedTuple):
                                           comp.difference(snd(upset)) == set(),
                                           list(map(snd, upsets))))),
                              upsets))
-        return fst(fst(upsets)) if upsets else set()
+        return fst(fst(upsets)) if upsets else None
 
     def outgoing(self, node: Node) -> Edges:
         return set(filter(lambda edge: edge.source == node, self.edges))
@@ -160,7 +160,27 @@ class DAG(NamedTuple):
             for node in list(filter(self.oneway, self.edges)):
                 newdag = newdag.remove_oneway(node)
 
-    def get_subgraphs(self, start: Callable[[Nodes], Node] = lambda n: sorted(n)[0]) -> List['DAG']:
+    def get_rooted_subgraphs(self) -> List['DAG']:
+        roots = set(filter(lambda node: not len(self.incoming(node)), self.nodes))
+        if len(roots) == 1:
+            return [self]
+        subnodes = list(map(lambda root: self.points_to(root).union({root}), roots))
+        subnodes = list(map(lambda i:
+                            set(subnodes[i]).difference(set.union(*map(lambda j: set(subnodes[j]),
+                                                                       list(filter(lambda k: i != k,
+                                                                                   range(len(subnodes))))))),
+                            range(len(subnodes))))
+        subedges = list(map(lambda subgraph: set(filter(lambda edge: edge.adjacent().issubset(subgraph), self.edges)),
+                            subnodes))
+
+        return list(filter(lambda subgraph: not subgraph.is_empty(),
+                           list(map(lambda idx: DAG(nodes=subnodes[idx], edges=subedges[idx],
+                                                    attribs={k: v for k, v in self.attribs.items() if k in subnodes[idx]},
+                                                    meta=self.meta),
+                                    range(len(subnodes))))))
+
+    def get_subgraphs(self,
+                      start: Callable[[Nodes], Node] = lambda n: fst(sorted(n, key=lambda x: int(x)))) -> List['DAG']:
         return list(unfoldr(lambda dag: dag.bfs_split(start), self))
 
     def bfs_split(self, start: Callable[[Nodes], Node]) -> Optional[Tuple['DAG', 'DAG']]:
