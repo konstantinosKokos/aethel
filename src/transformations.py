@@ -28,13 +28,15 @@ def convert_to_dag(tree: ElementTree) -> DAG:
     edges = set(map(lambda edge: Edge(identifying_indices[edge.source], identifying_indices[edge.target], edge.dep),
                     edges))
     occurring_indices = set.union(set([edge.source for edge in edges]), set([edge.target for edge in edges]))
-    occuring_nodes = filter(lambda node: node.attrib['id'] in occurring_indices or 'word' in node.attrib.keys(), nodes)
+    occuring_nodes = filter(lambda node: node.attrib['id'] in occurring_indices or ('pt' in node.attrib.keys()
+                                                                                    and node.attrib['pt'] != 'let'),
+                            nodes)
     attribs = {node.attrib['id']: {k: v for k,v in node.attrib.items() if k != 'rel'} for node in occuring_nodes}
     return DAG(set(attribs.keys()), edges, attribs)
 
 
-def _cats_of_type(dag: DAG, cat: str) -> List[Node]:
-    return list(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, dag.nodes))
+def _cats_of_type(dag: DAG, cat: str) -> Nodes:
+    return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, dag.nodes))
 
 
 def order_siblings(dag: DAG, nodes: Nodes) -> List[Node]:
@@ -149,13 +151,26 @@ def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app',
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs)
 
 
+def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
+                             deps_to_remove: Iterable[str] = ('dp', 'sat', 'nucl', 'tag')):
+    bad_nodes = set.union(*(list(map(lambda cat: _cats_of_type(dag, cat), cats_to_remove))))
+    dag = dag.remove_nodes(lambda n: n not in bad_nodes)
+    bad_edges = set.union(*list(map(lambda dep: set(dag.get_edges(dep)), deps_to_remove)))
+    dag = dag.remove_edges(lambda edge: edge not in bad_edges, normalize=False)
+    dags = dag.get_subgraphs()
+    return dags
+
+
 def test():
     from src.lassy import Lassy
     L = Lassy()
     dags = list(map(lambda i: convert_to_dag(L[i][2]), range(100)))
-    # dags_2 = list(map(refine_body, dags))
+    dags = list(chain.from_iterable(map(remove_headless_branches, dags)))
+    import pdb
+    pdb.set_trace()
+    dags_2 = list(map(refine_body, dags))
     dags_3 = list(map(remove_secondary_dets, dags))
     dags_4 = list(map(swap_dp_headedness, dags_3))
     dags_5 = list(map(reattatch_conj_mods, dags_4))
 
-    return list(map(snd, list(filter(lambda x: fst(x) != snd(x), zip(dags_3, dags_5)))))
+    return list(map(snd, list(filter(lambda x: fst(x) != snd(x), zip(dags_3, dagsedge_5)))))
