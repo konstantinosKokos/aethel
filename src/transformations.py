@@ -143,6 +143,7 @@ def swap_dp_headedness(dag: DAG) -> DAG:
 
     dets = list(dag.get_edges('det'))
     matches = list(map(lambda edge: fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))), dets))
+
     for d, m in zip(dets, matches):
         to_remove.add(d)
         to_remove.add(m)
@@ -178,7 +179,26 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
     bad_edges = set.union(*list(map(lambda dep: set(dag.get_edges(dep)), deps_to_remove)))
     dag = dag.remove_edges(lambda edge: edge not in bad_edges, normalize=False)
     dags = dag.get_rooted_subgraphs()
-    return dags
+    return list(filter(good_sample, dags))
+
+
+def good_sample(dag: DAG) -> bool:
+    if len(dag.nodes) == 1:
+        node = fst(list(dag.nodes))
+        if 'cat' in dag.attribs[node].keys():
+            return False
+        elif dag.attribs[node]['pt'] == 'vg':
+            return False
+        else:
+            return True
+    else:
+        coords = list(map(lambda edge: dag.points_to(edge.source).difference({edge.target}), dag.get_edges('crd')))
+        coords = list(map(lambda nodes: list(filter(dag.is_leaf, nodes)), coords))
+        coords = list(filter(lambda leaves: len(leaves) < 2, coords))
+        if len(coords):
+            return False
+
+        return True
 
 
 class Transformation(object):

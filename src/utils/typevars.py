@@ -160,22 +160,28 @@ class DAG(NamedTuple):
             for node in list(filter(self.oneway, self.edges)):
                 newdag = newdag.remove_oneway(node)
 
-    def get_rooted_subgraphs(self) -> List['DAG']:
+    def get_rooted_subgraphs(self, erasing: bool = False) -> List['DAG']:
         roots = set(filter(lambda node: not len(self.incoming(node)), self.nodes))
         if len(roots) == 1:
             return [self]
         subnodes = list(map(lambda root: self.points_to(root).union({root}), roots))
-        subnodes = list(map(lambda i:
-                            set(subnodes[i]).difference(set.union(*map(lambda j: set(subnodes[j]),
-                                                                       list(filter(lambda k: i != k,
-                                                                                   range(len(subnodes))))))),
-                            range(len(subnodes))))
+
+        if erasing:
+            subnodes = list(map(lambda i:
+                                set(subnodes[i]).difference(set.union(*map(lambda j: set(subnodes[j]),
+                                                                           list(filter(lambda k: i != k,
+                                                                                       range(len(subnodes))))))),
+                                range(len(subnodes))))
+        else:
+            subnodes = list(map(set, subnodes))
+
         subedges = list(map(lambda subgraph: set(filter(lambda edge: edge.adjacent().issubset(subgraph), self.edges)),
                             subnodes))
 
         return list(filter(lambda subgraph: not subgraph.is_empty(),
                            list(map(lambda idx: DAG(nodes=subnodes[idx], edges=subedges[idx],
-                                                    attribs={k: v for k, v in self.attribs.items() if k in subnodes[idx]},
+                                                    attribs={k: v for k, v in self.attribs.items()
+                                                             if k in subnodes[idx]},
                                                     meta=self.meta),
                                     range(len(subnodes))))))
 
