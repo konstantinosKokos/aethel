@@ -172,7 +172,8 @@ class DAG(NamedTuple):
         while True:
             new_fringe_edges = set.union(self.incoming_many(fringe_nodes), self.outgoing_many(fringe_nodes), set())
             new_fringe_edges = set.difference(new_fringe_edges, flooded_edges)
-            new_fringe_nodes = set.union(*list(map(lambda e: edge.adjacent(), new_fringe_edges)))
+            new_fringe_nodes = set.union(*list(map(lambda e: e.adjacent(), new_fringe_edges))) \
+                if new_fringe_edges else set()
             new_fringe_nodes = set.difference(new_fringe_nodes, flooded_nodes)
             fringe_nodes = new_fringe_nodes
             fringe_edges = new_fringe_edges
