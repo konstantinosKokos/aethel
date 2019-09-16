@@ -52,8 +52,8 @@ class DAG(NamedTuple):
     def is_empty(self) -> bool:
         return len(self.nodes) == 0
 
-    def get_root(self) -> Node:
-        return fst(list(filter(lambda node: not len(self.incoming(node)), self.nodes)))
+    def get_roots(self) -> Nodes:
+        return set(filter(lambda node: not len(self.incoming(node)), self.nodes))
 
     def is_leaf(self, node: Node) -> bool:
         return not len(self.outgoing(node))
@@ -161,7 +161,7 @@ class DAG(NamedTuple):
                 newdag = newdag.remove_oneway(node)
 
     def get_rooted_subgraphs(self, erasing: bool = False) -> List['DAG']:
-        roots = set(filter(lambda node: not len(self.incoming(node)), self.nodes))
+        roots = self.get_roots()
         if len(roots) == 1:
             return [self]
         subnodes = list(map(lambda root: self.points_to(root).union({root}), roots))
