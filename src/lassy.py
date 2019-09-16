@@ -9,6 +9,10 @@ import os
 import xml.etree.cElementTree as et
 
 
+def is_public(filename: str) -> bool:
+    return 'wiki' in filename
+
+
 class Lassy(Dataset):
     """
         Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
@@ -42,24 +46,21 @@ class Lassy(Dataset):
     def __len__(self) -> int:
         return len(self.filelist)
 
-    def __getitem__(self, index: Union[int, str]) -> Any:
-        if isinstance(index, int):
-            file = self.index_to_filename(index)
-        elif isinstance(index, range):
-            return [self.__getitem__(i) for i in index]
-        elif isinstance(index, str):
-            file = index
-        else:
-            raise TypeError('Index must be int, str or range')
+    def __getitem__(self, file_or_idx: Union[int, str]) -> Any:
+        idx, file = self.match_file_idx(file_or_idx)
 
         parse = et.parse(file)
-        parse.getroot().set('type', 'Tree')
-        sample = (index, file, parse)
+        sample = (idx, file, parse)
 
         if self.transform:
             return self.transform(sample)
 
         return sample
 
-    def index_to_filename(self, index: int) -> str:
-        return self.filelist[index]
+    def match_file_idx(self, file_or_index: Union[int, str]) -> Tuple[int, str]:
+        if isinstance(file_or_index, str):
+            return self.filelist.index(file_or_index), file_or_index
+        elif isinstance(file_or_index, int):
+            return file_or_index, self.filelist[file_or_index]
+        else:
+            raise TypeError('Index must be int or str.')
