@@ -45,8 +45,8 @@ def order_siblings(dag: DAG, nodes: Nodes) -> List[Node]:
                                                           dag.attribs[node]['id']))))
 
 
-def majority_vote(dag: DAG, nodes: Sequence[Node]) -> Any:
-    votes = list(map(lambda n: dag.attribs[n]['pt'] if 'pt' in dag.attribs[n].keys() else dag.attribs[n]['cat'],
+def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> Any:
+    votes = list(map(lambda n: dag.attribs[n][pos_set] if pos_set in dag.attribs[n].keys() else dag.attribs[n]['cat'],
                      nodes))
     votes = sorted(votes)
     votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
@@ -82,14 +82,14 @@ def remove_abstract_arguments(dag: DAG, candidates: Iterable[Dep] = ('su', 'obj'
 
 
 def collapse_mwu(dag: DAG) -> DAG:
-    dag = DAG(nodes=dag.nodes, edges=dag.edges, attribs=dag.attribs)
+    dag = DAG(nodes=dag.nodes, edges=dag.edges, attribs=dag.attribs, meta=dag.meta)
     mwus = _cats_of_type(dag, 'mwu')
     successors = list(map(lambda mwu: order_siblings(dag, dag.successors(mwu)), mwus))
     collapsed_texts = list(map(lambda suc: ' '.join([dag.attribs[s]['word'] for s in suc]), successors))
     for mwu, succ, text in zip(mwus, successors, collapsed_texts):
         dag.attribs[mwu]['word'] = text
         del dag.attribs[mwu]['cat']
-        dag.attribs[mwu]['pt'] = majority_vote(dag, succ)
+        dag.attribs[mwu]['pt'] = majority_vote(dag, set(succ))
     to_delete = set(list(chain.from_iterable(map(dag.outgoing, mwus))))
     return dag.remove_edges(lambda e: e not in to_delete)
 
@@ -163,9 +163,6 @@ def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app',
         sources = list(map(lambda edge: edge.source, modgroup))
         common_ancestor = dag.first_common_predecessor(sources)
         if common_ancestor is None:
-            print(dag.meta)
-            from src.viz import ToGraphViz
-            ToGraphViz()(dag)
             raise ValueError('No common ancestor.')
         to_remove = to_remove.union(set(modgroup))
         to_add.add(Edge(source=common_ancestor, target=fst(modgroup).target, dep=fst(modgroup).dep))
@@ -208,12 +205,13 @@ class Transformation(object):
         self.mod_deps = {'mod', 'app', 'predm'}
 
     def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> Any:
-        dags = convert_to_dag(tree, meta)
-        dags = remove_headless_branches(dags, self.cats_to_remove, self.deps_to_remove)
+        dag = convert_to_dag(tree, meta)
+        dag = collapse_mwu(dag)
+        dags = remove_headless_branches(dag, self.cats_to_remove, self.deps_to_remove)
         dags = list(map(refine_body, dags))
         dags = list(map(swap_dp_headedness, dags))
         dags = list(map(lambda dag: reattatch_conj_mods(dag, self.mod_deps), dags))
-        dags = list(map(lambda dag: dag.remove_oneways, dags))
+        dags = list(map(lambda dag: dag.remove_oneways(), dags))
         return dags
 
 
@@ -221,4 +219,6 @@ def test():
     from src.lassy import Lassy
     L = Lassy()
     T = Transformation()
-    return list(chain.from_iterable(map(T, list(map(lambda i: L[i][2], range(len(L)))), range(len(L)))))
+    meta = [{'src': L[i][1]} for i in range(len(L))]
+
+    return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(len(L)))), meta))))
