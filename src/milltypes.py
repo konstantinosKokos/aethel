@@ -207,16 +207,6 @@ def binarize(sorting_fn: Callable[[Iterable[Tuple[WordType, str]]], List[Tuple[W
     return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), argcolors, result)
 
 
-def rebinarize(sorting_fn: Callable[[List[Tuple[WordType, str]]], List[Tuple[WordType, str]]],
-               arguments: WordTypes, colors: strings, result: WordType) -> ColoredType:
-    x = result
-    while isinstance(x, ColoredType) and x.color not in ('mod', 'predm', 'app'):
-        arguments += (x.argument,)
-        colors += (x.color,)
-        x = x.result
-    return binarize(sorting_fn, arguments, colors, x)
-
-
 def decolor(colored_type: WordType) -> Union[AtomicType, ComplexType]:
     return colored_type.decolor()
 
