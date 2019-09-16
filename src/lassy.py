@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 
-from src.utils.typevars import *
+from src.graphutils import *
 from warnings import warn
 
 from glob import glob
