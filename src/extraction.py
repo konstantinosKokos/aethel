@@ -6,24 +6,24 @@ from itertools import chain
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types
-cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'inf': 'INF', 'np': 'NP',
+cat_dict_ = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'inf': 'INF', 'np': 'NP',
             'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES', 'rel': 'REL', 'smain': 'SMAIN',
             'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI', 'whq': 'WHQ', 'whrel': 'WHREL',
             'whsub': 'WHSUB'}
-pos_dict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
+pos_dict_ = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
             'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
             'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
             'verb': 'VERB', 'vg': 'VG'}
-pt_dict = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
+pt_dict_ = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
            'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
-cat_dict = {k: AtomicType(v) for k, v in cat_dict.items()}
-pos_dict = {k: AtomicType(v) for k, v in pos_dict.items()}
-pt_dict = {k: AtomicType(v) for k, v in pt_dict.items()}
+cat_dict_ = {k: AtomicType(v) for k, v in cat_dict_.items()}
+pos_dict_ = {k: AtomicType(v) for k, v in pos_dict_.items()}
+pt_dict_ = {k: AtomicType(v) for k, v in pt_dict_.items()}
 # Head and modifier dependencies
-head_deps = {'hd', 'rhd', 'whd', 'cmp', 'crd'}
-mod_deps = {'mod', 'predm', 'app'}
+head_deps_ = {'hd', 'rhd', 'whd', 'cmp', 'crd'}
+mod_deps_ = {'mod', 'predm', 'app'}
 # Obliqueness Hierarchy
-obliqueness_order = (
+obliqueness_order_ = (
     ('mod', 'app', 'predm'),  # modifiers
     ('body', 'rhd_body', 'whd_body'),  # clause bodies
     ('svp',),  # phrasal verb part
@@ -47,7 +47,7 @@ class ObliquenessSort(object):
         return sorted(argcolors, key=lambda x: (self.order[snd(x)], str(fst(x))), reverse=True)
 
 
-obliqueness_sort = ObliquenessSort(obliqueness_order)
+obliqueness_sort_ = ObliquenessSort(obliqueness_order_)
 
 
 class ExtractionError(AssertionError):
@@ -87,20 +87,25 @@ def type_top(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str):
     dag.attribs[root]['type'] = root_type
 
 
-def type_bot(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: Set[str], mod_deps: Set[str]):
+def type_bot(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: Set[str], mod_deps: Set[str]) -> bool:
     heads = set(map(lambda edge: edge.target, list(filter(lambda edge: edge.dep in hd_deps, dag.edges))))
     heads = heads.difference(set(filter(lambda node: is_gap(dag, node, hd_deps), dag.nodes)))
-    temp = type_bot_step(dag, type_dict, pos_set, mod_deps, heads)
+    typed = set(filter(lambda node: 'type' in dag.attribs[node].keys(), dag.nodes))
+    fringe = heads.union(typed)
+    temp = type_bot_step(dag, type_dict, pos_set, mod_deps, fringe)
+    changed = False
     while temp is not None:
+        changed = True
         fringe, attribs = temp
         dag.attribs.update(attribs)
         temp = type_bot_step(dag, type_dict, pos_set, mod_deps, fringe)
+    return changed
 
 
 def type_bot_step(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, mod_deps: Set[str],
                   fringe: Nodes) -> Optional[Tuple[Nodes, Dict[Node, Dict]]]:
     def is_fringe(node: Node) -> bool:
-        return (not len(set(filter(lambda edge: edge.dep in mod_deps and edge.target == node, dag.edges)))) \
+        return (not len(set(filter(lambda edge: edge.dep in mod_deps, dag.incoming(node))))) \
                and (dag.is_leaf(node) or all(list(map(lambda out: out.dep in mod_deps or out.target in fringe,
                                                       dag.outgoing(node))))) \
                and node not in fringe
@@ -138,7 +143,7 @@ def type_mods(dag: DAG, mod_deps: Set[str]) -> bool:
 
 def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Optional[Dict[Node, Dict]]:
     def make_functor(res: WordType, argcolors: Tuple[WordTypes, strings]) -> ColoredType:
-        return rebinarize(obliqueness_sort, fst(argcolors), snd(argcolors), res, mod_deps)
+        return rebinarize(obliqueness_sort_, fst(argcolors), snd(argcolors), res, mod_deps)
 
     heading_edges = list(filter(lambda edge: edge.dep in head_deps.difference({'crd'})
                                              and 'type' in dag.attribs[edge.source].keys()
@@ -179,12 +184,13 @@ def type_heads(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> bool:
     return changed
 
 
-def type_head_mods(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
+def type_core(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, head_deps: Set[str], mod_deps: Set[str]):
     changed = True
     while changed:
+        bot = type_bot(dag, type_dict, pos_set, head_deps, mod_deps)
         mod = type_mods(dag, mod_deps)
         head = type_heads(dag, head_deps, mod_deps)
-        changed = mod or head
+        changed = mod or head or bot
 
 
 def is_gap(dag: DAG, node: Node, head_deps: Set[str]) -> bool:
@@ -226,14 +232,14 @@ def is_copy(dag: DAG, node: Node) -> bool:
     return len(incoming) > 1 and len(set(incoming)) == 1
 
 
-def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> DAG:
+def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     def daughterhood_conditions(daughter: Edge) -> bool:
         return daughter.dep not in head_deps.union(mod_deps)
 
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
         missing = list(map(lambda pair: (fst(pair), snd(pair) if pair not in head_deps.union(mod_deps) else 'embedded'),
                            missing))
-        return binarize(obliqueness_sort, list(map(fst, missing)), list(map(snd, missing)), initial)
+        return binarize(obliqueness_sort_, list(map(fst, missing)), list(map(snd, missing)), initial)
 
     def make_crd_type(poly_x: WordType, repeats: int) -> ColoredType:
         ret = poly_x
@@ -297,14 +303,13 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> DAG:
 def type_dag(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: Set[str], mod_deps: Set[str],
              check: bool = True) -> DAG:
     type_top(dag, type_dict, pos_set)
-    type_bot(dag, type_dict, pos_set, hd_deps, mod_deps)
-    type_head_mods(dag, head_deps, mod_deps)
-    type_gaps(dag, head_deps, mod_deps)
-    type_copies(dag, head_deps, mod_deps)
+    type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
+    type_gaps(dag, hd_deps, mod_deps)
+    type_copies(dag, hd_deps, mod_deps)
     if check:
         if not invariance_check(list(map(lambda node: dag.attribs[node]['type'],
                                          filter(lambda node: dag.is_leaf(node), dag.nodes))),
-                         dag.attribs[fst(list(dag.get_roots()))]['type']):
+                                dag.attribs[fst(list(dag.get_roots()))]['type']):
             raise ExtractionError('Invariance check failed.', meta=dag.meta)
     return dag
 
@@ -328,4 +333,4 @@ class Extraction(object):
                 return
 
 
-typer = Extraction(cat_dict, pt_dict, 'pt', head_deps, mod_deps)
+typer = Extraction(cat_dict_, pt_dict_, 'pt', head_deps_, mod_deps_)
