@@ -1,4 +1,4 @@
-from src.utils.typevars import *
+from src.graphutils import *
 
 from xml.etree.cElementTree import Element, ElementTree
 
@@ -50,6 +50,7 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> Any:
                      nodes))
     votes = sorted(votes)
     votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
+    votecounts = sorted(votecounts, key=lambda pair: snd(pair), reverse=True)
     votes = set(votes)
     if 'smain' in votes:
         return 'smain'
@@ -61,10 +62,12 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> Any:
         return fst(fst(votecounts))
 
 
-def remove_abstract_arguments(dag: DAG, candidates: Iterable[Dep] = ('su', 'obj', 'obj1', 'obj2', 'sup')) -> DAG:
+def remove_abstract_arguments(dag: DAG) -> DAG:
+    candidates = {'su', 'obj', 'obj1', 'obj2', 'sup'}
+    sentential_cats = {'sv1', 'smain', 'ssub'}
+
     def has_sentential_parent(node: Node) -> bool:
-        return any(list(map(lambda n: dag.attribs[n.source]['cat'] in ('sv1', 'smain', 'ssub'),
-                            dag.incoming(node))))
+        return any(list(map(lambda pred: dag.attribs[pred]['cat'] in sentential_cats, dag.predecessors(node))))
 
     def is_candidate_dep(edge: Edge) -> bool:
         return edge.dep in candidates
@@ -73,10 +76,13 @@ def remove_abstract_arguments(dag: DAG, candidates: Iterable[Dep] = ('su', 'obj'
         return len(dag.incoming(node)) > 1
 
     def is_inf_or_ppart(node: Node) -> bool:
-        return dag.attribs[node]['cat'] in ('ppart', 'inf')
+        return dag.attribs[node]['cat'] in {'ppart', 'inf'}
 
-    for_removal = set(filter(lambda e: is_candidate_dep(e) and is_coindexed(e.target) and is_inf_or_ppart(e.source)
-                                       and has_sentential_parent(e.target), dag.edges))
+    for_removal = set(filter(lambda e: is_candidate_dep(e)
+                                       and is_coindexed(e.target)
+                                       and is_inf_or_ppart(e.source)
+                                       and has_sentential_parent(e.target),
+                             dag.edges))
 
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(for_removal), attribs=dag.attribs, meta=dag.meta)
 
@@ -208,6 +214,7 @@ class Transformation(object):
         dag = convert_to_dag(tree, meta)
         dag = collapse_mwu(dag)
         dags = remove_headless_branches(dag, self.cats_to_remove, self.deps_to_remove)
+        dags = list(map(remove_abstract_arguments, dags))
         dags = list(map(refine_body, dags))
         dags = list(map(swap_dp_headedness, dags))
         dags = list(map(lambda dag: reattatch_conj_mods(dag, self.mod_deps), dags))
@@ -215,10 +222,11 @@ class Transformation(object):
         return dags
 
 
-def test():
+def test(samples=100):
     from src.lassy import Lassy
     L = Lassy()
     T = Transformation()
-    meta = [{'src': L[i][1]} for i in range(len(L))]
 
-    return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(len(L)))), meta))))
+    meta = [{'src': L[i][1]} for i in range(samples)]
+
+    return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(samples))), meta))))
