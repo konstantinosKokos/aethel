@@ -6,24 +6,24 @@ from itertools import chain
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types
-cat_dict_ = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'inf': 'INF', 'np': 'NP',
+_cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'inf': 'INF', 'np': 'NP',
             'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES', 'rel': 'REL', 'smain': 'SMAIN',
             'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI', 'whq': 'WHQ', 'whrel': 'WHREL',
             'whsub': 'WHSUB'}
-pos_dict_ = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
+_pos_dict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
             'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
             'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
             'verb': 'VERB', 'vg': 'VG'}
-pt_dict_ = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
+_pt_dict = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
            'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
-cat_dict_ = {k: AtomicType(v) for k, v in cat_dict_.items()}
-pos_dict_ = {k: AtomicType(v) for k, v in pos_dict_.items()}
-pt_dict_ = {k: AtomicType(v) for k, v in pt_dict_.items()}
+_cat_dict = {k: AtomicType(v) for k, v in _cat_dict.items()}
+_pos_dict = {k: AtomicType(v) for k, v in _pos_dict.items()}
+_pt_dict = {k: AtomicType(v) for k, v in _pt_dict.items()}
 # Head and modifier dependencies
-head_deps_ = {'hd', 'rhd', 'whd', 'cmp', 'crd'}
-mod_deps_ = {'mod', 'predm', 'app'}
+_head_deps = {'hd', 'rhd', 'whd', 'cmp', 'crd'}
+_mod_deps = {'mod', 'predm', 'app'}
 # Obliqueness Hierarchy
-obliqueness_order_ = (
+_obliqueness_order = (
     ('mod', 'app', 'predm'),  # modifiers
     ('body', 'rhd_body', 'whd_body'),  # clause bodies
     ('svp',),  # phrasal verb part
@@ -47,7 +47,7 @@ class ObliquenessSort(object):
         return sorted(argcolors, key=lambda x: (self.order[snd(x)], str(fst(x))), reverse=True)
 
 
-obliqueness_sort_ = ObliquenessSort(obliqueness_order_)
+_obliqueness_sort = ObliquenessSort(_obliqueness_order)
 
 
 class ExtractionError(AssertionError):
@@ -143,7 +143,7 @@ def type_mods(dag: DAG, mod_deps: Set[str]) -> bool:
 
 def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Optional[Dict[Node, Dict]]:
     def make_functor(res: WordType, argcolors: Tuple[WordTypes, strings]) -> ColoredType:
-        return rebinarize(obliqueness_sort_, fst(argcolors), snd(argcolors), res, mod_deps)
+        return rebinarize(_obliqueness_sort, fst(argcolors), snd(argcolors), res, mod_deps)
 
     heading_edges = list(filter(lambda edge: edge.dep in head_deps.difference({'crd'})
                                              and 'type' in dag.attribs[edge.source].keys()
@@ -239,7 +239,7 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
         missing = list(map(lambda pair: (fst(pair), snd(pair) if pair not in head_deps.union(mod_deps) else 'embedded'),
                            missing))
-        return binarize(obliqueness_sort_, list(map(fst, missing)), list(map(snd, missing)), initial)
+        return binarize(_obliqueness_sort, list(map(fst, missing)), list(map(snd, missing)), initial)
 
     def make_crd_type(poly_x: WordType, repeats: int) -> ColoredType:
         ret = poly_x
@@ -333,4 +333,4 @@ class Extraction(object):
                 return
 
 
-typer = Extraction(cat_dict_, pt_dict_, 'pt', head_deps_, mod_deps_)
+typer = Extraction(_cat_dict, _pt_dict, 'pt', _head_deps, _mod_deps)
