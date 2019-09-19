@@ -231,8 +231,8 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> DAG:
         return daughter.dep not in head_deps.union(mod_deps)
 
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
-        # todo: argument + head sharing
-        # todo: rename head + mod deps
+        missing = list(map(lambda pair: (fst(pair), snd(pair) if pair not in head_deps.union(mod_deps) else 'embedded'),
+                           missing))
         return binarize(obliqueness_sort, list(map(fst, missing)), list(map(snd, missing)), initial)
 
     def make_crd_type(poly_x: WordType, repeats: int) -> ColoredType:
@@ -257,36 +257,29 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> DAG:
 
     initial_types = list(map(lambda conj_group: fst(list(conj_group)), initial_types))
     # todo: assert all missing args are the same
-    # todo: keep the conjunction that does not cover other conjunctions
     downsets = list(map(lambda conj_group: list(map(lambda daughter: dag.points_to(daughter).union({daughter}),
                                                     conj_group)),
                         conj_groups))
-
-    test_downsets = list(map(lambda conj_group: list(map(lambda daughter:
-                                                         set(filter(lambda node: is_copy(dag, node),
-                                                                    daughter)), conj_group)),
-                             downsets))
-    print(test_downsets)
-
-    test_downsets = list(map(lambda conj_group: set.union(*conj_group), test_downsets))
     common_downsets = list(map(lambda downset: set.intersection(*downset), downsets))
     minimal_downsets = list(map(lambda downset:
                                 set(filter(lambda node: len(dag.pointed_by(node).intersection(downset)) == 0,
                                            downset)),
                                 common_downsets))
-    if test_downsets != minimal_downsets:
-        from src.viz import ToGraphViz
-        ToGraphViz()(dag)
-        import pdb
-        pdb.set_trace()
+
+    accounted_copies = set.union(*minimal_downsets) if common_downsets else set()
+    all_copies = set(filter(lambda node: is_copy(dag, node), dag.nodes))
+    if accounted_copies != all_copies:
+        raise ExtractionError('Unaccounted copies.', meta=dag.meta)
+
     copy_typecolors = list(map(lambda downset: list(map(lambda node: (dag.attribs[node]['type'],
                                                                       set(map(lambda edge: edge.dep,
                                                                                dag.incoming(node)))),
                                                         downset)),
                                minimal_downsets))
     if any(list(map(lambda downset: any(list(map(lambda pair: len(snd(pair)) != 1, downset))),
-                            copy_typecolors))):
+                    copy_typecolors))):
         raise ExtractionError('Multi-colored copy.', meta={'dag': dag.meta})
+
     copy_typecolors = list(map(lambda downset: list(map(lambda pair: (fst(pair), fst(list(snd(pair)))),
                                                         downset)),
                                copy_typecolors))
