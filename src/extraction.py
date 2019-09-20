@@ -7,15 +7,15 @@ from itertools import chain
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types
 _cat_dict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP', 'inf': 'INF', 'np': 'NP',
-            'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES', 'rel': 'REL', 'smain': 'SMAIN',
-            'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI', 'whq': 'WHQ', 'whrel': 'WHREL',
-            'whsub': 'WHSUB'}
+             'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES', 'rel': 'REL', 'smain': 'SMAIN',
+             'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI', 'whq': 'WHQ', 'whrel': 'WHREL',
+             'whsub': 'WHSUB'}
 _pos_dict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
-            'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
-            'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
-            'verb': 'VERB', 'vg': 'VG'}
+             'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
+             'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
+             'verb': 'VERB', 'vg': 'VG'}
 _pt_dict = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
-           'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
+            'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
 _cat_dict = {k: AtomicType(v) for k, v in _cat_dict.items()}
 _pos_dict = {k: AtomicType(v) for k, v in _pos_dict.items()}
 _pt_dict = {k: AtomicType(v) for k, v in _pt_dict.items()}
@@ -220,7 +220,6 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
         interm_color = list(map(lambda edge: edge.dep, filter(lambda edge: edge.dep not in head_deps, incoming)))
         assert len(set(interm_color)) == 1
         interm_color = fst(interm_color)
-        ToGraphViz()(dag)
         return (interm_type, interm_color), (top_type, top_dep)
 
     gap_nodes = list(filter(lambda node: is_gap(dag, node, head_deps), dag.nodes))
@@ -242,6 +241,17 @@ def is_copy(dag: DAG, node: Node) -> bool:
 def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     def daughterhood_conditions(daughter: Edge) -> bool:
         return daughter.dep not in head_deps.union(mod_deps)
+
+    def normalize_gap_copies(typecolors: Sequence[Tuple[WordType, Set[str]]]) -> Sequence[Tuple[WordType, str]]:
+        def normalize_gap_copy(tc: Tuple[WordType, Set[str]]) -> Tuple[WordType, str]:
+            if len(snd(tc)) == 1:
+                return fst(tc), fst(list(snd(tc)))
+            elif len(snd(tc)) == 2:
+                color = fst(list(filter(lambda c: c not in head_deps, snd(tc))))
+                return fst(tc).argument.argument, color if color not in mod_deps else 'embedded'
+            else:
+                raise ExtractionError('Multi-colored copy.', meta=dag.meta)
+        return list(map(normalize_gap_copy, typecolors))
 
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
         missing = list(map(lambda pair: (fst(pair), snd(pair) if pair not in head_deps.union(mod_deps) else 'embedded'),
@@ -286,19 +296,14 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
 
     copy_typecolors = list(map(lambda downset: list(map(lambda node: (dag.attribs[node]['type'],
                                                                       set(map(lambda edge: edge.dep,
-                                                                               dag.incoming(node)))),
+                                                                              dag.incoming(node)))),
                                                         downset)),
                                minimal_downsets))
-    if any(list(map(lambda downset: any(list(map(lambda pair: len(snd(pair)) != 1, downset))),
-                    copy_typecolors))):
-        raise ExtractionError('Multi-colored copy.', meta={'dag': dag.meta})
-
-    copy_typecolors = list(map(lambda downset: list(map(lambda pair: (fst(pair), fst(list(snd(pair)))),
-                                                        downset)),
-                               copy_typecolors))
+    copy_typecolors = list(map(normalize_gap_copies, copy_typecolors))
     polymorphic_xs = list(map(make_polymorphic_x, initial_types, copy_typecolors))
     crd_types = list(map(make_crd_type, polymorphic_xs, list(map(len, conj_groups))))
     secondary_crds = list(chain.from_iterable(crd[1::] for crd in crds))
+    secondary_crds = list(map(lambda crd: crd.target, secondary_crds))
     crds = list(map(fst, crds))
     crds = list(map(lambda crd: crd.target, crds))
     copy_types = {crd: {**dag.attribs[crd], **{'type': crd_type}} for crd, crd_type in zip(crds, crd_types)}
@@ -314,9 +319,9 @@ def type_dag(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: 
     type_gaps(dag, hd_deps, mod_deps)
     type_copies(dag, hd_deps, mod_deps)
     if check:
-        if not invariance_check(list(map(lambda node: dag.attribs[node]['type'],
-                                         filter(lambda node: dag.is_leaf(node), dag.nodes))),
-                                dag.attribs[fst(list(dag.get_roots()))]['type']):
+        premises = list(map(lambda node: dag.attribs[node]['type'], filter(lambda node: dag.is_leaf(node), dag.nodes)))
+        goal = dag.attribs[fst(list(dag.get_roots()))]['type']
+        if not invariance_check(premises, goal):
             raise ExtractionError('Invariance check failed.', meta=dag.meta)
     return dag
 
