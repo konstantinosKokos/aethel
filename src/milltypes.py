@@ -255,7 +255,7 @@ def operator_invariance(premises: WordTypes) -> int:
     return reduce(add, map(operator_count, premises)) + len(premises) - 1
 
 
-def typecheck(premises: WordTypes, goal: WordType) -> bool:
+def invariance_check(premises: WordTypes, goal: WordType) -> bool:
     inferred = literal_invariance(premises)
     if list(inferred.values()) != [1]:
         return False
