@@ -87,7 +87,7 @@ class DAG(NamedTuple):
 
     def successors(self, node: Node) -> Nodes:
         outgoing = self.outgoing(node)
-        return set.union(*list(map(lambda edge: {edge.target}, outgoing)))
+        return set.union(*list(map(lambda edge: {edge.target}, outgoing))) if outgoing else set()
 
     def incoming_many(self, nodes: Nodes) -> Edges:
         return set.union(*list(map(self.incoming, nodes)))
