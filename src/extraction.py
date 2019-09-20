@@ -208,14 +208,20 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
 
     def get_interm_top(gap: Node) -> Tuple[Tuple[WordType, str], Tuple[WordType, str]]:
         incoming = dag.incoming(gap)
-        interm = list(filter(lambda inc: inc.dep not in head_deps, incoming))
+
         top = list(filter(lambda inc: inc.dep in head_deps, incoming))
-        assert len(interm) == len(top) == 1
-        interm = fst(interm)
-        interm = dag.attribs[interm.source]['type'], interm.dep
+        assert len(set(map(lambda edge: dag.attribs[edge.source]['type'], top))) == 1
         top = fst(top)
-        top = dag.attribs[top.source]['type'], top.dep
-        return interm, top
+        top_type, top_dep = dag.attribs[top.source]['type'], top.dep
+
+        interm = list(filter(lambda node: gap in dag.points_to(node), dag.successors(top.source)))
+        assert len(interm) == 1
+        interm_type = dag.attribs[fst(interm)]['type']
+        interm_color = list(map(lambda edge: edge.dep, filter(lambda edge: edge.dep not in head_deps, incoming)))
+        assert len(set(interm_color)) == 1
+        interm_color = fst(interm_color)
+        ToGraphViz()(dag)
+        return (interm_type, interm_color), (top_type, top_dep)
 
     gap_nodes = list(filter(lambda node: is_gap(dag, node, head_deps), dag.nodes))
     if not gap_nodes:
@@ -229,7 +235,8 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
 
 def is_copy(dag: DAG, node: Node) -> bool:
     incoming = list(map(lambda edge: edge.dep, dag.incoming(node)))
-    return len(incoming) > 1 and len(set(incoming)) == 1
+    return len(incoming) > 1 and any(map(lambda inc: len(list(filter(lambda other: other == inc, incoming))) > 1,
+                                         incoming))
 
 
 def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
