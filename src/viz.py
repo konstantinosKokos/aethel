@@ -1,4 +1,4 @@
-from src.utils.typevars import *
+from src.graphutils import *
 import graphviz as gv
 
 
@@ -7,7 +7,7 @@ class ToGraphViz(object):
         self.properties = properties
 
     def make_node_label(self, attribs: Dict) -> str:
-        return '\n'.join([attribs[k] for k in self.properties if k in attribs.keys()])
+        return '\n'.join([str(attribs[k]) for k in self.properties if k in attribs.keys()])
 
     def make_edge_label(self, edge: Any) -> str:
         return edge
@@ -29,10 +29,10 @@ class ToGraphViz(object):
 
     def __call__(self, parse: Any, view: bool = True, **kwargs):
         if isinstance(parse, DAG):
-            graph = self.dag_to_gv(parse, **kwargs)
+            graph = self.dag_to_gv(parse)
         else:
-            graph = self.tree_to_gv(parse, **kwargs)
+            graph = self.tree_to_gv(parse)
         if view:
-            graph.render(view=True)
+            graph.render(view=True, **kwargs)
 
 
