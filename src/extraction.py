@@ -1,6 +1,6 @@
 from src.graphutils import *
 from src.milltypes import AtomicType, WordType, ColoredType, WordTypes, strings, binarize, invariance_check
-from src.transformations import majority_vote, _cats_of_type
+from src.transformations import majority_vote, _cats_of_type, order_siblings
 from collections import defaultdict
 from itertools import chain
 
@@ -92,30 +92,43 @@ def type_bot(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: 
     heads = heads.difference(set(filter(lambda node: is_gap(dag, node, hd_deps), dag.nodes)))
     typed = set(filter(lambda node: 'type' in dag.attribs[node].keys(), dag.nodes))
     fringe = heads.union(typed)
-    temp = type_bot_step(dag, type_dict, pos_set, mod_deps, fringe)
+    temp = type_bot_step(dag, type_dict, pos_set, hd_deps, mod_deps, fringe)
     changed = False
     while temp is not None:
         changed = True
         fringe, attribs = temp
         dag.attribs.update(attribs)
-        temp = type_bot_step(dag, type_dict, pos_set, mod_deps, fringe)
+        temp = type_bot_step(dag, type_dict, pos_set, hd_deps, mod_deps, fringe)
     return changed
 
 
-def type_bot_step(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, mod_deps: Set[str],
+def type_bot_step(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: Set[str], mod_deps: Set[str],
                   fringe: Nodes) -> Optional[Tuple[Nodes, Dict[Node, Dict]]]:
     def is_fringe(node: Node) -> bool:
-        return (not len(set(filter(lambda edge: edge.dep in mod_deps, dag.incoming(node))))) \
-               and (dag.is_leaf(node) or all(list(map(lambda out: out.dep in mod_deps or out.target in fringe,
-                                                      dag.outgoing(node))))) \
-               and node not in fringe
+        return ((not len(set(filter(lambda edge: edge.dep in mod_deps.union({'cnj'}), dag.incoming(node)))))
+                and (dag.is_leaf(node)
+                     or all(list(map(lambda out: out.dep in mod_deps or out.target in fringe or
+                                                 dag.attribs[out.source]['cat'] == 'conj',
+                                     dag.outgoing(node)))))
+                and node not in fringe)
+
+    def is_cnj_fringe(node: Node) -> bool:
+        return (not is_gap(dag, node, hd_deps)
+               and 'type' not in dag.attribs[node]
+               and len(set(dag.incoming(node))) == 1 and fst(list(dag.incoming(node))).dep == 'cnj'
+               and 'type' in dag.attribs[fst(list(dag.incoming(node))).source])
 
     new_fringe = set(filter(is_fringe, dag.nodes))
-    if not new_fringe:
+    new_cnj_fringe = set(filter(is_cnj_fringe, dag.nodes))
+    if new_fringe.intersection(new_cnj_fringe):
+        raise ExtractionError('Fringes overlap.', meta=dag.meta)
+    if not new_fringe and not new_cnj_fringe:
         return
-    return (new_fringe.union(fringe),
-            {node: {**dag.attribs[node], **{'type': get_type_plain(dag, node, type_dict, pos_set)}} for node
-             in new_fringe})
+    return (new_fringe.union(fringe).union(new_cnj_fringe),
+            {**{node: {**dag.attribs[node], **{'type': get_type_plain(dag, node, type_dict, pos_set)}} for node
+             in new_fringe},
+             **{node: {**dag.attribs[node], **{'type': dag.attribs[fst(list(dag.incoming(node))).source]['type']}}
+                for node in new_cnj_fringe}})
 
 
 def type_mods_step(dag: DAG, mod_deps: Set[str]) -> Optional[Dict[Node, Dict]]:
@@ -152,6 +165,17 @@ def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Option
                                 dag.edges))
 
     heading_edges = list(map(lambda edge: (edge, dag.outgoing(edge.source)), heading_edges))
+    heading_edges = list(map(lambda pair: (fst(pair), set(map(lambda edge: edge.target,
+                                                              filter(lambda edge: edge.dep in head_deps, snd(pair))))),
+                             heading_edges))
+    heading_edges = list(map(lambda pair: (fst(pair), order_siblings(dag, snd(pair))), heading_edges))
+
+    double_heads = list(map(fst, filter(lambda pair: fst(pair).target != fst(snd(pair)), heading_edges)))
+    double_heads = list(map(lambda edge: edge.target, double_heads))
+
+    single_heads = list(map(fst, filter(lambda pair: fst(pair) not in double_heads, heading_edges)))
+    heading_edges = list(map(lambda edge: (edge, dag.outgoing(edge.source)), single_heads))
+
     heading_edges = list(map(lambda pair: (fst(pair),
                                            list(filter(lambda edge:
                                                        edge.dep not in mod_deps and edge != fst(pair),
@@ -161,15 +185,16 @@ def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Option
     heading_edges = list(filter(lambda pair: all(list(map(lambda out: 'type' in dag.attribs[out.target].keys(),
                                                           snd(pair)))),
                                 heading_edges))
-    if not heading_edges:
+    if not heading_edges and not double_heads:
         return
     heading_argcs = list(map(lambda pair:
                              (fst(pair).target,
                               dag.attribs[fst(pair).source]['type'],
                               list(zip(*map(lambda out: (dag.attribs[out.target]['type'], out.dep), snd(pair))))),
                              heading_edges))
-    head_types = {node: {**dag.attribs[node], **{'type': make_functor(res, argcolors) if argcolors else res}}
-                  for (node, res, argcolors) in heading_argcs}
+    head_types = {**{node: {**dag.attribs[node], **{'type': make_functor(res, argcolors) if argcolors else res}}
+                  for (node, res, argcolors) in heading_argcs},
+                  **{node: {**dag.attribs[node], **{'type': AtomicType('_CRD')}} for node in double_heads}}
     return head_types
 
 
