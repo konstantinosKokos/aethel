@@ -192,7 +192,7 @@ def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0
             return index, ComplexType(argument=arg, result=res)
 
 
-def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, Sequence[WordType]]:
+def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, List[WordType]]:
     ret = []
     for w in wordtypes:
         index, x = polarize_and_index(w, True, index)
