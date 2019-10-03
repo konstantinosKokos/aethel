@@ -39,7 +39,7 @@ def _cats_of_type(dag: DAG, cat: str) -> Nodes:
     return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, dag.nodes))
 
 
-def order_siblings(dag: DAG, nodes: Nodes) -> List[Node]:
+def order_nodes(dag: DAG, nodes: Nodes) -> List[Node]:
     return sorted(nodes, key=lambda node: tuple(map(int, (dag.attribs[node]['begin'],
                                                           dag.attribs[node]['end'],
                                                           dag.attribs[node]['id']))))
@@ -90,7 +90,7 @@ def remove_abstract_arguments(dag: DAG) -> DAG:
 def collapse_mwu(dag: DAG) -> DAG:
     dag = DAG(nodes=dag.nodes, edges=dag.edges, attribs=dag.attribs, meta=dag.meta)
     mwus = _cats_of_type(dag, 'mwu')
-    successors = list(map(lambda mwu: order_siblings(dag, dag.successors(mwu)), mwus))
+    successors = list(map(lambda mwu: order_nodes(dag, dag.successors(mwu)), mwus))
     collapsed_texts = list(map(lambda suc: ' '.join([dag.attribs[s]['word'] for s in suc]), successors))
     for mwu, succ, text in zip(mwus, successors, collapsed_texts):
         dag.attribs[mwu]['word'] = text
@@ -176,7 +176,7 @@ def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app',
 
 
 def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
-                             deps_to_remove: Iterable[str] = ('dp', 'sat', 'nucl', 'tag')):
+                             deps_to_remove: Iterable[str] = ('dp', 'sat', 'nucl', 'tag')) -> List[DAG]:
     bad_nodes = set.union(*(list(map(lambda cat: _cats_of_type(dag, cat), cats_to_remove))))
     dag = dag.remove_nodes(lambda n: n not in bad_nodes)
     bad_edges = set.union(*list(map(lambda dep: set(dag.get_edges(dep)), deps_to_remove)))
