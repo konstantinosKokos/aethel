@@ -13,7 +13,7 @@ T1 = TypeVar('T1')
 T2 = TypeVar('T2')
 
 
-def unfoldr(f: Callable[[T1], Optional[Tuple[T1, T2]]], x: T1) -> List[T2]:
+def unfoldr(f: Callable[[T1], Optional[Tuple[T1, T2]]], x: T1) -> Iterable[T2]:
     while True:
         u = f(x)
         if u is None:
