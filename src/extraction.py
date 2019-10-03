@@ -1,6 +1,6 @@
 from src.graphutils import *
 from src.milltypes import AtomicType, WordType, ColoredType, WordTypes, strings, binarize, invariance_check
-from src.transformations import majority_vote, _cats_of_type, order_siblings
+from src.transformations import majority_vote, _cats_of_type, order_nodes
 from collections import defaultdict
 from itertools import chain
 
@@ -163,13 +163,11 @@ def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Option
                                              and 'type' not in dag.attribs[edge.target].keys()
                                              and not is_gap(dag, edge.target, head_deps),
                                 dag.edges))
-
     heading_edges = list(map(lambda edge: (edge, dag.outgoing(edge.source)), heading_edges))
     heading_edges = list(map(lambda pair: (fst(pair), set(map(lambda edge: edge.target,
                                                               filter(lambda edge: edge.dep in head_deps, snd(pair))))),
                              heading_edges))
-    heading_edges = list(map(lambda pair: (fst(pair), order_siblings(dag, snd(pair))), heading_edges))
-
+    heading_edges = list(map(lambda pair: (fst(pair), order_nodes(dag, snd(pair))), heading_edges))
     double_heads = list(map(fst, filter(lambda pair: fst(pair).target != fst(snd(pair)), heading_edges)))
     double_heads = list(map(lambda edge: edge.target, double_heads))
 
@@ -229,7 +227,7 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
             argument = ColoredType(argument=emb_type, result=fst(interm), color='embedded')
         else:
             argument = ColoredType(argument=emb_type, result=fst(interm), color=snd(interm))
-        return ColoredType(argument=argument, result=fst(top), color=snd(top))
+        return ColoredType(argument=argument, result=fst(top), color=snd(top)+'_body')
 
     def get_interm_top(gap: Node) -> Tuple[Tuple[WordType, str], Tuple[WordType, str]]:
         incoming = dag.incoming(gap)
