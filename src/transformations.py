@@ -1,8 +1,7 @@
-from src.graphutils import *
-
+from itertools import groupby, chain
 from xml.etree.cElementTree import Element, ElementTree
 
-from itertools import groupby, chain
+from src.graphutils import *
 
 
 def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
@@ -162,7 +161,8 @@ def swap_dp_headedness(dag: DAG) -> DAG:
 def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app', 'predm')) -> DAG:
     to_add, to_remove = set(), set()
 
-    modgroups = sorted(set.union(*list(map(lambda m: set(dag.get_edges(m)), mod_candidates))), key=lambda edge: edge.source)
+    modgroups = sorted(set.union(*list(map(lambda m: set(dag.get_edges(m)), mod_candidates))),
+                       key=lambda edge: edge.target)
     modgroups = list(map(lambda g: list(snd(g)), groupby(modgroups, key=lambda edge: edge.target)))
     modgroups = list(filter(lambda g: len(g) > 1, modgroups))
     for modgroup in modgroups:
