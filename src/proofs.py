@@ -42,9 +42,7 @@ def merge_proof(core: ProofNet, local: ProofNet) -> ProofNet:
 
 
 def merge_proofs(core: ProofNet, locals_: Sequence[ProofNet]) -> ProofNet:
-    for local in locals_:
-        core = merge_proof(core, local)
-    return core
+    return reduce(merge_proof, locals_, core)
 
 
 class ProofError(AssertionError):
@@ -53,7 +51,7 @@ class ProofError(AssertionError):
 
 
 def is_indexed(wordtype: WordType) -> bool:
-    return all(list(map(lambda subtype: isinstance(subtype, Polarize1dIndexedType), wordtype.get_atomic())))
+    return all(list(map(lambda subtype: isinstance(subtype, PolarizedIndexedType), wordtype.get_atomic())))
 
 
 def get_annotated_nodes(dag: DAG) -> Set[Node]:
@@ -63,7 +61,7 @@ def get_annotated_nodes(dag: DAG) -> Set[Node]:
 def get_functor_result(functor: WordType) -> WordType:
     result = functor
     while isinstance(result, ColoredType):
-        if functor.color in _mod_deps:
+        if result.color in _mod_deps:
             break
         result = result.result
     return result
@@ -136,10 +134,12 @@ def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: ProofNet) -
         proof_ = match(proof_, prev.result, curr.argument)
         return proof_
 
+    print(mod_input)
+    print(mods)
+    mod_output = last(mods).result
     proof = match(proof, mod_input, fst(mods).argument)
     mods = list(zip(mods, mods[1:]))
     proof = reduce(match_modchain, mods, proof)
-    mod_output = last(mods).result
     return proof, mod_output
 
 
@@ -191,14 +191,14 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     branch_output = get_simple_functor(dag, head.target)
 
     if args:
-        branch_output = align_args(branch_output,
-                                   list(map(lambda out: get_simple_argument(dag, out.target), args)),
-                                   list(map(lambda out: out.dep, args)),
-                                   branch_proof)
+        branch_proof, branch_output = align_args(branch_output,
+                                                 list(map(lambda out: get_simple_argument(dag, out.target), args)),
+                                                 list(map(lambda out: out.dep, args)),
+                                                 branch_proof)
     if mods:
-        branch_output = align_mods(branch_output,
-                                   list(map(lambda node: get_simple_argument(dag, node), mods)),
-                                   branch_proof)
+        branch_proof, branch_output = align_mods(branch_output,
+                                                 list(map(lambda node: get_simple_argument(dag, node), mods)),
+                                                 branch_proof)
     return branch_proof, branch_output
 
 
@@ -220,24 +220,26 @@ def get_simple_fringe(dag: DAG) -> List[Node]:
     return list(map(fst, filter(snd, zip(parents, simple))))
 
 
-def annotate_simple_fringe(dag: DAG, proof: ProofNet) -> bool:
+def annotate_simple_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
     parents = list(get_simple_fringe(dag))
     if parents:
         temp = list(map(lambda branch: annotate_simple_branch(dag, branch), parents))
         branch_proofs, parent_types = list(zip(*temp))
         update_types(dag, parents, parent_types)
-        merge_proofs(proof, branch_proofs)
-        return True
-    return False
+        return merge_proofs(proof, branch_proofs)
+    return
 
 
-def iterate_simple_fringe(dag: DAG, proof: ProofNet) -> bool:
-    temp = True
+def iterate_simple_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
+    cond = True
     changed = False
-    while temp:
+    while cond:
+        cond = False
         temp = annotate_simple_fringe(dag, proof)
-        changed = True
-    return changed
+        if temp is not None:
+            proof = temp
+            cond = changed = True
+    return proof if changed else None
 
 
 def get_complex_fringe(dag: DAG) -> List[Node]:
@@ -252,8 +254,13 @@ def get_complex_fringe(dag: DAG) -> List[Node]:
 
 
 def align_copied_arguments(crd_type: WordType, copy_type: WordType, copy_color: str, sharing_functors: List[WordType]) \
-        -> Any:
-    local_proof = dict()
+        -> Tuple[ProofNet, List[WordType], WordType]:
+    def match_args(proof_: ProofNet, pair: Tuple[WordType, WordType]) -> ProofNet:
+        pos = fst(pair)
+        neg = snd(pair)
+        return match(proof_, pos, neg)
+
+    local_proof = set()
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
     missing_in_result = identify_missing(result, copy_type, copy_color)
     missing_in_crd_args = list(map(identify_missing,
@@ -267,18 +274,16 @@ def align_copied_arguments(crd_type: WordType, copy_type: WordType, copy_color: 
     parent_types = list(map(get_functor_result, sharing_functors))
     conjunction_type = get_functor_result(result)
 
-    match(local_proof, copy_type, missing_in_result)
-    list(map(lambda positive, negative: match(local_proof, positive, negative),
-             missing_in_crd_args,
-             missing_in_functors))
+    local_proof = match(local_proof, copy_type, missing_in_result)
+    local_proof = reduce(match_args, zip(missing_in_crd_args, missing_in_functors), local_proof)
 
     return local_proof, parent_types, conjunction_type
 
 
 def align_copied_functor(crd_type: WordType, copy_type: WordType, sharing_args: List[List[Tuple[str, WordType]]]):
-    local_proof = dict()
+    local_proof = set()
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
-    match(local_proof, copy_type, result.argument)
+    local_proof = match(local_proof, copy_type, result.argument)
     parent_types = list(map(get_functor_result, xs))
     functor_bodies = list(map(get_functor_body, xs))
 
@@ -288,6 +293,8 @@ def align_copied_functor(crd_type: WordType, copy_type: WordType, sharing_args: 
 
     import pdb
     pdb.set_trace()
+
+    # todo: functor case
 
 
 def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
@@ -317,13 +324,14 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
     def get_copy_color(copy_: Node) -> str:
         incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
         if len(incoming_) > 1:
+            # todo: gap copy case
             import pdb
             from src.viz import ToGraphViz
             pdb.set_trace()
             ToGraphViz()(dag)
         return fst(list(incoming_))
 
-    conjunction_proof = dict()
+    conjunction_proof = set()
 
     outgoing = dag.outgoing(parent)
 
@@ -346,7 +354,10 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
     sharing_args = list(map(lambda parents: list(map(get_successor_arguments, parents)), copied_functors_parents))
     sharing_functors = list(map(lambda parents: list(map(get_successor_functors, parents)), copied_args_parents))
 
+    # todo: mixed case
+
     if sharing_args:
+        # todo: functor case
         raise NotImplementedError
 
     temp = list(map(lambda type_, color_, functor_:
@@ -358,53 +369,52 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
                     sharing_functors))
     arg_matchings, parent_types, conjunction_type = list(zip(*temp))
 
-    for subproof in arg_matchings:
-        merge_proof(conjunction_proof, subproof)
+    conjunction_proof = merge_proofs(conjunction_proof, arg_matchings)
     for cap, pt in zip(copied_args_parents, parent_types):
         update_types(dag, cap, pt)
 
-    _ = list(map(lambda type_, args_: align_copied_functor(crd_type, type_, args_),
-                 list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_functors)),
-                 sharing_args))
+    temp = list(map(lambda type_, args_: align_copied_functor(crd_type, type_, args_),
+                    list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_functors)),
+                    sharing_args))
 
     return conjunction_proof, conjunction_type
 
 
-def annotate_complex_fringe(dag: DAG, proof: ProofNet) -> bool:
+def annotate_complex_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
     parents = list(get_complex_fringe(dag))
     if parents:
         temp = list(map(lambda branch: annotate_conjunction_branch(dag, branch), parents))
         conjunction_proofs, new_parent_types = list(zip(*temp))
         update_types(dag, parents, new_parent_types)
-        merge_proofs(proof, conjunction_proofs)
-        return True
-    return False
+        return merge_proofs(proof, conjunction_proofs)
+    return
 
 
-def iterate_complex_fringe(dag: DAG, proof: ProofNet) -> bool:
+def iterate_complex_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
+    cond = True
     changed = False
-    temp = True
-    while temp:
+    while cond:
+        cond = False
         temp = annotate_complex_fringe(dag, proof)
-        changed = True
-    return changed
+        if temp is not None:
+            proof = temp
+            cond = changed = True
+    return proof if changed else None
 
 
 def annotate_dag(dag: DAG) -> DAG:
-    proof = dict()
+    proof = set()
     idx = annotate_leaves(dag)
-    cont = True
-    from src.viz import ToGraphViz
-    import pdb
-    pdb.set_trace()
-    while cont:
+
+    cond = True
+    while cond:
         simple = iterate_simple_fringe(dag, proof)
-        ToGraphViz()(dag)
-        pdb.set_trace()
-        complex = iterate_complex_fringe(dag, proof)
-        ToGraphViz()(dag)
-        pdb.set_trace()
-        cont = simple or complex
+        if simple is not None:
+            proof = simple
+        complex_ = iterate_complex_fringe(dag, proof)
+        if complex_ is not None:
+            proof = complex_
+        cond = simple is not None or complex_ is not None
     # root = fst(list(dag.get_roots()))
     # root_type = dag.attribs[root]['type']
     # _, conclusion = polarize_and_index(root_type, False, idx)
