@@ -192,15 +192,13 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
 
     branch_output = get_simple_functor(dag, head.target)
 
-    if args:
-        branch_proof, branch_output = align_args(branch_output,
-                                                 list(map(lambda out: get_simple_argument(dag, out.target), args)),
-                                                 list(map(lambda out: out.dep, args)),
-                                                 branch_proof)
-    if mods:
-        branch_proof, branch_output = align_mods(branch_output,
-                                                 list(map(lambda node: get_simple_argument(dag, node), mods)),
-                                                 branch_proof)
+    branch_proof, branch_output = align_args(branch_output,
+                                             list(map(lambda out: get_simple_argument(dag, out.target), args)),
+                                             list(map(lambda out: out.dep, args)),
+                                             branch_proof)
+    branch_proof, branch_output = align_mods(branch_output,
+                                             list(map(lambda node: get_simple_argument(dag, node), mods)),
+                                             branch_proof)
     return branch_proof, branch_output
 
 
