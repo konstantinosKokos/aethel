@@ -417,7 +417,7 @@ def annotate_dag(dag: DAG) -> DAG:
         simple = iterate_simple_fringe(dag, proof)
         if simple is not None:
             proof = simple
-        complex_ = iterate_complex_fringe(dag, proof)
+        complex_ = annotate_complex_fringe(dag, proof)
         if complex_ is not None:
             proof = complex_
         cond = simple is not None or complex_ is not None
