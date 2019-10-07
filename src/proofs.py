@@ -134,13 +134,13 @@ def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: ProofNet) -
         proof_ = match(proof_, prev.result, curr.argument)
         return proof_
 
-    print(mod_input)
-    print(mods)
-    mod_output = last(mods).result
-    proof = match(proof, mod_input, fst(mods).argument)
-    mods = list(zip(mods, mods[1:]))
-    proof = reduce(match_modchain, mods, proof)
-    return proof, mod_output
+    if mods:
+        mod_output = last(mods).result
+        proof = match(proof, mod_input, fst(mods).argument)
+        mods = list(zip(mods, mods[1:]))
+        proof = reduce(match_modchain, mods, proof)
+        return proof, mod_output
+    return proof, mod_input
 
 
 def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str], proof: ProofNet) \
