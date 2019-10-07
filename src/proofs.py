@@ -155,14 +155,16 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         neg = snd(pair)
         return match(proof_, pos, neg)
 
-    functor_argcolors = color_fold(functor)
-    functor_argcolors = list(filter(lambda ac: fst(ac) not in _mod_deps, functor_argcolors))
-    argdeps = list(zip(deps, argtypes))
-    argdeps = sorted(argdeps, key=lambda x: functor_argcolors.index(x))
+    if argtypes:
+        functor_argcolors = color_fold(functor)
+        functor_argcolors = list(filter(lambda ac: fst(ac) not in _mod_deps, functor_argcolors))
+        argdeps = list(zip(deps, argtypes))
+        argdeps = sorted(argdeps, key=lambda x: functor_argcolors.index(x))
 
-    pairs = list(zip(list(map(snd, argdeps)), list(map(snd, functor_argcolors))))
-    proof = reduce(match_args, pairs, proof)
-    return proof, get_functor_result(functor)
+        pairs = list(zip(list(map(snd, argdeps)), list(map(snd, functor_argcolors))))
+        proof = reduce(match_args, pairs, proof)
+        return proof, get_functor_result(functor)
+    return proof, functor
 
 
 def annotate_leaves(dag: DAG) -> int:
