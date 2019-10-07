@@ -321,6 +321,11 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
         outgoing_ = fst(outgoing_).target
         return dag.attribs[outgoing_]['type'] if not is_copy(dag, outgoing_) else None
 
+    def get_successor_mods(copy_parent_: Node) -> List[WordType]:
+        outgoing_ = dag.outgoing(copy_parent_)
+        outgoing_ = list(filter(lambda out_: out_.dep in _mod_deps, outgoing_))
+        return list(map(lambda out_: dag.attribs[out_.target]['type'], outgoing_))
+
     def get_copy_color(copy_: Node) -> str:
         incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
         if len(incoming_) > 1:
