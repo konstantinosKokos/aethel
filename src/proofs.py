@@ -250,6 +250,7 @@ def get_complex_fringe(dag: DAG) -> List[Node]:
                             downset_square)))
 
     conjunctions = _cats_of_type(dag, 'conj')
+    conjunctions = set(filter(lambda conj: not is_indexed(dag.attribs[conj]['type']), conjunctions))
     return list(filter(doable, conjunctions))
 
 
