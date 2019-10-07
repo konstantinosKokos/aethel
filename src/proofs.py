@@ -127,12 +127,16 @@ def get_simple_functor(dag: DAG, node: Node) -> WordType:
         return type_
 
 
-def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: ProofNet) -> Tuple[ProofNet, WordType]:
+def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: Optional[ProofNet] = None) \
+        -> Tuple[ProofNet, WordType]:
     def match_modchain(proof_: ProofNet, modpair: Tuple[WordType, WordType]) -> ProofNet:
         prev = fst(modpair)
         curr = snd(modpair)
         proof_ = match(proof_, prev.result, curr.argument)
         return proof_
+
+    if proof is None:
+        proof = set()
 
     if mods:
         mod_output = last(mods).result
@@ -143,7 +147,7 @@ def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: ProofNet) -
     return proof, mod_input
 
 
-def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str], proof: ProofNet) \
+def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str], proof: Optional[ProofNet] = None) \
         -> Tuple[ProofNet, WordType]:
     def color_fold(functor_: WordType) -> Iterable[Tuple[WordType, str]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[WordType, str], WordType]]:
@@ -154,6 +158,9 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         pos = fst(pair)
         neg = snd(pair)
         return match(proof_, pos, neg)
+
+    if proof is None:
+        proof = set()
 
     if argtypes:
         functor_argcolors = color_fold(functor)
