@@ -277,7 +277,7 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
         return list(map(normalize_gap_copy, typecolors))
 
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
-        missing = list(map(lambda pair: (fst(pair), snd(pair) if pair not in head_deps.union(mod_deps) else 'embedded'),
+        missing = list(map(lambda pair: (fst(pair), snd(pair) if snd(pair) not in head_deps.union(mod_deps) else 'embedded'),
                            missing))
         return binarize(_obliqueness_sort, list(map(fst, missing)), list(map(snd, missing)), initial)
 
