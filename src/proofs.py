@@ -33,9 +33,9 @@ def match(proofnet: ProofNet, positive: WordType, negative: WordType) -> ProofNe
 
 def merge_proof(core: ProofNet, local: ProofNet) -> ProofNet:
     for k, v in local:
-        if k in set(map(fst, core)):
+        if k in set(map(fst, core)) and (k, v) not in core:
             raise ProofError('Positive formula already assigned in core proof.\t{}'.format(k))
-        if v in set(map(snd, core)):
+        if v in set(map(snd, core)) and (k, v) not in core:
             raise ProofError('Negative formula already assigned in core proof.')
         core = core.union({(k, v)})
     return core
