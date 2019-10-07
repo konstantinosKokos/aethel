@@ -261,8 +261,9 @@ def get_complex_fringe(dag: DAG) -> List[Node]:
     return list(filter(doable, conjunctions))
 
 
-def align_copied_arguments(crd_type: WordType, copy_type: WordType, copy_color: str, sharing_functors: List[WordType]) \
-        -> Tuple[ProofNet, List[WordType], WordType]:
+def align_copied_args(crd_type: WordType, copy_type: WordType, copy_color: str,
+                      sharing_functors: List[WordType],
+                      sharing_mods: List[List[WordType]]) -> Tuple[ProofNet, List[WordType], WordType]:
     def match_args(proof_: ProofNet, pair: Tuple[WordType, WordType]) -> ProofNet:
         pos = fst(pair)
         neg = snd(pair)
@@ -270,16 +271,23 @@ def align_copied_arguments(crd_type: WordType, copy_type: WordType, copy_color: 
 
     local_proof = set()
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
+
+    if all(map(lambda sf: sf is None, sharing_functors)):
+        sharing_functors = list(map(get_functor_from_poly_x, xs))
+
     missing_in_result = identify_missing(result, copy_type, copy_color)
     missing_in_crd_args = list(map(identify_missing,
                                xs,
-                               [copy_type for _ in range(len(sharing_functors))],
-                               [copy_color for _ in range(len(sharing_functors))]))
+                               [copy_type] * len(sharing_functors),
+                               [copy_color] * len(sharing_functors)))
     missing_in_functors = list(map(identify_missing,
                                    sharing_functors,
-                                   [copy_type for _ in range(len(sharing_functors))],
-                                   [copy_color for _ in range(len(sharing_functors))]))
+                                   [copy_type] * len(sharing_functors),
+                                   [copy_color] * len(sharing_functors)))
     parent_types = list(map(get_functor_result, sharing_functors))
+    mod_proofs, parent_types = list(zip(*(list(map(align_mods, parent_types, sharing_mods)))))
+    local_proof = merge_proofs(local_proof, mod_proofs)
+
     conjunction_type = get_functor_result(result)
 
     local_proof = match(local_proof, copy_type, missing_in_result)
@@ -288,21 +296,29 @@ def align_copied_arguments(crd_type: WordType, copy_type: WordType, copy_color: 
     return local_proof, parent_types, conjunction_type
 
 
-def align_copied_functor(crd_type: WordType, copy_type: WordType, sharing_args: List[List[Tuple[str, WordType]]]):
+def align_copied_functor(crd_type: WordType, copy_type: WordType,
+                         sharing_args: List[List[Tuple[str, WordType]]],
+                         sharing_mods: List[List[WordType]]) -> Tuple[ProofNet, List[WordType], WordType]:
     local_proof = set()
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
     local_proof = match(local_proof, copy_type, result.argument)
-    parent_types = list(map(get_functor_result, xs))
-    functor_bodies = list(map(get_functor_body, xs))
+    higher_order_results = list(map(get_functor_result, xs))
+    functor_bodies = list(map(get_functor_from_poly_x, xs))
 
+    print(sharing_args)
     sharing_types = list(map(lambda sharing: list(map(fst, sharing)), sharing_args))
     sharing_deps = list(map(lambda sharing: list(map(snd, sharing)), sharing_args))
-    functor_results = list(map(align_args, functor_bodies, sharing_types, sharing_deps, local_proof))
 
-    import pdb
-    pdb.set_trace()
+    arg_proofs, parent_types = list(zip(*list(map(align_args, functor_bodies, sharing_types, sharing_deps))))
+    local_proof = merge_proofs(local_proof, arg_proofs)
+    mod_proofs, parent_types = list(zip(*list(map(align_mods, parent_types, sharing_mods))))
+    local_proof = merge_proofs(local_proof, mod_proofs)
 
-    # todo: functor case
+    local_proof = reduce(lambda proof_, pair_: match(proof_, fst(pair_), snd(pair_)),
+                         zip(parent_types, higher_order_results),
+                         local_proof)
+    conjunction_type = get_functor_result(result)
+    return local_proof, parent_types, conjunction_type
 
 
 def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
@@ -315,12 +331,13 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
             ToGraphViz()(dag)
         return order_nodes(dag, set(map(lambda edge_: edge_.source, incoming)))
 
-    def get_successor_arguments(copy_parent_: Node) -> List[Optional[Tuple[WordType, str]]]:
+    def get_successor_arguments(copy_parent_: Node) -> List[Tuple[WordType, str]]:
         outgoing_ = dag.outgoing(copy_parent_)
         outgoing_ = list(filter(lambda out_: out_.dep not in _mod_deps.union(_head_deps), outgoing_))
-        return list(map(lambda out_:
-                        None if is_copy(dag, out_.target) else (dag.attribs[out_.target]['type'], out_.dep),
-                        outgoing_))
+        outgoing_ = list(map(lambda out_:
+                             None if is_copy(dag, out_.target) else (dag.attribs[out_.target]['type'], out_.dep),
+                             outgoing_))
+        return list(filter(lambda out_: out_ is not None, outgoing_))
 
     def get_successor_functors(copy_parent_: Node) -> Optional[WordType]:
         outgoing_ = dag.outgoing(copy_parent_)
@@ -332,7 +349,8 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
     def get_successor_mods(copy_parent_: Node) -> List[WordType]:
         outgoing_ = dag.outgoing(copy_parent_)
         outgoing_ = list(filter(lambda out_: out_.dep in _mod_deps, outgoing_))
-        return list(map(lambda out_: dag.attribs[out_.target]['type'], outgoing_))
+        outgoing_ = set(map(lambda out_: out_.target, outgoing_))
+        return list(map(lambda out_: dag.attribs[out_]['type'], order_nodes(dag, outgoing_)))
 
     def get_copy_color(copy_: Node) -> str:
         incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
@@ -354,6 +372,10 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
     crd = fst(crd).target
     crd_type = dag.attribs[crd]['type']
 
+    mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
+    mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
+    mods = list(map(lambda mod: dag.attribs[mod]['type'], mods))
+
     copies = list(filter(lambda node: is_copy(dag, node), dag.points_to(parent)))
     copies = list(filter(lambda copy: not any(list(map(lambda other: dag.exists_path(copy, other), copies))), copies))
     copies_colors = list(map(get_copy_color, copies))
@@ -364,31 +386,41 @@ def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordT
     copied_functors_parents = list(map(get_copy_parents, map(fst, copied_functors)))
     copied_args_parents = list(map(get_copy_parents, map(fst, copied_args)))
 
-    sharing_args = list(map(lambda parents: list(map(get_successor_arguments, parents)), copied_functors_parents))
+    sharing_args = list(map(lambda parents: list(map(get_successor_arguments, parents)),
+                            copied_functors_parents))
     sharing_functors = list(map(lambda parents: list(map(get_successor_functors, parents)), copied_args_parents))
+    mods_of_fun_copied_branches = list(map(lambda parents: list(map(get_successor_mods, parents)),
+                                           copied_functors_parents))
+    mods_of_arg_copied_branches = list(map(lambda parents: list(map(get_successor_mods, parents)),
+                                           copied_args_parents))
 
-    # todo: mixed case
+    if sharing_functors:
+        temp = list(map(lambda type_, color_, functor_, mods_:
+                        align_copied_args(crd_type, type_, color_, functor_, mods_),
+                        list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_args)),
+                        list(map(snd, copied_args)),
+                        sharing_functors,
+                        mods_of_arg_copied_branches))
+        arg_matchings, parent_types, conjunction_type = list(zip(*temp))
+
+        conjunction_proof = merge_proofs(conjunction_proof, arg_matchings)
+        for cap, pt in zip(copied_args_parents, parent_types):
+            update_types(dag, cap, pt)
 
     if sharing_args:
-        # todo: functor case
-        raise NotImplementedError
+        temp = list(map(lambda type_, args_, mods_: align_copied_functor(crd_type, type_, args_, mods_),
+                        list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_functors)),
+                        sharing_args,
+                        mods_of_fun_copied_branches))
+        fn_matchings, parent_types, conjunction_type = list(zip(*temp))
 
-    temp = list(map(lambda type_, color_, functor_:
-                    align_copied_arguments(crd_type, type_, color_, functor_),
-                    list(map(lambda copy:
-                             dag.attribs[fst(copy)]['type'],
-                             copied_args)),
-                    list(map(snd, copied_args)),
-                    sharing_functors))
-    arg_matchings, parent_types, conjunction_type = list(zip(*temp))
+        conjunction_proof = merge_proofs(conjunction_proof, fn_matchings)
+        for cfp, pt in zip(copied_functors_parents, parent_types):
+            update_types(dag, cfp, pt)
 
-    conjunction_proof = merge_proofs(conjunction_proof, arg_matchings)
-    for cap, pt in zip(copied_args_parents, parent_types):
-        update_types(dag, cap, pt)
+    conjunction_type = fst(conjunction_type)
 
-    temp = list(map(lambda type_, args_: align_copied_functor(crd_type, type_, args_),
-                    list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_functors)),
-                    sharing_args))
+    conjunction_proof, conjunction_type = align_mods(conjunction_type, mods, conjunction_proof)
 
     return conjunction_proof, conjunction_type
 
