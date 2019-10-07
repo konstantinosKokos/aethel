@@ -67,9 +67,9 @@ def get_functor_result(functor: WordType) -> WordType:
     return result
 
 
-def get_functor_body(functor: WordType) -> WordType:
-    if functor.color in _mod_deps:
-        return functor.argument.argument
+def get_functor_from_poly_x(functor: WordType) -> WordType:
+    while functor.color not in _head_deps:
+        functor = functor.argument
     return functor.argument
 
 
