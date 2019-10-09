@@ -136,8 +136,8 @@ def add_ghost_nodes(dag: DAG) -> DAG:
     gaps = set(filter(lambda edge: is_gap(dag, edge.target, _head_deps), edges))
     copy_gaps = copies.intersection(gaps)
 
-    copies = copies - copy_gaps
-    copy_types = list(map(lambda copy: get_copy_type(dag, copy), copies))
+    copies = list(copies - copy_gaps)
+    copy_types = list(map(lambda copy: get_copy_annotation(dag, copy), copies))
     dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copies, copy_types), dag)
 
     if copy_gaps:
@@ -162,7 +162,9 @@ def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> D
     fresh_node = get_fresh_node(dag.nodes)
     fresh_edge = Edge(source=edge.source, target=fresh_node, dep=edge.dep)
 
-    fresh_attrib = {fresh_node: {'index': dag.attribs[edge.target]['index'], 'type': type_}}
+    fresh_attrib = {fresh_node: {'id': fresh_node,
+                                 'index': dag.attribs[edge.target]['index'],
+                                 'type': type_}}
 
     return DAG(nodes=dag.nodes.union({fresh_node}),
                edges=dag.edges.union({fresh_edge}),
