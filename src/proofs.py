@@ -5,7 +5,16 @@ from src.graphutils import *
 from src.milltypes import polarize_and_index_many, WordType, PolarizedIndexedType, ColoredType
 from src.transformations import _cats_of_type
 
+from src.viz import ToGraphViz
+
 ProofNet = Set[Tuple[int, int]]
+
+Placeholder = None
+
+
+class ProofError(AssertionError):
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 def match(proofnet: ProofNet, positive: WordType, negative: WordType) -> ProofNet:
@@ -34,9 +43,9 @@ def match(proofnet: ProofNet, positive: WordType, negative: WordType) -> ProofNe
 def merge_proof(core: ProofNet, local: ProofNet) -> ProofNet:
     for k, v in local:
         if k in set(map(fst, core)) and (k, v) not in core:
-            raise ProofError('Positive formula already assigned in core proof.\t{}'.format(k))
+            raise ProofError('Positive formula already assigned in core proof.\t{}\t{}\t{}'.format(k, v, core))
         if v in set(map(snd, core)) and (k, v) not in core:
-            raise ProofError('Negative formula already assigned in core proof.')
+            raise ProofError('Negative formula already assigned in core proof.\t{}\t{}\t{}'.format(k, v, core))
         core = core.union({(k, v)})
     return core
 
@@ -45,70 +54,12 @@ def merge_proofs(core: ProofNet, locals_: Sequence[ProofNet]) -> ProofNet:
     return reduce(merge_proof, locals_, core)
 
 
-class ProofError(AssertionError):
-    def __init__(self, message: str):
-        super().__init__(message)
-
-
 def is_indexed(wordtype: WordType) -> bool:
     return all(list(map(lambda subtype: isinstance(subtype, PolarizedIndexedType), wordtype.get_atomic())))
 
 
 def get_annotated_nodes(dag: DAG) -> Set[Node]:
     return set(filter(lambda node: is_indexed(dag.attribs[node]['type']), dag.nodes))
-
-
-def get_functor_result(functor: WordType) -> WordType:
-    result = functor
-    while isinstance(result, ColoredType):
-        if result.color in _mod_deps:
-            break
-        result = result.result
-    return result
-
-
-def get_functor_from_poly_x(functor: WordType) -> WordType:
-    while functor.color not in _head_deps:
-        functor = functor.argument
-    return functor.argument
-
-
-def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
-    conjunctions = _cats_of_type(dag, 'conj')
-    node_ancestors = dag.pointed_by(node)
-    node_ancestors = node_ancestors.intersection(conjunctions)
-    first_conj_above = list(filter(lambda ancestor: not any(list(map(lambda other: dag.exists_path(ancestor, other),
-                                                                     node_ancestors))), node_ancestors))
-    if len(first_conj_above) == 1:
-        return fst(first_conj_above)
-    return
-
-
-def isolate_xs(crd_type: WordType) -> List[WordType]:
-    def step_cnj(crd_type_: WordType) -> Optional[Tuple[WordType, WordType]]:
-        if crd_type_.color == 'cnj':
-            return crd_type_.argument, crd_type_.result
-        return
-    return list(unfoldr(step_cnj, crd_type))
-
-
-def last_instance_of(crd_type: WordType) -> WordType:
-    def step_cnj(crd_type_: WordType) -> Optional[Tuple[WordType, WordType]]:
-        if crd_type_.color == 'cnj':
-            return crd_type_.result, crd_type_.result
-        return
-    return last(list(unfoldr(step_cnj, crd_type)))
-
-
-def identify_missing(polymorphic_x: WordType, missing: WordType, dep: str) -> WordType:
-    while polymorphic_x.color != dep and polymorphic_x.argument != missing:
-        polymorphic_x = polymorphic_x.result
-    return polymorphic_x.argument
-
-
-def update_types(dag: DAG, nodes: List[Node], wordtypes: List[WordType]) -> None:
-    leaftypes = {node: {**dag.attribs[node], **{'type': wordtype}} for (node, wordtype) in zip(nodes, wordtypes)}
-    dag.attribs.update(leaftypes)
 
 
 def get_simple_argument(dag: DAG, node: Node) -> WordType:
@@ -127,28 +78,187 @@ def get_simple_functor(dag: DAG, node: Node) -> WordType:
         return type_
 
 
-def align_mods(mod_input: WordType, mods: Sequence[WordType], proof: Optional[ProofNet] = None) \
-        -> Tuple[ProofNet, WordType]:
-    def match_modchain(proof_: ProofNet, modpair: Tuple[WordType, WordType]) -> ProofNet:
-        prev = fst(modpair)
-        curr = snd(modpair)
-        proof_ = match(proof_, prev.result, curr.argument)
-        return proof_
-
-    if proof is None:
-        proof = set()
-
-    if mods:
-        mod_output = last(mods).result
-        proof = match(proof, mod_input, fst(mods).argument)
-        mods = list(zip(mods, mods[1:]))
-        proof = reduce(match_modchain, mods, proof)
-        return proof, mod_output
-    return proof, mod_input
+def split_functor(functor: WordType) -> Tuple[Optional[WordType], WordType]:
+    result = functor
+    body = None
+    while isinstance(result, ColoredType):
+        if result.color in _mod_deps:
+            break
+        body = result.argument
+        result = result.result
+    return body, result
 
 
-def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str], proof: Optional[ProofNet] = None) \
-        -> Tuple[ProofNet, WordType]:
+def get_functor_result(functor: WordType) -> WordType:
+    return snd(split_functor(functor))
+
+
+def get_functor_body(functor: WordType) -> Optional[WordType]:
+    return fst(split_functor(functor))
+
+
+def get_functor_from_poly_x(functor: WordType) -> WordType:
+    while functor.color not in _head_deps:
+        functor = functor.argument
+    return functor.argument
+
+
+def isolate_xs(crd_type: WordType) -> List[WordType]:
+    def step_cnj(crd_type_: WordType) -> Optional[Tuple[WordType, WordType]]:
+        if isinstance(crd_type_, ColoredType) and crd_type_.color == 'cnj':
+            return crd_type_.argument, crd_type_.result
+        return
+    return list(unfoldr(step_cnj, crd_type))
+
+
+def last_instance_of(crd_type: WordType) -> WordType:
+    def step_cnj(crd_type_: WordType) -> Optional[Tuple[WordType, WordType]]:
+        if isinstance(crd_type_, ColoredType) and crd_type_.color == 'cnj':
+            return crd_type_.result, crd_type_.result
+        return
+    return last(list(unfoldr(step_cnj, crd_type)))
+
+
+def identify_missing(polymorphic_x: WordType, missing: WordType, dep: str) -> WordType:
+    while polymorphic_x.color != dep and polymorphic_x.argument != missing:
+        polymorphic_x = polymorphic_x.result
+    return polymorphic_x.argument
+
+
+def update_types(dag: DAG, nodes: List[Node], wordtypes: List[WordType]) -> DAG:
+    new_types = {node: {**dag.attribs[node], **{'type': wordtype}} for (node, wordtype) in zip(nodes, wordtypes)}
+    return DAG(nodes=dag.nodes, edges=dag.edges, attribs={**dag.attribs, **new_types})
+
+
+def add_ghost_nodes(dag: DAG) -> DAG:
+    edges = dag.edges
+    copies = set(filter(lambda edge: is_copy(dag, edge.target), edges))
+    gaps = set(filter(lambda edge: is_gap(dag, edge.target, _head_deps), edges))
+    copy_gaps = copies.intersection(gaps)
+
+    copies = copies - copy_gaps
+    copy_types = list(map(lambda copy: get_copy_type(dag, copy), copies))
+    dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copies, copy_types), dag)
+
+    if copy_gaps:
+        ToGraphViz()(dag)
+        import pdb
+        pdb.set_trace()
+
+    return dag
+
+
+def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> DAG:
+    def get_fresh_node(nodes_: Nodes) -> Node:
+        node = -1
+        while str(node) in nodes_:
+            node -= 1
+        return str(node)
+    fresh_node = get_fresh_node(dag.nodes)
+    fresh_edge = Edge(source=edge.source, target=fresh_node, dep=edge.dep)
+
+    fresh_attrib = {fresh_node: {'index': dag.attribs[edge.target]['index'], 'type': type_}}
+
+    return DAG(nodes=dag.nodes.union({fresh_node}),
+               edges=dag.edges.union({fresh_edge}),
+               attribs={**dag.attribs, **fresh_attrib})
+
+
+def get_copy_type(dag: DAG, edge: Edge) -> WordType:
+    copy = edge.target
+    conjunction = find_first_conjunction_above(dag, copy)
+    missing_type = dag.attribs[edge.target]['type']
+
+    crd = list(filter(lambda out: out.dep == 'crd' and dag.attribs[out.target]['type'] != '_CRD',
+                      dag.outgoing(conjunction)))
+    assert len(crd) == 1
+    crd = fst(crd).target
+    crd_type = dag.attribs[crd]['type']
+
+    conjunction_daughters = list(filter(lambda out: out.dep not in _head_deps.union(_mod_deps),
+                                        dag.outgoing(conjunction)))
+    conjunction_daughters = set(map(lambda out: out.target, conjunction_daughters))
+    conjunction_daughters = order_nodes(dag, conjunction_daughters)
+    conjunction_daughters = list(map(lambda daughter: dag.exists_path(daughter, edge.source) or daughter == edge.source,
+                                     conjunction_daughters))
+    daughter_index = conjunction_daughters.index(True)
+
+    xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
+
+    return identify_missing(xs[daughter_index], missing_type, edge.dep)
+
+
+def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
+    conjunctions = _cats_of_type(dag, 'conj')
+    node_ancestors = dag.pointed_by(node)
+    node_ancestors = node_ancestors.intersection(conjunctions)
+    first_conj_above = list(filter(lambda ancestor: not any(list(map(lambda other: dag.exists_path(ancestor, other),
+                                                                     node_ancestors))), node_ancestors))
+    if len(first_conj_above) == 1:
+        return fst(first_conj_above)
+    return
+
+
+def iterate_simple_fringe(dag: DAG) -> Optional[Tuple[ProofNet, DAG]]:
+    unfolded = list(unfoldr(annotate_simple_branches, dag))
+    return merge_proofs(set(), list(map(fst, unfolded))), snd(unfolded[-1]) if unfolded else None
+
+
+def annotate_simple_branches(dag: DAG) -> Optional[Tuple[Tuple[ProofNet, DAG], DAG]]:
+    parents = list(get_simple_fringe(dag))
+    if parents:
+        temp = list(map(lambda parent: annotate_simple_branch(dag, parent), parents))
+        branch_proofs, parent_types = list(zip(*temp))
+        dag = update_types(dag, parents, parent_types)
+        return (merge_proofs(set(), branch_proofs), dag), dag
+    return
+
+
+def get_simple_fringe(dag: DAG) -> List[Node]:
+    annotated = get_annotated_nodes(dag)
+
+    parents = set(filter(lambda node: not dag.is_leaf(node), dag.nodes))
+    parents = parents.difference(annotated)
+    parents = list(filter(lambda parent: all(list(map(lambda child: child in annotated,
+                                                      dag.successors(parent)))), parents))
+    return parents
+
+
+def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
+    def simplify_crd(crd_type: WordType) -> WordType:
+        xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
+        xs = list(map(get_functor_result, xs))
+        result = get_functor_result(result)
+        return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), xs, result)
+
+    branch_proof = set()
+
+    outgoing = dag.outgoing(parent)
+    outgoing = set(filter(lambda edge: not is_copy(dag, edge.target), outgoing))
+
+    head = list(filter(lambda out: out.dep in _head_deps, outgoing))
+    assert len(head) == 1
+    head = fst(head)
+    outgoing = list(filter(lambda out: out != head, outgoing))
+    mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
+    mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
+    args = list(filter(lambda out: out.dep not in _mod_deps, outgoing))
+
+    if dag.attribs[parent]['cat'] == 'conj':
+        branch_output = simplify_crd(dag.attribs[head.target]['type'])
+    else:
+        branch_output = get_simple_functor(dag, head.target)
+
+    arg_proof, branch_output = align_args(branch_output,
+                                          list(map(lambda out: get_simple_argument(dag, out.target), args)),
+                                          list(map(lambda out: out.dep, args)))
+    mod_proof, branch_output = align_mods(branch_output, list(map(lambda node: get_simple_argument(dag, node), mods)))
+    branch_proof = merge_proofs(branch_proof, (arg_proof, mod_proof))
+
+    return branch_proof, branch_output
+
+
+def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str]) -> Tuple[ProofNet, WordType]:
     def color_fold(functor_: WordType) -> Iterable[Tuple[WordType, str]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[WordType, str], WordType]]:
             return ((x.color, x.argument), x.result) if isinstance(x, ColoredType) else None
@@ -159,9 +269,7 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         neg = snd(pair)
         return match(proof_, pos, neg)
 
-    if proof is None:
-        proof = set()
-
+    proof = set()
     if argtypes:
         functor_argcolors = color_fold(functor)
         functor_argcolors = list(filter(lambda ac: fst(ac) not in _mod_deps, functor_argcolors))
@@ -174,297 +282,48 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
     return proof, functor
 
 
-def annotate_leaves(dag: DAG) -> int:
+def align_mods(mod_input: WordType, mods: Sequence[WordType]) \
+        -> Tuple[ProofNet, WordType]:
+    def match_modchain(proof_: ProofNet, modpair: Tuple[WordType, WordType]) -> ProofNet:
+        prev = fst(modpair)
+        curr = snd(modpair)
+        proof_ = match(proof_, prev.result, curr.argument)
+        return proof_
+
+    proof = set()
+    if mods:
+        mod_output = last(mods).result
+        proof = match(proof, mod_input, fst(mods).argument)
+        mods = list(zip(mods, mods[1:]))
+        proof = reduce(match_modchain, mods, proof)
+        return proof, mod_output
+    return proof, mod_input
+
+
+def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
+    proof = set()
+    new_dag, idx = annotate_leaves(dag)
+    new_dag = add_ghost_nodes(new_dag)
+
+    temp = iterate_simple_fringe(new_dag)
+    if temp is not None:
+        proof, new_dag = temp
+
+    if set(map(fst, proof)).union(set(map(snd, proof))) != set(range(idx)):
+        ToGraphViz()(new_dag)
+        import pdb
+        pdb.set_trace()
+
+    return proof, new_dag
+
+
+def annotate_leaves(dag: DAG) -> Tuple[DAG, int]:
     leaves = set(filter(dag.is_leaf, dag.nodes))
     leaves = order_nodes(dag, leaves)
     leaftypes = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves))
     idx, leaftypes = polarize_and_index_many(leaftypes, 0)
-    update_types(dag, leaves, leaftypes)
-    return idx
-
-
-def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
-    branch_proof = set()
-
-    outgoing = dag.outgoing(parent)
-
-    head = list(filter(lambda out: out.dep in _head_deps, outgoing))
-    head = list(filter(lambda out: fst(str(dag.attribs[out.target]['type'])) != '_', head))
-    assert len(head) == 1
-    head = fst(head)
-    outgoing = list(filter(lambda out: out != head, outgoing))
-    mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
-    mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
-    args = list(filter(lambda out: out.dep not in _mod_deps, outgoing))
-
-    branch_output = get_simple_functor(dag, head.target)
-
-    branch_proof, branch_output = align_args(branch_output,
-                                             list(map(lambda out: get_simple_argument(dag, out.target), args)),
-                                             list(map(lambda out: out.dep, args)),
-                                             branch_proof)
-    branch_proof, branch_output = align_mods(branch_output,
-                                             list(map(lambda node: get_simple_argument(dag, node), mods)),
-                                             branch_proof)
-    return branch_proof, branch_output
-
-
-def get_simple_fringe(dag: DAG) -> List[Node]:
-    def is_simple(parent: Node) -> bool:
-        downset = dag.points_to(parent)
-        copies = set(filter(lambda down: is_copy(dag, down), downset))
-        first_conj_above = list(map(lambda copy: find_first_conjunction_above(dag, copy), copies))
-        first_conj_above = list(filter(lambda x: x is not None, first_conj_above))
-        return all(list(map(lambda fca: is_indexed(dag.attribs[fca]['type']), first_conj_above)))
-
-    annotated = get_annotated_nodes(dag)
-
-    parents = set(filter(lambda node: not dag.is_leaf(node), dag.nodes))
-    parents = parents.difference(annotated)
-    parents = list(filter(lambda parent: all(list(map(lambda child: child in annotated,
-                                                      dag.successors(parent)))), parents))
-    simple = list(map(is_simple, parents))
-    return list(map(fst, filter(snd, zip(parents, simple))))
-
-
-def annotate_simple_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
-    parents = list(get_simple_fringe(dag))
-    if parents:
-        temp = list(map(lambda branch: annotate_simple_branch(dag, branch), parents))
-        branch_proofs, parent_types = list(zip(*temp))
-        update_types(dag, parents, parent_types)
-        return merge_proofs(proof, branch_proofs)
-    return
-
-
-def iterate_simple_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
-    cond = True
-    changed = False
-    while cond:
-        cond = False
-        temp = annotate_simple_fringe(dag, proof)
-        if temp is not None:
-            proof = temp
-            cond = changed = True
-    return proof if changed else None
-
-
-def get_complex_fringe(dag: DAG) -> List[Node]:
-    def doable(parent: Node) -> bool:
-        downset = dag.points_to(parent)
-        downset_square = list(map(lambda down: dag.points_to(down), downset))
-        return all(list(map(lambda ds: all(list(map(lambda down: is_indexed(dag.attribs[down]['type']), ds))),
-                            downset_square)))
-
-    conjunctions = _cats_of_type(dag, 'conj')
-    conjunctions = set(filter(lambda conj: not is_indexed(dag.attribs[conj]['type']), conjunctions))
-    return list(filter(doable, conjunctions))
-
-
-def align_copied_args(crd_type: WordType, copy_type: WordType, copy_color: str,
-                      sharing_functors: List[WordType],
-                      sharing_mods: List[List[WordType]]) -> Tuple[ProofNet, List[WordType], WordType]:
-    def match_args(proof_: ProofNet, pair: Tuple[WordType, WordType]) -> ProofNet:
-        pos = fst(pair)
-        neg = snd(pair)
-        return match(proof_, pos, neg)
-
-    local_proof = set()
-    xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
-
-    if all(map(lambda sf: sf is None, sharing_functors)):
-        sharing_functors = list(map(get_functor_from_poly_x, xs))
-
-    missing_in_result = identify_missing(result, copy_type, copy_color)
-    missing_in_crd_args = list(map(identify_missing,
-                               xs,
-                               [copy_type] * len(sharing_functors),
-                               [copy_color] * len(sharing_functors)))
-    missing_in_functors = list(map(identify_missing,
-                                   sharing_functors,
-                                   [copy_type] * len(sharing_functors),
-                                   [copy_color] * len(sharing_functors)))
-    parent_types = list(map(get_functor_result, sharing_functors))
-    mod_proofs, parent_types = list(zip(*(list(map(align_mods, parent_types, sharing_mods)))))
-    local_proof = merge_proofs(local_proof, mod_proofs)
-
-    conjunction_type = get_functor_result(result)
-
-    local_proof = match(local_proof, copy_type, missing_in_result)
-    local_proof = reduce(match_args, zip(missing_in_crd_args, missing_in_functors), local_proof)
-
-    return local_proof, parent_types, conjunction_type
-
-
-def align_copied_functor(crd_type: WordType, copy_type: WordType,
-                         sharing_args: List[List[Tuple[str, WordType]]],
-                         sharing_mods: List[List[WordType]]) -> Tuple[ProofNet, List[WordType], WordType]:
-    local_proof = set()
-    xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
-    local_proof = match(local_proof, copy_type, result.argument)
-    higher_order_results = list(map(get_functor_result, xs))
-    functor_bodies = list(map(get_functor_from_poly_x, xs))
-
-    print(sharing_args)
-    sharing_types = list(map(lambda sharing: list(map(fst, sharing)), sharing_args))
-    sharing_deps = list(map(lambda sharing: list(map(snd, sharing)), sharing_args))
-
-    arg_proofs, parent_types = list(zip(*list(map(align_args, functor_bodies, sharing_types, sharing_deps))))
-    local_proof = merge_proofs(local_proof, arg_proofs)
-    mod_proofs, parent_types = list(zip(*list(map(align_mods, parent_types, sharing_mods))))
-    local_proof = merge_proofs(local_proof, mod_proofs)
-
-    local_proof = reduce(lambda proof_, pair_: match(proof_, fst(pair_), snd(pair_)),
-                         zip(parent_types, higher_order_results),
-                         local_proof)
-    conjunction_type = get_functor_result(result)
-    return local_proof, parent_types, conjunction_type
-
-
-def annotate_conjunction_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
-    def get_copy_parents(copy_) -> List[Node]:
-        incoming = dag.incoming(copy_)
-        if len(set(map(lambda edge_: edge_.dep, incoming))) != 1:
-            import pdb
-            pdb.set_trace()
-            from src.viz import ToGraphViz
-            ToGraphViz()(dag)
-        return order_nodes(dag, set(map(lambda edge_: edge_.source, incoming)))
-
-    def get_successor_arguments(copy_parent_: Node) -> List[Tuple[WordType, str]]:
-        outgoing_ = dag.outgoing(copy_parent_)
-        outgoing_ = list(filter(lambda out_: out_.dep not in _mod_deps.union(_head_deps), outgoing_))
-        outgoing_ = list(map(lambda out_:
-                             None if is_copy(dag, out_.target) else (dag.attribs[out_.target]['type'], out_.dep),
-                             outgoing_))
-        return list(filter(lambda out_: out_ is not None, outgoing_))
-
-    def get_successor_functors(copy_parent_: Node) -> Optional[WordType]:
-        outgoing_ = dag.outgoing(copy_parent_)
-        outgoing_ = list(filter(lambda out_: out_.dep in _head_deps, outgoing_))
-        assert len(outgoing_) == 1
-        outgoing_ = fst(outgoing_).target
-        return dag.attribs[outgoing_]['type'] if not is_copy(dag, outgoing_) else None
-
-    def get_successor_mods(copy_parent_: Node) -> List[WordType]:
-        outgoing_ = dag.outgoing(copy_parent_)
-        outgoing_ = list(filter(lambda out_: out_.dep in _mod_deps, outgoing_))
-        outgoing_ = set(map(lambda out_: out_.target, outgoing_))
-        return list(map(lambda out_: dag.attribs[out_]['type'], order_nodes(dag, outgoing_)))
-
-    def get_copy_color(copy_: Node) -> str:
-        incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
-        if len(incoming_) > 1:
-            # todo: gap copy case
-            import pdb
-            from src.viz import ToGraphViz
-            pdb.set_trace()
-            ToGraphViz()(dag)
-        return fst(list(incoming_))
-
-    conjunction_proof = set()
-
-    outgoing = dag.outgoing(parent)
-
-    crd = list(filter(lambda out: out.dep == 'crd', outgoing))
-    crd = list(filter(lambda out: fst(str(dag.attribs[out.target]['type'])) != '_', crd))
-    assert len(crd) == 1
-    crd = fst(crd).target
-    crd_type = dag.attribs[crd]['type']
-
-    mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
-    mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
-    mods = list(map(lambda mod: dag.attribs[mod]['type'], mods))
-
-    copies = list(filter(lambda node: is_copy(dag, node), dag.points_to(parent)))
-    copies = list(filter(lambda copy: not any(list(map(lambda other: dag.exists_path(copy, other), copies))), copies))
-    copies_colors = list(map(get_copy_color, copies))
-
-    copied_functors = list(filter(lambda copy: snd(copy) in _head_deps, zip(copies, copies_colors)))
-    copied_args = list(filter(lambda copy: copy not in copied_functors, zip(copies, copies_colors)))
-
-    copied_functors_parents = list(map(get_copy_parents, map(fst, copied_functors)))
-    copied_args_parents = list(map(get_copy_parents, map(fst, copied_args)))
-
-    sharing_args = list(map(lambda parents: list(map(get_successor_arguments, parents)),
-                            copied_functors_parents))
-    sharing_functors = list(map(lambda parents: list(map(get_successor_functors, parents)), copied_args_parents))
-    mods_of_fun_copied_branches = list(map(lambda parents: list(map(get_successor_mods, parents)),
-                                           copied_functors_parents))
-    mods_of_arg_copied_branches = list(map(lambda parents: list(map(get_successor_mods, parents)),
-                                           copied_args_parents))
-
-    if sharing_functors:
-        temp = list(map(lambda type_, color_, functor_, mods_:
-                        align_copied_args(crd_type, type_, color_, functor_, mods_),
-                        list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_args)),
-                        list(map(snd, copied_args)),
-                        sharing_functors,
-                        mods_of_arg_copied_branches))
-        arg_matchings, parent_types, conjunction_type = list(zip(*temp))
-
-        conjunction_proof = merge_proofs(conjunction_proof, arg_matchings)
-        for cap, pt in zip(copied_args_parents, parent_types):
-            update_types(dag, cap, pt)
-
-    if sharing_args:
-        temp = list(map(lambda type_, args_, mods_: align_copied_functor(crd_type, type_, args_, mods_),
-                        list(map(lambda copy: dag.attribs[fst(copy)]['type'], copied_functors)),
-                        sharing_args,
-                        mods_of_fun_copied_branches))
-        fn_matchings, parent_types, conjunction_type = list(zip(*temp))
-
-        conjunction_proof = merge_proofs(conjunction_proof, fn_matchings)
-        for cfp, pt in zip(copied_functors_parents, parent_types):
-            update_types(dag, cfp, pt)
-
-    conjunction_type = fst(conjunction_type)
-
-    conjunction_proof, conjunction_type = align_mods(conjunction_type, mods, conjunction_proof)
-
-    return conjunction_proof, conjunction_type
-
-
-def annotate_complex_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
-    parents = list(get_complex_fringe(dag))
-    if parents:
-        temp = list(map(lambda branch: annotate_conjunction_branch(dag, branch), parents))
-        conjunction_proofs, new_parent_types = list(zip(*temp))
-        update_types(dag, parents, new_parent_types)
-        return merge_proofs(proof, conjunction_proofs)
-    return
-
-
-def iterate_complex_fringe(dag: DAG, proof: ProofNet) -> Optional[ProofNet]:
-    cond = True
-    changed = False
-    while cond:
-        cond = False
-        temp = annotate_complex_fringe(dag, proof)
-        if temp is not None:
-            proof = temp
-            cond = changed = True
-    return proof if changed else None
-
-
-def annotate_dag(dag: DAG) -> DAG:
-    proof = set()
-    idx = annotate_leaves(dag)
-
-    cond = True
-    while cond:
-        simple = iterate_simple_fringe(dag, proof)
-        if simple is not None:
-            proof = simple
-        complex_ = annotate_complex_fringe(dag, proof)
-        if complex_ is not None:
-            proof = complex_
-        cond = simple is not None or complex_ is not None
-    # root = fst(list(dag.get_roots()))
-    # root_type = dag.attribs[root]['type']
-    # _, conclusion = polarize_and_index(root_type, False, idx)
-    # match(proof, root_type, conclusion)
-    return dag
+    dag = update_types(dag, leaves, leaftypes)
+    return dag, idx
 
 
 class Prove(object):
