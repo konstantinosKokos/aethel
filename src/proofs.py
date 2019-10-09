@@ -201,7 +201,7 @@ def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
 
 def iterate_simple_fringe(dag: DAG) -> Optional[Tuple[ProofNet, DAG]]:
     unfolded = list(unfoldr(annotate_simple_branches, dag))
-    return merge_proofs(set(), list(map(fst, unfolded))), snd(unfolded[-1]) if unfolded else None
+    return merge_proofs(set(), list(map(fst, unfolded))), snd(last(unfolded)) if unfolded else None
 
 
 def annotate_simple_branches(dag: DAG) -> Optional[Tuple[Tuple[ProofNet, DAG], DAG]]:

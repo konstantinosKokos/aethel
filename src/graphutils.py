@@ -9,8 +9,9 @@ def snd(x: Sequence) -> Any:
     return x[1]
 
 
-T1 = TypeVar('T1')
-T2 = TypeVar('T2')
+def last(x: Sequence) -> Any:
+    return x[-1]
+
 
 _T1 = TypeVar('_T1')
 _T2 = TypeVar('_T2')
