@@ -148,6 +148,11 @@ def add_ghost_nodes(dag: DAG) -> DAG:
     return dag
 
 
+def delete_ghost_nodes(dag: DAG) -> DAG:
+    ghost = set(filter(lambda node: set(dag.attribs[node].keys()) == {'index', 'type', 'id'}, dag.nodes))
+    return dag.remove_nodes(lambda node: node not in ghost)
+
+
 def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> DAG:
     def get_fresh_node(nodes_: Nodes) -> Node:
         node = -1
