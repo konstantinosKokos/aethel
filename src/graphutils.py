@@ -12,8 +12,11 @@ def snd(x: Sequence) -> Any:
 T1 = TypeVar('T1')
 T2 = TypeVar('T2')
 
+_T1 = TypeVar('_T1')
+_T2 = TypeVar('_T2')
 
-def unfoldr(f: Callable[[T1], Optional[Tuple[T1, T2]]], x: T1) -> Iterable[T2]:
+
+def unfoldr(f: Callable[[_T1], Optional[Tuple[_T2, _T1]]], x: _T1) -> Iterable[_T2]:
     while True:
         u = f(x)
         if u is None:
