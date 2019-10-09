@@ -120,7 +120,7 @@ def last_instance_of(crd_type: WordType) -> WordType:
 
 
 def identify_missing(polymorphic_x: WordType, missing: WordType, dep: str) -> WordType:
-    while polymorphic_x.color != dep and polymorphic_x.argument != missing:
+    while polymorphic_x.color != dep or polymorphic_x.argument != missing:
         polymorphic_x = polymorphic_x.result
     return polymorphic_x.argument
 
