@@ -2,7 +2,7 @@ from functools import reduce
 
 from src.extraction import order_nodes, is_gap, is_copy, _head_deps, _mod_deps
 from src.graphutils import *
-from src.milltypes import polarize_and_index_many, WordType, PolarizedIndexedType, ColoredType
+from src.milltypes import polarize_and_index_many, polarize_and_index, WordType, PolarizedIndexedType, ColoredType
 from src.transformations import _cats_of_type
 
 from src.viz import ToGraphViz
@@ -198,6 +198,26 @@ def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
     return identify_missing(xs[daughter_index], missing_type, edge.dep)
 
 
+def match_copies_with_crds(dag: DAG) -> ProofNet:
+    def get_copy_color(copy_: Node) -> str:
+        incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
+        assert len(incoming_) == 1
+        return fst(list(incoming_))
+
+    copies = list(filter(lambda node: is_copy(dag, node) and not is_gap(dag, node, _head_deps),
+                         dag.nodes))
+    copy_colors = list(map(get_copy_color, copies))
+    copy_types = list(map(lambda copy: dag.attribs[copy]['type'], copies))
+    conjunctions = list(map(lambda copy: find_first_conjunction_above(dag, copy), copies))
+    crd_types = list(map(lambda conj: get_crd_type(dag, conj), conjunctions))
+    results = list(map(last_instance_of, crd_types))
+    matches = list(map(identify_missing,
+                       results,
+                       copy_types,
+                       copy_colors))
+    return reduce(lambda proof_, pair: match(proof_, fst(pair), snd(pair)), zip(copy_types, matches), set())
+
+
 def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
     conjunctions = _cats_of_type(dag, 'conj')
     node_ancestors = dag.pointed_by(node)
@@ -315,9 +335,24 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
     new_dag, idx = annotate_leaves(dag)
     new_dag = add_ghost_nodes(new_dag)
 
-    temp = iterate_simple_fringe(new_dag)
-    if temp is not None:
-        proof, new_dag = temp
+    try:
+        if dag.edges:
+
+            temp = iterate_simple_fringe(new_dag)
+            if temp is not None:
+                proof, new_dag = temp
+
+            new_dag = delete_ghost_nodes(new_dag)
+            copy_proof = match_copies_with_crds(new_dag)
+            proof = merge_proof(proof, copy_proof)
+    except ProofError as e:
+        ToGraphViz()(new_dag)
+        raise e
+
+    root_type = new_dag.attribs[fst(list(new_dag.get_roots()))]['type']
+    idx, conclusion = polarize_and_index(root_type.depolarize(), False, idx)
+
+    proof = match(proof, root_type, conclusion)
 
     if set(map(fst, proof)).union(set(map(snd, proof))) != set(range(idx)):
         ToGraphViz()(new_dag)
