@@ -171,16 +171,19 @@ def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> D
                attribs={**dag.attribs, **fresh_attrib})
 
 
-def get_copy_type(dag: DAG, edge: Edge) -> WordType:
-    copy = edge.target
-    conjunction = find_first_conjunction_above(dag, copy)
-    missing_type = dag.attribs[edge.target]['type']
-
+def get_crd_type(dag: DAG, conjunction: Node) -> WordType:
     crd = list(filter(lambda out: out.dep == 'crd' and dag.attribs[out.target]['type'] != '_CRD',
                       dag.outgoing(conjunction)))
     assert len(crd) == 1
     crd = fst(crd).target
-    crd_type = dag.attribs[crd]['type']
+    return dag.attribs[crd]['type']
+
+
+def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
+    copy = edge.target
+    conjunction = find_first_conjunction_above(dag, copy)
+    missing_type = dag.attribs[edge.target]['type']
+    crd_type = get_crd_type(dag, conjunction)
 
     conjunction_daughters = list(filter(lambda out: out.dep not in _head_deps.union(_mod_deps),
                                         dag.outgoing(conjunction)))
