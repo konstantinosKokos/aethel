@@ -4,6 +4,12 @@ from xml.etree.cElementTree import Element, ElementTree
 from src.graphutils import *
 
 
+class TransformationError(AssertionError):
+    def __init__(self, message: str, meta: Any = None):
+        super().__init__(message)
+        self.meta = meta
+
+
 def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
     coindexed = list(filter(lambda elem: 'index' in elem.attrib.keys(), nodes))
     all_mutual_indices = {i: [node for node in group] for i, group in
@@ -48,6 +54,8 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> Any:
     votes = list(map(lambda n: dag.attribs[n][pos_set] if pos_set in dag.attribs[n].keys() else dag.attribs[n]['cat'],
                      nodes))
     votes = sorted(votes)
+    if 'conj' in votes:
+        raise TransformationError('Impredicative conjunction.')
     votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
     votecounts = sorted(votecounts, key=lambda pair: snd(pair), reverse=True)
     votes = set(votes)
