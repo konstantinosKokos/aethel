@@ -235,15 +235,18 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
         incoming = dag.incoming(gap)
 
         top = list(filter(lambda inc: inc.dep in head_deps, incoming))
-        assert len(set(map(lambda edge: dag.attribs[edge.source]['type'], top))) == 1
+        if len(set(map(lambda edge: dag.attribs[edge.source]['type'], top))) != 1:
+            raise ExtractionError('Multiple top types.')
         top = fst(top)
         top_type, top_dep = dag.attribs[top.source]['type'], top.dep
 
         interm = list(filter(lambda node: gap in dag.points_to(node), dag.successors(top.source)))
-        assert len(interm) == 1
+        if len(interm) != 1:
+            raise ExtractionError('Multiple intermediate nodes.')
         interm_type = dag.attribs[fst(interm)]['type']
         interm_color = list(map(lambda edge: edge.dep, filter(lambda edge: edge.dep not in head_deps, incoming)))
-        assert len(set(interm_color)) == 1
+        if len(set(interm_color)) > 1:
+            raise ExtractionError('Multiple intermediate colors.')
         interm_color = fst(interm_color)
         return (interm_type, interm_color), (top_type, top_dep)
 
