@@ -93,6 +93,16 @@ def get_functor_result(functor: WordType) -> WordType:
     return snd(split_functor(functor))
 
 
+def remove_functor_arguments(functor: WordType, arguments: List[WordType]) -> WordType:
+    ret = functor
+    while arguments:
+        body, res = split_functor(ret)
+        if body != fst(arguments):
+            return ret
+        ret = res
+        arguments = arguments[1::]
+
+
 def get_functor_body(functor: WordType) -> Optional[WordType]:
     return fst(split_functor(functor))
 
@@ -141,16 +151,13 @@ def add_ghost_nodes(dag: DAG) -> DAG:
     dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copies, copy_types), dag)
 
     if copy_gaps:
-        ToGraphViz()(dag)
-        import pdb
-        pdb.set_trace()
+        raise NotImplementedError('Gap copy')
 
     return dag
 
 
 def delete_ghost_nodes(dag: DAG) -> DAG:
-    ghost = set(filter(lambda node: set(dag.attribs[node].keys()) == {'index', 'type', 'id'}, dag.nodes))
-    return dag.remove_nodes(lambda node: node not in ghost)
+    return dag.remove_nodes(lambda node: int(dag.attribs[node]['id']) >= 0)
 
 
 def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> DAG:
@@ -164,7 +171,9 @@ def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> D
 
     fresh_attrib = {fresh_node: {'id': fresh_node,
                                  'index': dag.attribs[edge.target]['index'],
-                                 'type': type_}}
+                                 'type': type_,
+                                 'begin': dag.attribs[edge.target]['begin'],
+                                 'end': dag.attribs[edge.target]['end']}}
 
     return DAG(nodes=dag.nodes.union({fresh_node}),
                edges=dag.edges.union({fresh_edge}),
@@ -255,10 +264,13 @@ def get_simple_fringe(dag: DAG) -> List[Node]:
 
 
 def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
-    def simplify_crd(crd_type: WordType) -> WordType:
+    def simplify_crd(crd_type: WordType, arg_types_: List[WordType]) -> WordType:
         xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
-        xs = list(map(get_functor_result, xs))
-        result = get_functor_result(result)
+        print(xs, arg_types_)
+        if arg_types_ == xs:
+            return crd_type
+        else:
+            xs, result = list(map(get_functor_result, xs)), get_functor_result(result)
         return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), xs, result)
 
     branch_proof = set()
@@ -273,15 +285,19 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
     mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
     args = list(filter(lambda out: out.dep not in _mod_deps, outgoing))
+    sorted_args = order_nodes(dag, set(map(lambda out: out.target, args)))
+    args = sorted(args, key=lambda x: sorted_args.index(x.target))
+    arg_types = list(map(lambda out: get_simple_argument(dag, out.target), args))
+    arg_deps = list(map(lambda out: out.dep, args))
 
     if dag.attribs[parent]['cat'] == 'conj':
-        branch_output = simplify_crd(dag.attribs[head.target]['type'])
+        branch_output = simplify_crd(dag.attribs[head.target]['type'], arg_types)
     else:
         branch_output = get_simple_functor(dag, head.target)
 
     arg_proof, branch_output = align_args(branch_output,
-                                          list(map(lambda out: get_simple_argument(dag, out.target), args)),
-                                          list(map(lambda out: out.dep, args)))
+                                          arg_types,
+                                          arg_deps)
     mod_proof, branch_output = align_mods(branch_output, list(map(lambda node: get_simple_argument(dag, node), mods)))
     branch_proof = merge_proofs(branch_proof, (arg_proof, mod_proof))
 
@@ -289,7 +305,7 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
 
 
 def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str]) -> Tuple[ProofNet, WordType]:
-    def color_fold(functor_: WordType) -> Iterable[Tuple[WordType, str]]:
+    def color_fold(functor_: WordType) -> Iterable[Tuple[str, WordType]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[WordType, str], WordType]]:
             return ((x.color, x.argument), x.result) if isinstance(x, ColoredType) else None
         return unfoldr(step, functor_)
@@ -299,16 +315,31 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         neg = snd(pair)
         return match(proof_, pos, neg)
 
+    def make_pairs(argdeps_: List[Tuple[str, WordType]], functor_argdeps_: List[Tuple[str, WordType]]) \
+            -> Tuple[List[Tuple[WordType, WordType]], List[Tuple[str, WordType]]]:
+        ret = []
+        rem = []
+        for neg in functor_argdeps_:
+            if neg in argdeps_:
+                pos = argdeps_.pop(argdeps_.index(neg))
+                ret.append((snd(pos), snd(neg)))
+            else:
+                rem.append(neg)
+        return ret, rem
+
     proof = set()
+
     if argtypes:
         functor_argcolors = color_fold(functor)
         functor_argcolors = list(filter(lambda ac: fst(ac) not in _mod_deps, functor_argcolors))
-        argdeps = list(zip(deps, argtypes))
-        argdeps = sorted(argdeps, key=lambda x: functor_argcolors.index(x))
 
-        pairs = list(zip(list(map(snd, argdeps)), list(map(snd, functor_argcolors))))
+        argdeps = list(zip(deps, argtypes))
+
+        pairs, rem = make_pairs(argdeps, functor_argcolors)
+
         proof = reduce(match_args, pairs, proof)
-        return proof, get_functor_result(functor)
+        return proof, reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), rem,
+                             get_functor_result(functor))
     return proof, functor
 
 
@@ -345,8 +376,10 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
             new_dag = delete_ghost_nodes(new_dag)
             copy_proof = match_copies_with_crds(new_dag)
             proof = merge_proof(proof, copy_proof)
-    except ProofError as e:
+    except Exception as e:
         ToGraphViz()(new_dag)
+        import pdb
+        pdb.set_trace()
         raise e
 
     root_type = new_dag.attribs[fst(list(new_dag.get_roots()))]['type']
@@ -356,6 +389,7 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
 
     if set(map(fst, proof)).union(set(map(snd, proof))) != set(range(idx)):
         ToGraphViz()(new_dag)
+        print(set(range(idx)).difference(set(map(fst, proof)).union(set(map(snd, proof)))))
         import pdb
         pdb.set_trace()
 
