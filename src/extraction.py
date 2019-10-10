@@ -1,8 +1,9 @@
+from collections import defaultdict
+from itertools import chain
+
 from src.graphutils import *
 from src.milltypes import AtomicType, WordType, ColoredType, WordTypes, strings, binarize, invariance_check
 from src.transformations import majority_vote, _cats_of_type, order_nodes
-from collections import defaultdict
-from itertools import chain
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types
@@ -176,7 +177,8 @@ def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Option
 
     heading_edges = list(map(lambda pair: (fst(pair),
                                            list(filter(lambda edge:
-                                                       edge.dep not in mod_deps and edge != fst(pair),
+                                                       edge.dep not in mod_deps and edge != fst(pair) and
+                                                       edge.target not in double_heads,
                                                        snd(pair)))),
                              heading_edges))
 
@@ -192,7 +194,7 @@ def type_heads_step(dag: DAG, head_deps: Set[str], mod_deps: Set[str]) -> Option
                              heading_edges))
     head_types = {**{node: {**dag.attribs[node], **{'type': make_functor(res, argcolors) if argcolors else res}}
                   for (node, res, argcolors) in heading_argcs},
-                  **{node: {**dag.attribs[node], **{'type': AtomicType('_CRD')}} for node in double_heads}}
+                  **{node: {**dag.attribs[node], **{'type': AtomicType('_')}} for node in double_heads}}
     return head_types
 
 
@@ -277,7 +279,7 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
         return list(map(normalize_gap_copy, typecolors))
 
     def make_polymorphic_x(initial: WordType, missing: Sequence[Tuple[WordType, str]]) -> ColoredType:
-        missing = list(map(lambda pair: (fst(pair), snd(pair) if snd(pair) not in head_deps.union(mod_deps) else 'embedded'),
+        missing = list(map(lambda pair: (fst(pair), snd(pair) if snd(pair) not in mod_deps else 'embedded'),
                            missing))
         return binarize(_obliqueness_sort, list(map(fst, missing)), list(map(snd, missing)), initial)
 
@@ -331,7 +333,7 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     crds = list(map(lambda crd: crd.target, crds))
     copy_types = {crd: {**dag.attribs[crd], **{'type': crd_type}} for crd, crd_type in zip(crds, crd_types)}
     dag.attribs.update(copy_types)
-    secondary_types = {crd: {**dag.attribs[crd], **{'type': AtomicType('_CRD')}} for crd in secondary_crds}
+    secondary_types = {crd: {**dag.attribs[crd], **{'type': AtomicType('_')}} for crd in secondary_crds}
     dag.attribs.update(secondary_types)
 
 
