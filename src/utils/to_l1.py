@@ -72,8 +72,11 @@ def get_matchings(proof: ProofNet) -> Dict[int, int]:
 
 def get_conclusion(types_: List[WordType], matchings: Dict[int, int]) -> Atom:
     atomic_types = map(lambda type_: type_.get_atomic(), types_)
-    atomic_types = chain.from_iterable(atomic_types)
-    conclusion = fst(list(filter(lambda atomic: atomic.index not in matchings.keys(), atomic_types)))
+    atomic_types = list(chain.from_iterable(atomic_types))
+    atomic_indexes = set(map(lambda atomic: atomic.index, atomic_types))
+    missing = fst(list(set(k for k in matchings.keys()) - atomic_indexes))
+    missing = matchings[missing]
+    conclusion = fst(list(filter(lambda atomic: atomic.index == missing, atomic_types)))
     return atomic_type_to_atom(conclusion, matchings)
 
 
