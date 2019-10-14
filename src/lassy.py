@@ -1,12 +1,12 @@
+import os
+import xml.etree.cElementTree as et
+from glob import glob
+from warnings import warn
+
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 
 from src.graphutils import *
-from warnings import warn
-
-from glob import glob
-import os
-import xml.etree.cElementTree as et
 
 
 def is_public(filename: str) -> bool:

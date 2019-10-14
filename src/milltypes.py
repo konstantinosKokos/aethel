@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from functools import reduce
-from typing import Union, Set, Sequence, Tuple, Iterable, List, Callable
 from collections import Counter
+from functools import reduce
 from operator import add
+from typing import Union, Set, Sequence, Tuple, Iterable, List, Callable
 
 
 class WordType(ABC):
@@ -201,7 +201,7 @@ def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tu
 
 
 def binarize(sorting_fn: Callable[[Iterable[Tuple[WordType, str]]], List[Tuple[WordType, str]]],
-              arguments: WordTypes, colors: strings, result: WordType) -> ColoredType:
+             arguments: WordTypes, colors: strings, result: WordType) -> ColoredType:
     argcolors = zip(arguments, colors)
     argcolors = list(sorting_fn(argcolors))
     return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), argcolors, result)

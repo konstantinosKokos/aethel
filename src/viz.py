@@ -1,5 +1,6 @@
-from src.graphutils import *
 import graphviz as gv
+
+from src.graphutils import *
 
 
 class ToGraphViz(object):

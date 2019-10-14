@@ -205,6 +205,11 @@ def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
     conjunction_daughters = order_nodes(dag, conjunction_daughters)
     conjunction_daughters = list(map(lambda daughter: dag.exists_path(daughter, edge.source) or daughter == edge.source,
                                      conjunction_daughters))
+
+    if not any(conjunction_daughters):
+        ToGraphViz()(dag)
+        import pdb
+        pdb.set_trace()
     daughter_index = conjunction_daughters.index(True)
 
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
@@ -299,7 +304,10 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     outgoing = set(filter(lambda edge: not is_copy(dag, edge.target) or is_gap_copy_parent(edge), outgoing))
 
     head = list(filter(lambda out: out.dep in _head_deps, outgoing))
-    assert len(head) == 1
+    if len(head) != 1:
+        ToGraphViz()(dag)
+        import pdb
+        pdb.set_trace()
     head = fst(head)
     outgoing = list(filter(lambda out: out != head, outgoing))
     mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
