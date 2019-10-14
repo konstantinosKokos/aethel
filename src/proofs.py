@@ -293,7 +293,7 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
             return crd_type
         else:
             xs, result = list(map(get_functor_result, xs)), get_functor_result(result)
-        return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), xs, result)
+        return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), reversed(xs), result)
 
     def is_gap_copy_parent(edge_: Edge) -> bool:
         return edge_.dep in _head_deps and is_copy(dag, edge_.target) and is_gap(dag, edge_.target, _head_deps)
