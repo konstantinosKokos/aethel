@@ -26,7 +26,7 @@ class Implication(object):
         self.B = form_b
 
     def __str__(self) -> str:
-        return 'imp(' + str(self.A) + ', ' + str(self.B) + ')'
+        return 'impl(' + str(self.A) + ', ' + str(self.B) + ')'
 
     def __repr__(self) -> str:
         return str(self)
