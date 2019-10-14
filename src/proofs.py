@@ -147,6 +147,8 @@ def add_ghost_nodes(dag: DAG) -> DAG:
     copy_gaps = copies.intersection(gaps)
     copies = list(copies - copy_gaps)
 
+    # todo. assertions
+
     copy_gaps = set(filter(lambda edge: edge.dep not in _head_deps, copy_gaps))
     copy_gaps = list(copy_gaps)
 
@@ -155,13 +157,6 @@ def add_ghost_nodes(dag: DAG) -> DAG:
 
     dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copies, copy_types), dag)
     dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copy_gaps, gap_types), dag)
-
-    if copy_gaps:
-        ToGraphViz()(dag)
-        print(dag.meta)
-        print('gap copy')
-        import pdb
-        pdb.set_trace()
 
     return dag
 
@@ -238,9 +233,16 @@ def match_copies_with_crds(dag: DAG) -> ProofNet:
 
 
 def match_copy_gaps_with_crds(dag: DAG) -> ProofNet:
-    # todo.
-    proof = set()
-    return proof
+
+    gaps = list(filter(lambda node: is_copy(dag, node) and is_gap(dag, node, _head_deps), dag.nodes))
+    gap_types = list(map(lambda node: dag.attribs[node]['type'], gaps))
+    gap_colors = list(map(lambda type_: type_.argument.color, gap_types))
+    gap_types = list(map(lambda type_: type_.argument.argument, gap_types))
+    conjunctions = list(map(lambda copy: find_first_conjunction_above(dag, copy), gaps))
+    crd_types = list(map(lambda conj: get_crd_type(dag, conj), conjunctions))
+    results = list(map(last_instance_of, crd_types))
+    matches = list(map(identify_missing, results, gap_types, gap_colors))
+    return reduce(lambda proof_, pair: match(proof_, fst(pair), snd(pair)), zip(gap_types, matches), set())
 
 
 def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
