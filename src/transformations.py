@@ -4,12 +4,6 @@ from xml.etree.cElementTree import Element, ElementTree
 from src.graphutils import *
 
 
-class TransformationError(AssertionError):
-    def __init__(self, message: str, meta: Any = None):
-        super().__init__(message)
-        self.meta = meta
-
-
 def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
     coindexed = list(filter(lambda elem: 'index' in elem.attrib.keys(), nodes))
     all_mutual_indices = {i: [node for node in group] for i, group in
@@ -50,12 +44,17 @@ def order_nodes(dag: DAG, nodes: Nodes) -> List[Node]:
                                                           dag.attribs[node]['id']))))
 
 
-def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> Any:
-    votes = list(map(lambda n: dag.attribs[n][pos_set] if pos_set in dag.attribs[n].keys() else dag.attribs[n]['cat'],
-                     nodes))
+def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
+    def get_vote(node_: Node) -> str:
+        if pos_set in dag.attribs[node_].keys():
+            return dag.attribs[node_][pos_set]
+        elif dag.attribs[node_]['cat'] == 'conj':
+            return majority_vote(dag, dag.successors(node_), pos_set)
+        else:
+            return dag.attribs[node_]['cat']
+
+    votes = list(map(lambda n: get_vote(n), nodes))
     votes = sorted(votes)
-    if 'conj' in votes:
-        raise TransformationError('Impredicative conjunction.')
     votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
     votecounts = sorted(votecounts, key=lambda pair: snd(pair), reverse=True)
     votes = set(votes)
