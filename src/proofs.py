@@ -328,14 +328,14 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
                                           arg_deps)
     mod_proof, branch_output = align_mods(branch_output, list(map(lambda node: get_simple_argument(dag, node), mods)))
     branch_proof = merge_proofs(branch_proof, (arg_proof, mod_proof))
-
     return branch_proof, branch_output
 
 
 def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str]) -> Tuple[ProofNet, WordType]:
     def color_fold(functor_: WordType) -> Iterable[Tuple[str, WordType]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[str, WordType], WordType]]:
-            return ((x.color, x.argument), x.result) if isinstance(x, ColoredType) else None
+            return ((x.color, x.argument), x.result) if isinstance(x, ColoredType) \
+                                                        and x.color not in _mod_deps else None
         return unfoldr(step, functor_)
 
     def match_args(proof_: ProofNet, pair: Tuple[WordType, WordType]) -> ProofNet:
@@ -358,13 +358,10 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
     proof = set()
 
     if argtypes:
-        functor_argcolors = color_fold(functor)
+        functor_argcolors = list(color_fold(functor))
         functor_argcolors = list(filter(lambda ac: fst(ac) not in _mod_deps, functor_argcolors))
-
         argdeps = list(zip(deps, argtypes))
-
         pairs, rem = make_pairs(argdeps, functor_argcolors)
-
         proof = reduce(match_args, pairs, proof)
         return proof, reduce(lambda x, y: ColoredType(result=x, argument=y[1], color=y[0]), rem,
                              get_functor_result(functor))
