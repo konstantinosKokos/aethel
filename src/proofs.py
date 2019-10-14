@@ -358,10 +358,7 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         pairs, rem = make_pairs(argdeps, functor_argcolors)
 
         proof = reduce(match_args, pairs, proof)
-        if rem:
-            test = reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), rem,
-                             get_functor_result(functor))
-        return proof, reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), rem,
+        return proof, reduce(lambda x, y: ColoredType(result=x, argument=y[1], color=y[0]), rem,
                              get_functor_result(functor))
     return proof, functor
 
@@ -398,7 +395,7 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
 
             new_dag = delete_ghost_nodes(new_dag)
             copy_proof = match_copies_with_crds(new_dag)
-            copy_gap_proof = match_copy_gaps_with_crds(dag)
+            copy_gap_proof = match_copy_gaps_with_crds(new_dag)
             proof = merge_proofs(proof, [copy_proof, copy_gap_proof])
     except ProofError as e:
         ToGraphViz()(new_dag)
