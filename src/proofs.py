@@ -145,13 +145,23 @@ def add_ghost_nodes(dag: DAG) -> DAG:
     copies = set(filter(lambda edge: is_copy(dag, edge.target), edges))
     gaps = set(filter(lambda edge: is_gap(dag, edge.target, _head_deps), edges))
     copy_gaps = copies.intersection(gaps)
-
     copies = list(copies - copy_gaps)
+
+    copy_gaps = set(filter(lambda edge: edge.dep not in _head_deps, copy_gaps))
+    copy_gaps = list(copy_gaps)
+
     copy_types = list(map(lambda copy: get_copy_annotation(dag, copy), copies))
+    gap_types = list(map(lambda copy: get_copy_annotation(dag, copy), copy_gaps))
+
     dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copies, copy_types), dag)
+    dag = reduce(lambda dag_, pair_: add_edge(dag_, fst(pair_), snd(pair_)), zip(copy_gaps, gap_types), dag)
 
     if copy_gaps:
-        raise NotImplementedError('Gap copy')
+        ToGraphViz()(dag)
+        print(dag.meta)
+        print('gap copy')
+        import pdb
+        pdb.set_trace()
 
     return dag
 
@@ -191,7 +201,7 @@ def get_crd_type(dag: DAG, conjunction: Node) -> WordType:
 def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
     copy = edge.target
     conjunction = find_first_conjunction_above(dag, copy)
-    missing_type = dag.attribs[edge.target]['type']
+    missing_type = get_simple_argument(dag, edge.target)
     crd_type = get_crd_type(dag, conjunction)
 
     conjunction_daughters = list(filter(lambda out: out.dep not in _head_deps.union(_mod_deps),
@@ -225,6 +235,12 @@ def match_copies_with_crds(dag: DAG) -> ProofNet:
                        copy_types,
                        copy_colors))
     return reduce(lambda proof_, pair: match(proof_, fst(pair), snd(pair)), zip(copy_types, matches), set())
+
+
+def match_copy_gaps_with_crds(dag: DAG) -> ProofNet:
+    # todo.
+    proof = set()
+    return proof
 
 
 def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
@@ -266,17 +282,19 @@ def get_simple_fringe(dag: DAG) -> List[Node]:
 def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     def simplify_crd(crd_type: WordType, arg_types_: List[WordType]) -> WordType:
         xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
-        print(xs, arg_types_)
         if arg_types_ == xs:
             return crd_type
         else:
             xs, result = list(map(get_functor_result, xs)), get_functor_result(result)
         return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), xs, result)
 
+    def is_gap_copy_parent(edge_: Edge) -> bool:
+        return edge_.dep in _head_deps and is_copy(dag, edge_.target) and is_gap(dag, edge_.target, _head_deps)
+
     branch_proof = set()
 
     outgoing = dag.outgoing(parent)
-    outgoing = set(filter(lambda edge: not is_copy(dag, edge.target), outgoing))
+    outgoing = set(filter(lambda edge: not is_copy(dag, edge.target) or is_gap_copy_parent(edge), outgoing))
 
     head = list(filter(lambda out: out.dep in _head_deps, outgoing))
     assert len(head) == 1
@@ -306,7 +324,7 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
 
 def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[str]) -> Tuple[ProofNet, WordType]:
     def color_fold(functor_: WordType) -> Iterable[Tuple[str, WordType]]:
-        def step(x: WordType) -> Optional[Tuple[Tuple[WordType, str], WordType]]:
+        def step(x: WordType) -> Optional[Tuple[Tuple[str, WordType], WordType]]:
             return ((x.color, x.argument), x.result) if isinstance(x, ColoredType) else None
         return unfoldr(step, functor_)
 
@@ -338,6 +356,9 @@ def align_args(functor: WordType, argtypes: Sequence[WordType], deps: Sequence[s
         pairs, rem = make_pairs(argdeps, functor_argcolors)
 
         proof = reduce(match_args, pairs, proof)
+        if rem:
+            test = reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), rem,
+                             get_functor_result(functor))
         return proof, reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), rem,
                              get_functor_result(functor))
     return proof, functor
@@ -375,8 +396,9 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
 
             new_dag = delete_ghost_nodes(new_dag)
             copy_proof = match_copies_with_crds(new_dag)
-            proof = merge_proof(proof, copy_proof)
-    except Exception as e:
+            copy_gap_proof = match_copy_gaps_with_crds(dag)
+            proof = merge_proofs(proof, [copy_proof, copy_gap_proof])
+    except ProofError as e:
         ToGraphViz()(new_dag)
         import pdb
         pdb.set_trace()
