@@ -189,7 +189,14 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
     bad_edges = set.union(*list(map(lambda dep: set(dag.get_edges(dep)), deps_to_remove)))
     dag = dag.remove_edges(lambda edge: edge not in bad_edges, normalize=False)
     dags = dag.get_rooted_subgraphs()
+    dags = list(map(remove_non_leaves, dags))
     return list(filter(good_sample, dags))
+
+
+def remove_non_leaves(dag: DAG) -> DAG:
+    def non_leaf(node_: Node) -> bool:
+        return not len(dag.outgoing(node_)) and 'cat' in dag.attribs[node_].keys()
+    return dag.remove_nodes(lambda node: not non_leaf(node))
 
 
 def good_sample(dag: DAG) -> bool:
