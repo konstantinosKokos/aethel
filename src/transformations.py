@@ -4,6 +4,11 @@ from xml.etree.cElementTree import Element, ElementTree
 from src.graphutils import *
 
 
+def get_sentence(dag: DAG) -> List[str]:
+    leaves = order_nodes(dag, set(filter(dag.is_leaf, dag.nodes)))
+    return list(map(lambda leaf: dag.attribs[leaf]['word'], leaves))
+
+
 def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
     coindexed = list(filter(lambda elem: 'index' in elem.attrib.keys(), nodes))
     all_mutual_indices = {i: [node for node in group] for i, group in
