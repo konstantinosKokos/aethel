@@ -193,16 +193,19 @@ def get_crd_type(dag: DAG, conjunction: Node) -> WordType:
     return dag.attribs[crd]['type']
 
 
-def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
-    copy = edge.target
-    conjunction = find_first_conjunction_above(dag, copy)
-    missing_type = get_simple_argument(dag, edge.target)
-    crd_type = get_crd_type(dag, conjunction)
-
+def get_conjunction_daughters(dag: DAG, conjunction: Node) -> List[Node]:
     conjunction_daughters = list(filter(lambda out: out.dep not in _head_deps.union(_mod_deps),
                                         dag.outgoing(conjunction)))
     conjunction_daughters = set(map(lambda out: out.target, conjunction_daughters))
-    conjunction_daughters = order_nodes(dag, conjunction_daughters)
+    return order_nodes(dag, conjunction_daughters)
+
+
+def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
+    conjunction = find_first_conjunction_above(dag, edge.source)
+    missing_type = get_simple_argument(dag, edge.target)
+    crd_type = get_crd_type(dag, conjunction)
+
+    conjunction_daughters = get_conjunction_daughters(dag, conjunction)
     conjunction_daughters = list(map(lambda daughter: dag.exists_path(daughter, edge.source) or daughter == edge.source,
                                      conjunction_daughters))
 
@@ -223,18 +226,39 @@ def match_copies_with_crds(dag: DAG) -> ProofNet:
         assert len(incoming_) == 1
         return fst(list(incoming_))
 
+    def intra_crd_match(conjunction_hierarchies_: List[Tuple[WordType, List[List[bool]]]],
+                        copy_type_: WordType, copy_dep_: str) -> ProofNet:
+
+        if len(conjunction_hierarchies_) == 1:
+            return set()
+        elif len(conjunction_hierarchies_) == 2:
+            xs = isolate_xs(fst(fst(conjunction_hierarchies_)))
+            result = last_instance_of(fst(snd(conjunction_hierarchies_)))
+            covers = list(map(any, map(snd, conjunction_hierarchies_)))
+            x = xs[covers.index(True)]
+            missing_positive = identify_missing(x, copy_type_, copy_dep_)
+            missing_negative = identify_missing(result, copy_type_, copy_dep_)
+            return match(set(), missing_positive, missing_negative)
+        else:
+            raise NotImplementedError('Too hard.')
+
+    proof = set()
+
     copies = list(filter(lambda node: is_copy(dag, node) and not is_gap(dag, node, _head_deps),
                          dag.nodes))
     copy_colors = list(map(get_copy_color, copies))
     copy_types = list(map(lambda copy: dag.attribs[copy]['type'], copies))
-    conjunctions = list(map(lambda copy: find_first_conjunction_above(dag, copy), copies))
-    crd_types = list(map(lambda conj: get_crd_type(dag, conj), conjunctions))
+
+    conjunction_hierarchies = list(map(lambda node: find_participating_conjunctions(dag, node), copies))
+    proof = merge_proofs(proof, list(map(intra_crd_match, conjunction_hierarchies, copy_types, copy_colors)))
+
+    crd_types = list(map(lambda ch: fst(fst(ch)), conjunction_hierarchies))
     results = list(map(last_instance_of, crd_types))
     matches = list(map(identify_missing,
                        results,
                        copy_types,
                        copy_colors))
-    return reduce(lambda proof_, pair: match(proof_, fst(pair), snd(pair)), zip(copy_types, matches), set())
+    return reduce(lambda proof_, pair: match(proof_, fst(pair), snd(pair)), zip(copy_types, matches), proof)
 
 
 def match_copy_gaps_with_crds(dag: DAG) -> ProofNet:
@@ -259,6 +283,28 @@ def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
     if len(first_conj_above) == 1:
         return fst(first_conj_above)
     return
+
+
+def find_participating_conjunctions(dag: DAG, node: Node) -> List[Tuple[WordType, List[List[bool]]]]:
+    def impose_order(nodes_: Nodes) -> List[Node]:
+        # some hierarchical d-struct representing the order between conjunctions --
+        # for a full order, a list suffices
+        return sorted(nodes_,
+                      key=lambda node_: len(list(filter(lambda other: dag.exists_path(node_, other), nodes_))),
+                      reverse=True)
+
+    parents = list(map(lambda edge: edge.source, dag.incoming(node)))
+    conjunctions = set(map(lambda parent: find_first_conjunction_above(dag, parent), parents))
+    conjunctions = impose_order(conjunctions)
+    crds = list(map(lambda conjunction: get_crd_type(dag, conjunction), conjunctions))
+    inclusions = list(map(lambda conjunction:
+                          list(map(lambda daughter:
+                                   list(map(lambda other:
+                                            dag.exists_path(daughter, other), conjunctions)),
+                                   get_conjunction_daughters(dag, conjunction))),
+                          conjunctions))
+    # coordinator + which daughters cover which conjunctions
+    return list(zip(crds, inclusions))
 
 
 def iterate_simple_fringe(dag: DAG) -> Optional[Tuple[ProofNet, DAG]]:
