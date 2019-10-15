@@ -286,15 +286,17 @@ def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
 
 
 def find_participating_conjunctions(dag: DAG, node: Node) -> List[Tuple[WordType, List[List[bool]]]]:
-    def impose_order(nodes_: Nodes) -> List[Node]:
+    def impose_order(conjunctions_: Nodes) -> List[Node]:
         # some hierarchical d-struct representing the order between conjunctions --
         # for a full order, a list suffices
-        return sorted(nodes_,
-                      key=lambda node_: len(list(filter(lambda other: dag.exists_path(node_, other), nodes_))),
+        return sorted(conjunctions_,
+                      key=lambda conj_: len(list(filter(lambda other: dag.exists_path(conj_, other),
+                                                        conjunctions_))),
                       reverse=True)
 
     parents = list(map(lambda edge: edge.source, dag.incoming(node)))
     conjunctions = set(map(lambda parent: find_first_conjunction_above(dag, parent), parents))
+    conjunctions = set(filter(lambda conjunction: len(dag.distinct_paths_to(conjunction, node)) > 1, conjunctions))
     conjunctions = impose_order(conjunctions)
     crds = list(map(lambda conjunction: get_crd_type(dag, conjunction), conjunctions))
     inclusions = list(map(lambda conjunction:
