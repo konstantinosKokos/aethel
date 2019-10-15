@@ -201,18 +201,26 @@ def get_conjunction_daughters(dag: DAG, conjunction: Node) -> List[Node]:
 
 
 def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
-    conjunction = find_first_conjunction_above(dag, edge.source)
-    missing_type = get_simple_argument(dag, edge.target)
-    crd_type = get_crd_type(dag, conjunction)
 
-    conjunction_daughters = get_conjunction_daughters(dag, conjunction)
-    conjunction_daughters = list(map(lambda daughter: dag.exists_path(daughter, edge.source) or daughter == edge.source,
-                                     conjunction_daughters))
+    source = edge.source
 
-    if not any(conjunction_daughters):
-        ToGraphViz()(dag)
-        import pdb
-        pdb.set_trace()
+    while True:
+
+        conjunction = find_first_conjunction_above(dag, source)
+        if conjunction is None:
+            ToGraphViz()(dag)
+            import pdb
+            pdb.set_trace()
+        missing_type = get_simple_argument(dag, edge.target)
+        crd_type = get_crd_type(dag, conjunction)
+
+        conjunction_daughters = get_conjunction_daughters(dag, conjunction)
+        conjunction_daughters = list(map(lambda daughter: dag.exists_path(daughter, edge.source) or daughter == edge.source,
+                                         conjunction_daughters))
+        if any(conjunction_daughters):
+            break
+        source = conjunction
+
     daughter_index = conjunction_daughters.index(True)
 
     xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
@@ -240,6 +248,7 @@ def match_copies_with_crds(dag: DAG) -> ProofNet:
             missing_negative = identify_missing(result, copy_type_, copy_dep_)
             return match(set(), missing_positive, missing_negative)
         else:
+            ToGraphViz()(dag)
             raise NotImplementedError('Too hard.')
 
     proof = set()
@@ -250,7 +259,12 @@ def match_copies_with_crds(dag: DAG) -> ProofNet:
     copy_types = list(map(lambda copy: dag.attribs[copy]['type'], copies))
 
     conjunction_hierarchies = list(map(lambda node: find_participating_conjunctions(dag, node), copies))
-    proof = merge_proofs(proof, list(map(intra_crd_match, conjunction_hierarchies, copy_types, copy_colors)))
+    try:
+        proof = merge_proofs(proof, list(map(intra_crd_match, conjunction_hierarchies, copy_types, copy_colors)))
+    except AttributeError:
+        ToGraphViz()(dag)
+        import pdb
+        pdb.set_trace()
 
     crd_types = list(map(lambda ch: fst(fst(ch)), conjunction_hierarchies))
     results = list(map(last_instance_of, crd_types))
