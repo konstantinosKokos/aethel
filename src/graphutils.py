@@ -227,14 +227,15 @@ class DAG(NamedTuple):
                 DAG(nodes=rem_nodes, edges=rem_edges, attribs=rem_attribs, meta=self.meta))
 
     def distinct_paths_to(self, source: Node, target: Node) -> Paths:
-        def add_to_path(edge_: Edge, target_: Edge, path_: Path) -> Paths:
+        def expand_path(edge_: Edge, path_: Path) -> Paths:
             path_ = tuple(path_) + (edge_,)
-            if edge_.target == target_:
+            if edge_.target == target:
                 return {path_}
-            return set.union(*[add_to_path(cont, target_, path_) for cont in self.outgoing(edge_.target)])
+            expansions = list(map(lambda out: expand_path(out, path_), self.outgoing(edge_.target)))
+            return set.union(*expansions) if expansions else set()
 
-        if target not in self.points_to(source):
+        if target not in self.points_to(source) or not self.outgoing(source):
             return set()
         else:
-            return set.union(*[add_to_path(edge, target, []) for edge in self.outgoing(source)])
+            return set.union(*[expand_path(edge, tuple()) for edge in self.outgoing(source)])
 
