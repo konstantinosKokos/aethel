@@ -138,7 +138,7 @@ def identify_missing(polymorphic_x: WordType, missing: WordType, dep: str) -> Wo
 
 def update_types(dag: DAG, nodes: List[Node], wordtypes: List[WordType]) -> DAG:
     new_types = {node: {**dag.attribs[node], **{'type': wordtype}} for (node, wordtype) in zip(nodes, wordtypes)}
-    return DAG(nodes=dag.nodes, edges=dag.edges, attribs={**dag.attribs, **new_types})
+    return DAG(nodes=dag.nodes, edges=dag.edges, attribs={**dag.attribs, **new_types}, meta=dag.meta)
 
 
 def add_ghost_nodes(dag: DAG) -> DAG:
@@ -183,7 +183,8 @@ def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> D
 
     return DAG(nodes=dag.nodes.union({fresh_node}),
                edges=dag.edges.union({fresh_edge}),
-               attribs={**dag.attribs, **fresh_attrib})
+               attribs={**dag.attribs, **fresh_attrib},
+               meta=dag.meta)
 
 
 def get_crd_type(dag: DAG, conjunction: Node) -> WordType:
