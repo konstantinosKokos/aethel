@@ -33,16 +33,28 @@ class Implication(object):
 
 
 Formula = Union[Atom, Implication]
-L1_Input = Tuple[List[Formula], Formula]
 
 
-def to_l1(dag: DAG, proof: ProofNet) -> L1_Input:
+class L1(NamedTuple):
+    sent_id: str
+    words: List[str]
+    formulas: List[Formula]
+    conclusion: Formula
+
+    def __str__(self):
+        return 'lassy({}) :-\n\t{},\n\t{},\n\t{}.'.format(self.sent_id.split('/')[-1],
+                                                              self.words, self.formulas, self.conclusion)
+
+
+def to_l1(proof: ProofNet, dag: DAG) -> L1:
     leaves = set(filter(lambda node: dag.is_leaf(node), dag.nodes))
     leaves = order_nodes(dag, leaves)
     matchings = get_matchings(proof)
     types_ = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves))
     formulas = list(map(lambda type_: type_to_formula(type_, matchings), types_))
-    return formulas, get_conclusion(types_, matchings)
+    sent_id = dag.meta['src']
+    words = list(map(lambda node: dag.attribs[node]['word'], leaves))
+    return L1(sent_id, words, formulas, get_conclusion(types_, matchings))
 
 
 def atomic_type_to_atom(inp: PolarizedIndexedType, matchings: Dict[int, int]) -> Atom:
