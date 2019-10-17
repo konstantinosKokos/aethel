@@ -76,11 +76,19 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
 
 
 def remove_abstract_arguments(dag: DAG) -> DAG:
+    # todo: nested om-tes ?
     candidates = {'su', 'obj', 'obj1', 'obj2', 'sup'}
-    sentential_cats = {'sv1', 'smain', 'ssub'}
+    sentential_cats = {'sv1', 'smain', 'ssub', 'inf'}
 
     def has_sentential_parent(node: Node) -> bool:
-        return any(list(map(lambda pred: dag.attribs[pred]['cat'] in sentential_cats, dag.predecessors(node))))
+        def is_sentential(node_: Node) -> True:
+            if dag.attribs[node_]['cat'] in sentential_cats:
+                return True
+            elif dag.attribs[node_]['cat'] == 'conj':
+                return any(list(map(is_sentential, dag.predecessors(node_))))
+            return False
+
+        return any(list(map(lambda pred: is_sentential(pred), dag.predecessors(node))))
 
     def is_candidate_dep(edge: Edge) -> bool:
         return edge.dep in candidates
@@ -240,6 +248,7 @@ class Transformation(object):
         dags = list(map(swap_dp_headedness, dags))
         dags = list(map(lambda dag: reattatch_conj_mods(dag, self.mod_deps), dags))
         dags = list(map(lambda dag: dag.remove_oneways(), dags))
+        dags = list(filter(lambda dag: not dag.is_empty(), dags))
         return dags
 
 
