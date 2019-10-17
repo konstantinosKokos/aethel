@@ -39,8 +39,10 @@ def convert_to_dag(tree: ElementTree, meta: Optional[Any] = None) -> DAG:
     return DAG(nodes=set(attribs.keys()), edges=edges, attribs=attribs, meta=meta)
 
 
-def _cats_of_type(dag: DAG, cat: str) -> Nodes:
-    return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, dag.nodes))
+def _cats_of_type(dag: DAG, cat: str, nodes: Optional[Nodes] = None) -> Nodes:
+    if nodes is None:
+        nodes = dag.nodes
+    return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, nodes))
 
 
 def order_nodes(dag: DAG, nodes: Nodes) -> List[Node]:
