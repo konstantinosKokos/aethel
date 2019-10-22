@@ -346,6 +346,7 @@ def type_dag(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: 
     type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
     type_gaps(dag, hd_deps, mod_deps)
     type_copies(dag, hd_deps, mod_deps)
+    type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
     if check:
         premises = list(map(lambda node: dag.attribs[node]['type'], filter(lambda node: dag.is_leaf(node), dag.nodes)))
         goal = dag.attribs[fst(list(dag.get_roots()))]['type']
