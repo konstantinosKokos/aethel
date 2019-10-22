@@ -3,14 +3,15 @@ from itertools import chain
 
 from src.extraction import order_nodes, is_gap, is_copy, _head_deps, _mod_deps
 from src.graphutils import *
-from src.milltypes import polarize_and_index_many, polarize_and_index, WordType, PolarizedIndexedType, ColoredType
+from src.milltypes import polarize_and_index_many, polarize_and_index, WordType, \
+    PolarizedIndexedType, ColoredType, AtomicType
 from src.transformations import _cats_of_type
 
 from src.viz import ToGraphViz
 
 ProofNet = Set[Tuple[int, int]]
 
-Placeholder = None
+placeholder = AtomicType('_')
 
 
 class ProofError(AssertionError):
@@ -166,7 +167,7 @@ def delete_ghost_nodes(dag: DAG) -> DAG:
     return dag.remove_nodes(lambda node: int(dag.attribs[node]['id']) >= 0)
 
 
-def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> DAG:
+def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = placeholder) -> DAG:
     def get_fresh_node(nodes_: Nodes) -> Node:
         node = -1
         while str(node) in nodes_:
@@ -188,7 +189,7 @@ def add_edge(dag: DAG, edge: Edge, type_: Optional[WordType] = Placeholder) -> D
 
 
 def get_crd_type(dag: DAG, conjunction: Node) -> WordType:
-    crd = list(filter(lambda out: out.dep == 'crd' and dag.attribs[out.target]['type'] != '_CRD',
+    crd = list(filter(lambda out: out.dep == 'crd' and dag.attribs[out.target]['type'] != placeholder,
                       dag.outgoing(conjunction)))
     assert len(crd) == 1
     crd = fst(crd).target
@@ -459,13 +460,13 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     outgoing = dag.outgoing(parent)
     outgoing = set(filter(lambda edge: not is_copy(dag, edge.target) or is_gap_copy_parent(edge), outgoing))
 
-    head = list(filter(lambda out: out.dep in _head_deps, outgoing))
+    head = list(filter(lambda out: out.dep in _head_deps and dag.attribs[out.target]['type'] != placeholder, outgoing))
     if len(head) != 1:
         ToGraphViz()(dag)
         import pdb
         pdb.set_trace()
     head = fst(head)
-    outgoing = list(filter(lambda out: out != head, outgoing))
+    outgoing = list(filter(lambda out: out.dep not in _head_deps, outgoing))
     mods = list(filter(lambda out: out.dep in _mod_deps, outgoing))
     mods = order_nodes(dag, set(map(lambda out: out.target, mods)))
     args = list(filter(lambda out: out.dep not in _mod_deps, outgoing))
@@ -568,7 +569,13 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
 
     proof = match(proof, root_type, conclusion)
 
-    if set(map(fst, proof)).union(set(map(snd, proof))) != set(range(idx)):
+    positives = set(map(fst, proof))
+    negatives = set(map(snd, proof))
+    immaterial = set(map(lambda type_: type_.index, filter(lambda type_: type_ == placeholder,
+                                                           map(lambda leaf: new_dag.attribs[leaf]['type'],
+                                                               filter(new_dag.is_leaf, dag.nodes)))))
+
+    if set.union(positives, negatives, immaterial) != set(range(idx)):
         ToGraphViz()(new_dag)
         print(set(range(idx)).difference(set(map(fst, proof)).union(set(map(snd, proof)))))
         import pdb
@@ -590,7 +597,7 @@ class Prove(object):
     def __init__(self):
         pass
 
-    def __call__(self, dag: DAG, raise_errors: bool = True) -> Optional[DAG]:
+    def __call__(self, dag: DAG, raise_errors: bool = True) -> Optional[Tuple[ProofNet, DAG]]:
         try:
             return annotate_dag(dag)
         except ProofError as e:
