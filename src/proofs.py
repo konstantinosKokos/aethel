@@ -425,6 +425,7 @@ def iterate_simple_fringe(dag: DAG) -> Optional[Tuple[ProofNet, DAG]]:
 
 def annotate_simple_branches(dag: DAG) -> Optional[Tuple[Tuple[ProofNet, DAG], DAG]]:
     parents = list(get_simple_fringe(dag))
+
     if parents:
         temp = list(map(lambda parent: annotate_simple_branch(dag, parent), parents))
         branch_proofs, parent_types = list(zip(*temp))
@@ -449,8 +450,11 @@ def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
         if arg_types_ == xs:
             return crd_type
         else:
-            xs, result = list(map(get_functor_result, xs)), get_functor_result(result)
-        return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), reversed(xs), result)
+            xs, result = list(map(lambda x: x.result, xs)), result.result
+            crd_type = reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), reversed(xs), result)
+            return simplify_crd(crd_type, arg_types_)
+            # xs, result = list(map(get_functor_result, xs)), get_functor_result(result)
+        # return reduce(lambda res_, arg_: ColoredType(arg_, res_, 'cnj'), reversed(xs), result)
 
     def is_gap_copy_parent(edge_: Edge) -> bool:
         return edge_.dep in _head_deps and is_copy(dag, edge_.target) and is_gap(dag, edge_.target, _head_deps)
@@ -565,6 +569,8 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
         raise e
 
     root_type = new_dag.attribs[fst(list(new_dag.get_roots()))]['type']
+    if not isinstance(root_type, AtomicType):
+        raise ProofError('Derived a complex type.')
     idx, conclusion = polarize_and_index(root_type.depolarize(), False, idx)
 
     proof = match(proof, root_type, conclusion)
