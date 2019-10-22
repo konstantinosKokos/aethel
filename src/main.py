@@ -2,7 +2,7 @@ from itertools import chain
 
 from src.extraction import Extraction, _cat_dict, _pt_dict, _head_deps, _mod_deps, ExtractionError
 from src.lassy import Lassy
-from src.proofs import Prove
+from src.proofs import Prove, ProofError
 from src.transformations import Transformation
 from src.viz import ToGraphViz
 
@@ -28,12 +28,37 @@ def test(size, start=0):
     extracted = list(map(_extract, transformed))
     extracted = list(filter(lambda e: e is not None, extracted))
     return extracted
-    # prover = Prover(extracted, _prove)
-    # return prover
+
+
+def count_errors():
+    meta = [{'src': _lassy[i][1]} for i in range(len(_lassy))]
+
+    transformed = list(chain.from_iterable(list(map(_transform,
+                                                    list(map(lambda i: _lassy[i][2], range(len(_lassy)))),
+                                                    meta))))
+
+    extracted = []
+
+    ex_errors = []
+    for t in transformed:
+        try:
+            extracted.append(_extract(t, raise_errors=True))
+        except ExtractionError as ee:
+            ex_errors.append(ee)
+
+    proven = []
+
+    proof_errors = []
+    for e in extracted:
+        try:
+            proven.append(_prove(e, raise_errors=True))
+        except ProofError as pe:
+            proof_errors.append(pe)
+    return ex_errors, proof_errors
 
 
 def compose(sample: Union[int, str]) -> List[Optional[Tuple[ProofNet, DAG]]]:
-    dags = _transform(_lassy[sample][2])
+    dags = _transform(_lassy[sample][2], meta={'src': _lassy[sample][1]})
     extracted = list(filter(lambda e: e is not None, list(map(_extract, dags))))
-    proven = list(map(_prove, extracted))
+    proven = list(map(lambda e: _prove(e, raise_errors=False), extracted))
     return proven
