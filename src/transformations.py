@@ -238,7 +238,7 @@ class Transformation(object):
         self.deps_to_remove = {'dp', 'sat', 'nucl', 'tag'}
         self.mod_deps = {'mod', 'app', 'predm'}
 
-    def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> Any:
+    def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> List[DAG]:
         dag = convert_to_dag(tree, meta)
         dag = collapse_mwu(dag)
         dags = remove_headless_branches(dag, self.cats_to_remove, self.deps_to_remove)
@@ -248,6 +248,9 @@ class Transformation(object):
         dags = list(map(lambda dag: reattatch_conj_mods(dag, self.mod_deps), dags))
         dags = list(map(lambda dag: dag.remove_oneways(), dags))
         dags = list(filter(lambda dag: not dag.is_empty(), dags))
+        dags = list(map(lambda dag: dag.remove_oneways(),
+                        list(chain.from_iterable(map(lambda dag: dag.get_subgraphs(), dags)))))
+
         return dags
 
 
