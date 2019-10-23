@@ -76,8 +76,7 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
 
 
 def remove_abstract_arguments(dag: DAG) -> DAG:
-    # todo: nested om-tes ?
-    candidates = {'su', 'obj', 'obj1', 'obj2', 'sup'}
+    candidates = {'su', 'obj', 'obj1', 'obj2', 'sup', 'pobj'}
     sentential_cats = {'sv1', 'smain', 'ssub', 'inf'}
 
     def has_sentential_parent(node: Node) -> bool:
