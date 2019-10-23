@@ -253,11 +253,18 @@ def type_gaps(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     gap_nodes = list(filter(lambda node: is_gap(dag, node, head_deps), dag.nodes))
     if not gap_nodes:
         return
+    if any(list(map(lambda node: 'type' not in dag.attribs[node].keys(), gap_nodes))):
+        raise ExtractionError('Untyped gap.')
     emb_types = list(map(lambda node: dag.attribs[node]['type'], gap_nodes))
     interms, tops = list(zip(*map(get_interm_top, gap_nodes)))
     gap_types = list(map(make_gap_functor, emb_types, interms, tops))
     gap_types = {node: {**dag.attribs[node], **{'type': gap_type}} for node, gap_type in zip(gap_nodes, gap_types)}
     dag.attribs.update(gap_types)
+
+    derived_gaps = list(filter(lambda node: not dag.is_leaf(node), gap_nodes))
+    descendants = list(chain.from_iterable(map(dag.points_to, derived_gaps)))
+    descendant_attribs = {node: {k: v for k, v in dag.attribs[node].items() if k != 'type'} for node in descendants}
+    dag.attribs.update(descendant_attribs)
 
 
 def is_copy(dag: DAG, node: Node) -> bool:
@@ -294,6 +301,11 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
         return ret
 
     conjuncts = list(_cats_of_type(dag, 'conj'))
+
+    gap_conjuncts = list(filter(lambda node: is_gap(dag, node, head_deps), conjuncts))
+    if gap_conjuncts:
+        raise ExtractionError('Gap conjunction.')
+
     conj_groups = list(map(dag.outgoing, conjuncts))
     crds = list(map(lambda conj_group: list(filter(lambda edge: edge.dep == 'crd', conj_group)), conj_groups))
     if any(list(map(lambda conj_group: len(conj_group) == 0, crds))):
@@ -321,6 +333,8 @@ def type_copies(dag: DAG, head_deps: Set[str], mod_deps: Set[str]):
     all_copies = set(filter(lambda node: is_copy(dag, node), dag.nodes))
     if accounted_copies != all_copies:
         raise ExtractionError('Unaccounted copies.', meta=dag.meta)
+    if any(list(map(lambda acc: 'type' not in dag.attribs[acc].keys(), accounted_copies))):
+        raise ExtractionError('Untyped copies.', meta=dag.meta)
 
     copy_typecolors = list(map(lambda downset: list(map(lambda node: (dag.attribs[node]['type'],
                                                                       set(map(lambda edge: edge.dep,
@@ -345,10 +359,16 @@ def type_dag(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: 
     type_top(dag, type_dict, pos_set)
     type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
     type_gaps(dag, hd_deps, mod_deps)
+    type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
     type_copies(dag, hd_deps, mod_deps)
     type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
+
     if check:
-        premises = list(map(lambda node: dag.attribs[node]['type'], filter(lambda node: dag.is_leaf(node), dag.nodes)))
+        try:
+            premises = list(map(lambda node: dag.attribs[node]['type'], filter(lambda node: dag.is_leaf(node),
+                                                                               dag.nodes)))
+        except KeyError:
+            raise ExtractionError('Untyped leaves.')
         goal = dag.attribs[fst(list(dag.get_roots()))]['type']
         if not invariance_check(premises, goal):
             raise ExtractionError('Invariance check failed.', meta=dag.meta)
