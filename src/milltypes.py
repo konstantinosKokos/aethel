@@ -46,6 +46,10 @@ class WordType(ABC):
     def get_colors(self) -> Set[str]:
         pass
 
+    @abstractmethod
+    def depolarize(self) -> 'WordType':
+        pass
+
 
 WordTypes = Sequence[WordType]
 strings = Sequence[str]
@@ -132,6 +136,9 @@ class ComplexType(WordType):
     def get_colors(self) -> Set[str]:
         return set.union(self.argument.get_colors(), self.result.get_colors())
 
+    def depolarize(self) -> 'ComplexType':
+        return ComplexType(argument=self.argument.depolarize(), result=self.result.depolarize())
+
 
 class ColoredType(ComplexType):
     def __init__(self, argument: WordType, result: WordType, color: str):
@@ -164,6 +171,9 @@ class ColoredType(ComplexType):
 
     def get_colors(self) -> Set[str]:
         return set.union(super(ColoredType, self).get_colors(), {self.color})
+
+    def depolarize(self) -> 'ColoredType':
+        return ColoredType(argument=self.argument.depolarize(), result=self.result.depolarize(), color=self.color)
 
 
 class PolarizedIndexedType(AtomicType):
@@ -211,6 +221,10 @@ def decolor(colored_type: WordType) -> Union[AtomicType, ComplexType]:
     return colored_type.decolor()
 
 
+def depolarize(polar_type: WordType) -> WordType:
+    return polar_type.depolarize()
+
+
 def get_atomic(something: Union[WordTypes, WordType]) -> Set[AtomicType]:
     if isinstance(something, Sequence):
         return set.union(*map(get_atomic, something))
@@ -256,6 +270,7 @@ def operator_invariance(premises: WordTypes) -> int:
 
 
 def invariance_check(premises: WordTypes, goal: WordType) -> bool:
+    premises = list(filter(lambda type_: type_ != AtomicType('_'), premises))
     inferred = literal_invariance(premises)
     if list(inferred.values()) != [1]:
         return False
