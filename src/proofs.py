@@ -4,7 +4,7 @@ from itertools import chain
 from src.extraction import order_nodes, is_gap, is_copy, _head_deps, _mod_deps
 from src.graphutils import *
 from src.milltypes import polarize_and_index_many, polarize_and_index, WordType, \
-    PolarizedIndexedType, ColoredType, AtomicType
+    PolarizedIndexedType, ColoredType, AtomicType, depolarize
 from src.transformations import _cats_of_type
 
 from src.viz import ToGraphViz
@@ -321,32 +321,6 @@ def find_first_conjunction_above(dag: DAG, node: Node) -> Optional[Node]:
     return
 
 
-# def find_participating_conjunctions_old(dag: DAG, node: Node, exclude_heads: bool = False) \
-#         -> List[Tuple[WordType, List[List[bool]]]]:
-#     def impose_order(conjunctions_: Nodes) -> List[Node]:
-#         # some hierarchical d-struct representing the order between conjunctions --
-#         # for a full order, a list suffices
-#         return sorted(conjunctions_,
-#                       key=lambda conj_: len(list(filter(lambda other: dag.exists_path(conj_, other),
-#                                                         conjunctions_))),
-#                       reverse=True)
-#
-#     incoming = list(filter(lambda edge: edge.dep not in _head_deps or not exclude_heads, dag.incoming(node)))
-#     parents = list(map(lambda edge: edge.source, incoming))
-#     conjunctions = set(map(lambda parent: find_first_conjunction_above(dag, parent), parents))
-#     conjunctions = set(filter(lambda conjunction: len(dag.distinct_paths_to(conjunction, node)) > 1, conjunctions))
-#     conjunctions = impose_order(conjunctions)
-#     crds = list(map(lambda conjunction: get_crd_type(dag, conjunction), conjunctions))
-#     inclusions = list(map(lambda conjunction:
-#                           list(map(lambda daughter:
-#                                    list(map(lambda other:
-#                                             dag.exists_path(daughter, other) or daughter == other, conjunctions)),
-#                                    get_conjunction_daughters(dag, conjunction))),
-#                           conjunctions))
-#     # coordinator + which daughters cover which conjunctions
-#     return list(zip(crds, inclusions))
-
-
 def participating_conjunctions(dag: DAG, node: Node, exclude_heads: bool = False) \
         -> List[Tuple[Node, List[Optional[Node]]]]:
 
@@ -447,6 +421,10 @@ def get_simple_fringe(dag: DAG) -> List[Node]:
 def annotate_simple_branch(dag: DAG, parent: Node) -> Tuple[ProofNet, WordType]:
     def simplify_crd(crd_type: WordType, arg_types_: List[WordType]) -> WordType:
         xs, result = isolate_xs(crd_type), last_instance_of(crd_type)
+
+        if len(set(map(depolarize, arg_types))) > 1:
+            raise ProofError('Non polymorphic conjunction.')
+
         if arg_types_ == xs:
             return crd_type
         else:
@@ -563,14 +541,13 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
             copy_gap_proof = match_copy_gaps_with_crds(new_dag)
             proof = merge_proofs(proof, [copy_proof, copy_gap_proof])
     except ProofError as e:
-        ToGraphViz()(new_dag)
-        import pdb
-        pdb.set_trace()
         raise e
 
     root_type = new_dag.attribs[fst(list(new_dag.get_roots()))]['type']
+
     if not isinstance(root_type, AtomicType):
         raise ProofError('Derived a complex type.')
+
     idx, conclusion = polarize_and_index(root_type.depolarize(), False, idx)
 
     proof = match(proof, root_type, conclusion)
