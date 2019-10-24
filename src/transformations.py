@@ -4,6 +4,28 @@ from xml.etree.cElementTree import Element, ElementTree
 from src.graphutils import *
 
 
+def sort_dags(dags: List[DAG]) -> List[DAG]:
+    def dag_to_key(dag_: DAG) -> Any:
+        leaves_ = order_nodes(dag_, set(filter(dag_.is_leaf, dag_.nodes)))
+        return list(map(lambda leaf_: tuple(map(int, (dag_.attribs[leaf_]['begin'],
+                                                      dag_.attribs[leaf_]['end'],
+                                                      dag_.attribs[leaf_]['id']))),
+                        leaves_))
+    return sorted(dags, key=lambda dag: dag_to_key(dag))
+
+
+def rename_dag_src(dags: List[DAG]) -> List[DAG]:
+    metas = [None if dag.meta is None else {**dag.meta, **{'src': dag.meta['src'] + '_' + str(i)}}
+             for i, dag in enumerate(dags)]
+
+    return list(map(lambda dag, meta: DAG(nodes=dag.nodes,
+                                          edges=dag.edges,
+                                          attribs=dag.attribs,
+                                          meta=meta),
+                    dags,
+                    metas))
+
+
 def get_sentence(dag: DAG) -> List[str]:
     leaves = order_nodes(dag, set(filter(dag.is_leaf, dag.nodes)))
     return list(map(lambda leaf: dag.attribs[leaf]['word'], leaves))
@@ -250,8 +272,7 @@ class Transformation(object):
         dags = list(filter(lambda dag: not dag.is_empty(), dags))
         dags = list(map(lambda dag: dag.remove_oneways(),
                         list(chain.from_iterable(map(lambda dag: dag.get_subgraphs(), dags)))))
-
-        return dags
+        return rename_dag_src(sort_dags(dags))
 
 
 def test(samples=100):
@@ -259,6 +280,6 @@ def test(samples=100):
     L = Lassy()
     T = Transformation()
 
-    meta = [{'src': L[i][1]} for i in range(samples)]
+    meta = [{'src': last(L[i][1].split('/'))} for i in range(samples)]
 
     return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(samples))), meta))))
