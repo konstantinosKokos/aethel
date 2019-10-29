@@ -561,8 +561,7 @@ def annotate_dag(dag: DAG) -> Tuple[ProofNet, DAG]:
     if set.union(positives, negatives, immaterial) != set(range(idx)):
         ToGraphViz()(new_dag)
         print(set(range(idx)).difference(set(map(fst, proof)).union(set(map(snd, proof)))))
-        import pdb
-        pdb.set_trace()
+        raise ProofError('Unmatched types.')
 
     return proof, new_dag
 
@@ -580,7 +579,7 @@ class Prove(object):
     def __init__(self):
         pass
 
-    def __call__(self, dag: DAG, raise_errors: bool = True) -> Optional[Tuple[ProofNet, DAG]]:
+    def __call__(self, dag: DAG, raise_errors: bool = False) -> Optional[Tuple[ProofNet, DAG]]:
         try:
             return annotate_dag(dag)
         except ProofError as e:
