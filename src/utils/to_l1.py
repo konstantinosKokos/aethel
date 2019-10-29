@@ -1,5 +1,5 @@
 from src.milltypes import WordType, PolarizedIndexedType, ColoredType
-from src.graphutils import DAG, fst
+from src.graphutils import DAG, fst, snd, last, Node
 from src.extraction import order_nodes
 
 from src.proofs import ProofNet
@@ -38,23 +38,58 @@ Formula = Union[Atom, Implication]
 class L1(NamedTuple):
     sent_id: str
     words: List[str]
+    poses: List[str]
+    postags: List[str]
+    lemmata: List[str]
     formulas: List[Formula]
     conclusion: Formula
 
-    def __str__(self):
-        return 'lassy({}) :-\n\t{},\n\t{},\n\t{}.'.format(self.sent_id.split('/')[-1],
-                                                              self.words, self.formulas, self.conclusion)
+    def __str__(self) -> str:
+        return 'lassy({}) :-\n\t{},\n\t{},\n\t{}\n\t{}\n\t{}\n\t{}\n.'.format(self.sent_id.split('/')[-1],
+                                                                              self.words, self.poses,
+                                                                              self.postags, self.lemmata,
+                                                                              self.formulas, self.conclusion)
+
+
+def project_leaf(dag: DAG, leaf: Node) -> Tuple[str, WordType, str, str, str, str]:
+
+    def wrap_mwu(fun: Callable[[Node], str]) -> Callable[[Node], str]:
+        return lambda leaf_: 'mwp' if ' ' in get_word(leaf_) else fun(leaf_)
+
+    def get_word(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['word']
+
+    def get_type(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['type']
+
+    @wrap_mwu
+    def get_pos(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['pos']
+
+    @wrap_mwu
+    def get_postag(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['postag']
+
+    @wrap_mwu
+    def get_pt(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['pt']
+
+    @wrap_mwu
+    def get_lemma(leaf_: Node) -> str:
+        return dag.attribs[leaf_]['lemma']
+
+    return tuple(map(lambda function: function(leaf), (get_word, get_type, get_pos, get_postag, get_lemma)))
 
 
 def to_l1(proof: ProofNet, dag: DAG) -> L1:
     leaves = set(filter(lambda node: dag.is_leaf(node), dag.nodes))
     leaves = order_nodes(dag, leaves)
     matchings = get_matchings(proof)
-    types_ = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves))
-    formulas = list(map(lambda type_: type_to_formula(type_, matchings), types_))
+    words, types, poses, postags, lemmata = list(zip(*list(map(lambda leaf: project_leaf(dag, leaf), leaves))))
+    formulas = list(map(lambda type_: type_to_formula(type_, matchings), types))
     sent_id = dag.meta['src']
-    words = list(map(lambda node: dag.attribs[node]['word'], leaves))
-    return L1(sent_id, words, formulas, get_conclusion(types_, matchings))
+    return L1(sent_id, list(words), list(poses), list(postags), list(lemmata), list(formulas),
+              get_conclusion(types, matchings))
 
 
 def atomic_type_to_atom(inp: PolarizedIndexedType, matchings: Dict[int, int]) -> Atom:
@@ -92,7 +127,51 @@ def get_conclusion(types_: List[WordType], matchings: Dict[int, int]) -> Atom:
     return atomic_type_to_atom(conclusion, matchings)
 
 
+def project_one_dag(dag: DAG) -> List[Sequence[str]]:
+    leaves = set(filter(dag.is_leaf, dag.nodes))
+    leaves = order_nodes(dag, leaves)
+    leaves = list(map(lambda leaf: project_leaf(dag, leaf)[0:3], leaves))
+    return list(map(lambda leaf: (fst(leaf), snd(leaf).depolarize().__str__(), last(leaf)), leaves))
 
 
+def get_wtp_tuples(dags: List[DAG]) -> List[Sequence[str]]:
+    return list(map(lambda seq: tuple(seq[0:3]),
+                    list(chain.from_iterable(list(map(project_one_dag, dags))))))
 
 
+def wp_to_t(wtps: List[Sequence[str]]):
+    def getkey(wtp: Sequence[str]) -> Tuple[str, str]:
+        return fst(wtp), last(wtp)
+
+    def getvalue(wtp: Sequence[str]) -> str:
+        return snd(wtp)
+
+    keys = set(map(getkey, wtps))
+    values = set(map(getvalue, wtps))
+
+    outer = {k: {v: 0 for v in values} for k in keys}
+
+    for wtp in wtps:
+        key = getkey(wtp)
+        value = getvalue(wtp)
+        outer[key][value] = outer[key][value] + 1
+    return outer
+
+
+def sort_wpt(outer: Dict[Tuple[str, str], Dict[str, int]]) -> List[Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]]:
+    outer = {outer_key:
+                 sorted(filter(lambda pair: snd(pair) > 0, inner_dict.items()),
+                        key=lambda pair: snd(pair),
+                        reverse=True)
+             for outer_key, inner_dict in outer.items()}
+    return sorted(outer.items(), key=lambda pair: sum(list(map(snd, snd(pair)))))
+
+
+def print_sorted_wpt(outer: List[Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]]):
+    def print_one(wpt: Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]) -> str:
+        def print_inner(inner: Sequence[Tuple[str, int]]) -> str:
+            def print_pair(pair: Tuple[str, int]) -> str:
+                return fst(pair) + ' #= ' + str(snd(pair))
+            return ' | '.join(list(map(print_pair, inner)))
+        return fst(fst(wpt))+'\t'+snd(fst(wpt)) + '\t' + print_inner(snd(wpt))
+    return '\n'.join(list(map(print_one, outer)))
