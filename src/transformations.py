@@ -137,7 +137,8 @@ def collapse_mwu(dag: DAG) -> DAG:
     for mwu, succ, text in zip(mwus, successors, collapsed_texts):
         dag.attribs[mwu]['word'] = text
         del dag.attribs[mwu]['cat']
-        dag.attribs[mwu]['pt'] = majority_vote(dag, set(succ))
+        dag.attribs[mwu]['pt'] = majority_vote(dag, set(succ), 'pt')
+        dag.attribs[mwu]['pos'] = majority_vote(dag, set(succ), 'pos')
     to_delete = set(list(chain.from_iterable(map(dag.outgoing, mwus))))
     return dag.remove_edges(lambda e: e not in to_delete)
 
