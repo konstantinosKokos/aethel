@@ -10,7 +10,7 @@ from src.graphutils import *
 
 
 def is_public(filename: str) -> bool:
-    return 'wiki' in filename
+    return 'wiki' in filename or 'WR-P-E-J' in filename
 
 
 class Lassy(Dataset):
