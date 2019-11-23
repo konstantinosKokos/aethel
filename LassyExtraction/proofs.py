@@ -1,13 +1,13 @@
 from functools import reduce
 from itertools import chain
 
-from src.extraction import order_nodes, is_gap, is_copy, _head_deps, _mod_deps
-from src.graphutils import *
-from src.milltypes import polarize_and_index_many, polarize_and_index, WordType, \
+from LassyExtraction.extraction import order_nodes, is_gap, is_copy, _head_deps, _mod_deps
+from LassyExtraction.graphutils import *
+from LassyExtraction.milltypes import polarize_and_index_many, polarize_and_index, WordType, \
     PolarizedIndexedType, ColoredType, AtomicType, depolarize
-from src.transformations import _cats_of_type
+from LassyExtraction.transformations import _cats_of_type
 
-from src.viz import ToGraphViz
+from LassyExtraction.viz import ToGraphViz
 
 ProofNet = Set[Tuple[int, int]]
 

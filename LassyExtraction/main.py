@@ -1,14 +1,14 @@
 from itertools import chain
 
-from src.extraction import Extraction, _cat_dict, _pt_dict, _head_deps, _mod_deps, ExtractionError
-from src.lassy import Lassy
-from src.proofs import Prove, ProofError
-from src.transformations import Transformation
-from src.viz import ToGraphViz
+from LassyExtraction.extraction import Extraction, _cat_dict, _pt_dict, _head_deps, _mod_deps, ExtractionError
+from LassyExtraction.lassy import Lassy
+from LassyExtraction.proofs import Prove, ProofError
+from LassyExtraction.transformations import Transformation
+from LassyExtraction.viz import ToGraphViz
 
 from typing import Optional, Union, Tuple, List
-from src.graphutils import DAG
-from src.proofs import ProofNet
+from LassyExtraction.graphutils import DAG
+from LassyExtraction.proofs import ProofNet
 
 _lassy = Lassy()
 _transform = Transformation()

@@ -1,7 +1,7 @@
 from itertools import groupby, chain
 from xml.etree.cElementTree import Element, ElementTree
 
-from src.graphutils import *
+from LassyExtraction.graphutils import *
 
 
 def sort_dags(dags: List[DAG]) -> List[DAG]:
@@ -150,7 +150,7 @@ def refine_body(dag: DAG) -> DAG:
         common_source = dag.outgoing(body.source)
         match = list(filter(lambda edge: edge.dep in ('cmp', 'rhd', 'whd'), common_source))
         if len(match) != 1:
-            from src.viz import ToGraphViz
+            from LassyExtraction.viz import ToGraphViz
             import pdb
             ToGraphViz()(dag)
             pdb.set_trace()
@@ -277,7 +277,7 @@ class Transformation(object):
 
 
 def test(samples=100):
-    from src.lassy import Lassy
+    from LassyExtraction.lassy import Lassy
     L = Lassy()
     T = Transformation()
 

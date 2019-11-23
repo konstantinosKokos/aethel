@@ -1,8 +1,8 @@
-from src.milltypes import WordType, PolarizedIndexedType, ColoredType
-from src.graphutils import DAG, fst, snd, last, Node
-from src.extraction import order_nodes
+from LassyExtraction.milltypes import WordType, PolarizedIndexedType, ColoredType
+from LassyExtraction.graphutils import DAG, fst, snd, last, Node
+from LassyExtraction.extraction import order_nodes
 
-from src.proofs import ProofNet
+from LassyExtraction.proofs import ProofNet
 
 from itertools import chain
 from typing import *

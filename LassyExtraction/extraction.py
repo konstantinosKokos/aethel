@@ -1,9 +1,9 @@
 from collections import defaultdict
 from itertools import chain
 
-from src.graphutils import *
-from src.milltypes import AtomicType, WordType, ColoredType, WordTypes, strings, binarize, invariance_check
-from src.transformations import majority_vote, _cats_of_type, order_nodes
+from LassyExtraction.graphutils import *
+from LassyExtraction.milltypes import AtomicType, WordType, ColoredType, WordTypes, strings, binarize, invariance_check
+from LassyExtraction.transformations import majority_vote, _cats_of_type, order_nodes
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types

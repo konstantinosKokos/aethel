@@ -6,7 +6,7 @@ from warnings import warn
 from torch.utils.data import Dataset
 from torchvision.transforms import Compose
 
-from src.graphutils import *
+from LassyExtraction.graphutils import *
 
 
 def is_public(filename: str) -> bool:
