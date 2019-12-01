@@ -18,9 +18,9 @@ class Lassy(Dataset):
         Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
     """
 
-    def __init__(self, root_dir: str = '/home/kokos/Documents/Projects/Lassy/LassySmall 4.0',
+    def __init__(self, root_dir: str = '/home/kokos/Projects/Lassy 4.0/LassySmall',
                  treebank_dir: str = '/Treebank', transform: Optional[Compose] = None,
-                 ignore: Optional[str] = 'src/utils/ignored.txt') -> None:
+                 ignore: Optional[str] = 'LassyExtraction/utils/ignored.txt') -> None:
 
         if os.path.isdir(root_dir) and os.path.isdir(root_dir+treebank_dir):
             self.root_dir = root_dir
@@ -38,7 +38,7 @@ class Lassy(Dataset):
                 warn('Could not open the ignore file.')
 
         self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))
-                         if y not in self.ignored]
+                         if x[0] not in self.ignored]
         self.transform = transform
 
         print('Dataset constructed with {} samples.'.format(len(self.filelist)))
