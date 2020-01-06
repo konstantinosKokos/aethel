@@ -155,9 +155,9 @@ class ColoredType(ComplexType):
         return '→ ' + '<' + self.argument.polish() + '> ' + self.color + ' ' + self.result.polish()
 
     def polish_short(self) -> str:
-        return self.color + \
-               (self.argument.polish_short() if isinstance(self.argument, ColoredType) else self.argument.polish()) + \
-               (self.result.polish_short() if isinstance(self.result, ColoredType) else self.result.polish())
+        argstr = self.argument.polish_short() if isinstance(self.argument, ColoredType) else self.argument.polish()
+        resstr = self.result.polish_short() if isinstance(self.result, ColoredType) else self.result.polish()
+        return self.color + ' ' + argstr + ' ' + resstr
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -249,7 +249,7 @@ def polish(wordtype: WordType) -> str:
 
 
 def polish_short(wordtype: WordType) -> str:
-    return wordtype.polish() if isinstance(wordtype, AtomicType) else wordtype.polish2()
+    return wordtype.polish() if isinstance(wordtype, AtomicType) else wordtype.polish_short()
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
