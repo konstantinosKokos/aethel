@@ -256,6 +256,19 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
         raise TypeError
 
 
+def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
+    if isinstance(wordtype, AtomicType):
+        if str(wordtype)[0] == '_':
+            return [], []
+        return [], [(wordtype.depolarize(), wordtype.index)]
+    elif isinstance(wordtype, ComplexType):
+        argneg, argpos = get_polarities_and_indices(wordtype.argument)
+        respos, resneg = get_polarities_and_indices(wordtype.result)
+        return argpos + respos, argneg + resneg
+    else:
+        raise TypeError
+
+
 def literal_invariance(premises: WordTypes):
     seqpos, seqneg = list(map(lambda x: reduce(add, x), tuple(zip(*map(get_polarities, premises)))))
     return Counter(seqneg) - Counter(seqpos)
@@ -281,11 +294,11 @@ def invariance_check(premises: WordTypes, goal: WordType) -> bool:
     return True
 
 
-def str_to_type(x: Sequence[str], colors: Set[str]) -> Tuple[WordType, Sequence[str]]:
+def polish_to_type(x: Sequence[str], colors: Set[str]) -> Tuple[WordType, Sequence[str]]:
     if x[0] in colors:
         color = x[0]
-        arg, rem = str_to_type(x[1:], colors)
-        res, rem = str_to_type(rem, colors)
+        arg, rem = polish_to_type(x[1:], colors)
+        res, rem = polish_to_type(rem, colors)
         return ColoredType(color=color, argument=arg, result=res), rem
     else:
         return AtomicType(x[0]), x[1:]
@@ -296,4 +309,4 @@ class StrToType(object):
         self.colors = colors
 
     def __call__(self, x: Sequence[str]) -> WordType:
-        return str_to_type(x, self.colors)[0]
+        return polish_to_type(x, self.colors)[0]
