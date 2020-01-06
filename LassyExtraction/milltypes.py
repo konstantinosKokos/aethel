@@ -154,10 +154,10 @@ class ColoredType(ComplexType):
     def polish(self) -> str:
         return '→ ' + '<' + self.argument.polish() + '> ' + self.color + ' ' + self.result.polish()
 
-    def polish_alt(self) -> str:
+    def polish_short(self) -> str:
         return self.color + \
-               (self.argument.polish2() if isinstance(self.argument, ColoredType) else self.argument.polish()) + \
-               (self.result.polish2() if isinstance(self.result, ColoredType) else self.result.polish())
+               (self.argument.polish_short() if isinstance(self.argument, ColoredType) else self.argument.polish()) + \
+               (self.result.polish_short() if isinstance(self.result, ColoredType) else self.result.polish())
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -248,7 +248,7 @@ def polish(wordtype: WordType) -> str:
     return wordtype.polish()
 
 
-def polish2(wordtype: WordType) -> str:
+def polish_short(wordtype: WordType) -> str:
     return wordtype.polish() if isinstance(wordtype, AtomicType) else wordtype.polish2()
 
 
