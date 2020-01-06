@@ -154,6 +154,11 @@ class ColoredType(ComplexType):
     def polish(self) -> str:
         return '→ ' + '<' + self.argument.polish() + '> ' + self.color + ' ' + self.result.polish()
 
+    def polish_alt(self) -> str:
+        return self.color + \
+               (self.argument.polish2() if isinstance(self.argument, ColoredType) else self.argument.polish()) + \
+               (self.result.polish2() if isinstance(self.result, ColoredType) else self.result.polish())
+
     def __repr__(self) -> str:
         return self.__str__()
 
@@ -241,6 +246,10 @@ def get_colors(something: Union[WordTypes, WordType]) -> Set[str]:
 
 def polish(wordtype: WordType) -> str:
     return wordtype.polish()
+
+
+def polish2(wordtype: WordType) -> str:
+    return wordtype.polish() if isinstance(wordtype, AtomicType) else wordtype.polish2()
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
