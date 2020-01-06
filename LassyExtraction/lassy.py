@@ -38,7 +38,7 @@ class Lassy(Dataset):
                 warn('Could not open the ignore file.')
 
         self.filelist = [y for x in os.walk(self.treebank_dir) for y in glob(os.path.join(x[0], '*.[xX][mM][lL]'))
-                         if x[0] not in self.ignored]
+                         if y.split('/')[-1] not in self.ignored]
         self.transform = transform
 
         print('Dataset constructed with {} samples.'.format(len(self.filelist)))
