@@ -11,6 +11,7 @@ def sort_dags(dags: List[DAG]) -> List[DAG]:
                                                       dag_.attribs[leaf_]['end'],
                                                       dag_.attribs[leaf_]['id']))),
                         leaves_))
+
     return sorted(dags, key=lambda dag: dag_to_key(dag))
 
 
@@ -164,6 +165,7 @@ def refine_body(dag: DAG) -> DAG:
 def remove_secondary_dets(dag: DAG) -> DAG:
     def tw_case(target: Node) -> bool:
         return True if dag.attribs[target]['pt'] == 'tw' or dag.attribs[target]['word'] == 'beide' else False
+
     to_add, to_remove = set(), set()
 
     detgroups = list(dag.get_edges('det'))
@@ -191,7 +193,14 @@ def swap_dp_headedness(dag: DAG) -> DAG:
     to_add, to_remove = set(), set()
 
     dets = list(dag.get_edges('det'))
-    matches = list(map(lambda edge: fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))), dets))
+    try:
+        matches = list(
+            map(lambda edge: fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))), dets))
+    except IndexError:
+        from LassyExtraction.viz import ToGraphViz
+        ToGraphViz()(dag)
+        import pdb
+        pdb.set_trace()
 
     for d, m in zip(dets, matches):
         to_remove.add(d)
@@ -233,6 +242,7 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
 def remove_non_leaves(dag: DAG) -> DAG:
     def non_leaf(node_: Node) -> bool:
         return not len(dag.outgoing(node_)) and 'cat' in dag.attribs[node_].keys()
+
     return dag.remove_nodes(lambda node: not non_leaf(node))
 
 

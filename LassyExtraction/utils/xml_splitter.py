@@ -12,6 +12,7 @@ def split_xml(uncompressed: str) -> List[Tuple[str, str]]:
     :return:
     :rtype:
     """
+
     def getname(xml_block: str) -> str:
         """
             Finds the sentence name attribute of an xml part.
@@ -21,13 +22,14 @@ def split_xml(uncompressed: str) -> List[Tuple[str, str]]:
         :rtype:
         """
         return xml_block.split('sentid="')[1].split('"')[0]
+
     xmls = uncompressed.split('</alpino_ds>')[:-1]
     xmls = list(map(lambda x: x + '</alpino_ds>', xmls))
     names = list(map(getname, xmls))
     return list(zip(xmls, names))
 
 
-def store_xml(item: Tuple[str, str], prefix: str='') -> None:
+def store_xml(item: Tuple[str, str], prefix: str = '') -> None:
     if len(item[0]):
         with open(prefix + item[1] + '.xml', 'w') as f:
             f.write(item[0])
@@ -47,4 +49,4 @@ if __name__ == '__main__':
             r = f.read()
             samples = split_xml(r)
             for sample in samples[:1]:
-                store_xml(sample, '/'.join(file.split('/')[:-1])+'/')
+                store_xml(sample, '/'.join(file.split('/')[:-1]) + '/')

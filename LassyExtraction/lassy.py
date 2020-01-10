@@ -22,7 +22,7 @@ class Lassy(Dataset):
                  treebank_dir: str = '/Treebank', transform: Optional[Compose] = None,
                  ignore: Optional[str] = 'LassyExtraction/utils/ignored.txt') -> None:
 
-        if os.path.isdir(root_dir) and os.path.isdir(root_dir+treebank_dir):
+        if os.path.isdir(root_dir) and os.path.isdir(root_dir + treebank_dir):
             self.root_dir = root_dir
             self.treebank_dir = root_dir + treebank_dir
         else:

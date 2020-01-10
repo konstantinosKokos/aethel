@@ -238,4 +238,3 @@ class DAG(NamedTuple):
             return set()
         else:
             return set.union(*[expand_path(edge, tuple()) for edge in self.outgoing(source)])
-
