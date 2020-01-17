@@ -31,10 +31,11 @@ Nodes = Set[Node]
 Dep = TypeVar('Dep')
 
 
-class Edge(NamedTuple):
-    source: Node
-    target: Node
-    dep: Dep
+class Edge(Generic[Node, Dep]):
+    def __init__(self, source: Node, target: Node, dep: Dep):
+        self.source = source
+        self.target = target
+        self.dep = dep
 
     def adjacent(self) -> Nodes:
         return {self.source, self.target}
@@ -49,11 +50,12 @@ def occuring_nodes(edges: Edges) -> Nodes:
     return set.union(*list(map(lambda edge: edge.adjacent(), edges))) if edges else set()
 
 
-class DAG(NamedTuple):
-    nodes: Nodes
-    edges: Edges
-    attribs: Dict[Node, Dict]
-    meta: Any = None
+class DAG(Generic[Node, Dep]):
+    def __init__(self, nodes: Nodes, edges: Edges, attribs: Dict[Node, Dict], meta: Any = None):
+        self.nodes = nodes
+        self.edges = edges
+        self.attribs = attribs
+        self.meta = meta
 
     def is_empty(self) -> bool:
         return len(self.nodes) == 0
