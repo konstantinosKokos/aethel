@@ -104,7 +104,7 @@ class DAG(Generic[Node, Dep]):
         return set.union(*list(map(self.outgoing, nodes)))
 
     def points_to(self, node: Node) -> Nodes:
-        ret = set()
+        ret: Nodes = set()
         fringe_nodes = {node}
 
         while True:
@@ -116,7 +116,7 @@ class DAG(Generic[Node, Dep]):
         return ret
 
     def pointed_by(self, node: Node) -> Nodes:
-        ret = set()
+        ret: Nodes = set()
         fringe_nodes = {node}
 
         while True:
@@ -162,10 +162,10 @@ class DAG(Generic[Node, Dep]):
     def remove_oneways(self) -> 'DAG':
         newdag = self
         while True:
-            oneways = list(filter(self.oneway, self.edges))
+            oneways = list(filter(self.oneway, self.nodes))
             if not len(oneways):
                 return newdag
-            for node in list(filter(self.oneway, self.edges)):
+            for node in list(filter(self.oneway, self.nodes)):
                 newdag = newdag.remove_oneway(node)
 
     def get_rooted_subgraphs(self, erasing: bool = False) -> List['DAG']:
@@ -199,10 +199,10 @@ class DAG(Generic[Node, Dep]):
 
     def bfs_split(self, start: Callable[[Nodes], Node]) -> Optional[Tuple['DAG', 'DAG']]:
         if self.is_empty():
-            return
+            return None
 
         fringe_nodes = flooded_nodes = {start(self.nodes)}
-        flooded_edges = set()
+        flooded_edges: Edges = set()
 
         while True:
             new_fringe_edges = set.union(self.incoming_many(fringe_nodes), self.outgoing_many(fringe_nodes), set())
