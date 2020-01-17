@@ -31,7 +31,7 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def __eq__(self, other: 'WordType') -> bool:
+    def __eq__(self, other: object) -> bool:
         pass
 
     @abstractmethod
@@ -79,7 +79,7 @@ class AtomicType(WordType):
     def __call__(self) -> str:
         return self.__str__()
 
-    def __eq__(self, other: 'AtomicType') -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, AtomicType):
             return False
         else:
@@ -121,7 +121,7 @@ class FunctorType(WordType):
     def __call__(self) -> str:
         return self.__str__()
 
-    def __eq__(self, other: 'FunctorType') -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, FunctorType):
             return False
         else:
@@ -151,7 +151,7 @@ class DiamondType(FunctorType):
     def polish(self) -> str:
         return self.diamond + ' ' + self.argument.polish() + ' ' + self.result.polish()
 
-    def __eq__(self, other: 'DiamondType') -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DiamondType):
             return False
         else:
@@ -173,7 +173,7 @@ class BoxType(FunctorType):
     def polish(self) -> str:
         return self.box + ' ' + self.argument.polish() + ' ' + self.result.polish()
 
-    def __eq__(self, other: 'BoxType') -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, BoxType):
             return False
         else:
@@ -212,6 +212,8 @@ def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0
         index, arg = polarize_and_index(wordtype.argument, not polarity, index)
         index, res = polarize_and_index(wordtype.result, polarity, index)
         return index, FunctorType(argument=arg, result=res)
+    else:
+        raise TypeError('Expected wordtype to be of type WordType, received {} instead.'.format(type(wordtype)))
 
 
 def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, List[WordType]]:
@@ -274,7 +276,7 @@ def get_colors(x):
 
 
 def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
-    if isinstance(wordtype, AtomicType):
+    if isinstance(wordtype, PolarizedType):
         if str(wordtype)[0] == '_':
             return [], []
         return [], [(wordtype.depolarize(), wordtype.index)]
@@ -283,7 +285,7 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
         respos, resneg = get_polarities_and_indices(wordtype.result)
         return argpos + respos, argneg + resneg
     else:
-        raise TypeError
+        raise TypeError('Expected ')
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
@@ -297,7 +299,12 @@ def literal_invariance(premises: WordTypes):
 
 
 def operator_count(wt: WordType) -> int:
-    return 0 if isinstance(wt, AtomicType) else operator_count(wt.result) - operator_count(wt.argument) - 1
+    if isinstance(wt, AtomicType):
+        return 0
+    elif isinstance(wt, FunctorType):
+        return operator_count(wt.result) - operator_count(wt.argument) - 1
+    else:
+        raise TypeError('Expected wt to be of type WordType, received {} instead.'.format(type(wt)))
 
 
 def operator_invariance(premises: WordTypes) -> int:
