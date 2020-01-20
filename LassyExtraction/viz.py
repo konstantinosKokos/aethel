@@ -1,4 +1,4 @@
-import graphviz as gv
+import graphviz as gv  # type: ignore
 
 from LassyExtraction.graphutils import *
 
