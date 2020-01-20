@@ -168,7 +168,7 @@ class BoxType(FunctorType):
         self.box = box
 
     def __str__(self):
-        return '[' + self.argument.__str__() + '] ' + self.box + ' → ' + self.result.__str__()
+        return '[' + self.argument.__str__() + ' → ' + self.result.__str__() + '] ' + self.box
 
     def polish(self) -> str:
         return self.box + ' ' + self.argument.polish() + ' ' + self.result.polish()
@@ -285,12 +285,22 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
         respos, resneg = get_polarities_and_indices(wordtype.result)
         return argpos + respos, argneg + resneg
     else:
-        raise TypeError('Expected ')
+        raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
+                        ' received {} instead'.format(type(wordtype)))
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
-    pi = get_polarities_and_indices(wordtype)
-    return [item[0] for item in pi[0]], [item[0] for item in pi[1]]
+    if isinstance(wordtype, AtomicType):
+        if str(wordtype)[0] == '_':
+            return [], []
+        return [], [wordtype.depolarize()]
+    elif isinstance(wordtype, FunctorType):
+        argneg, argpos = get_polarities(wordtype.argument)
+        respos, resneg = get_polarities(wordtype.result)
+        return argpos + respos, argneg + resneg
+    else:
+        raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
+                        ' received {} instead'.format(type(wordtype)))
 
 
 def literal_invariance(premises: WordTypes):
