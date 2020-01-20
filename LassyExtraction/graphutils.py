@@ -154,18 +154,18 @@ class DAG(Generic[Node, Dep]):
     def remove_oneway(self, path: Node) -> 'DAG':
         incoming = list(self.incoming(path))[0]
         outgoing = list(self.outgoing(path))[0]
-        edge = Edge(incoming.source, outgoing.target, outgoing.dep)
-        newdag = self.remove_nodes(lambda node: node == path)
+        edge = Edge(incoming.source, outgoing.target, incoming.dep)
+        newdag = self.remove_nodes(lambda node: node != path)
         newdag.edges.add(edge)
         return newdag
 
     def remove_oneways(self) -> 'DAG':
         newdag = self
         while True:
-            oneways = list(filter(self.oneway, self.nodes))
+            oneways = list(filter(newdag.oneway, newdag.nodes))
             if not len(oneways):
                 return newdag
-            for node in list(filter(self.oneway, self.nodes)):
+            for node in oneways:
                 newdag = newdag.remove_oneway(node)
 
     def get_rooted_subgraphs(self, erasing: bool = False) -> List['DAG']:
