@@ -161,6 +161,9 @@ class DiamondType(FunctorType):
         return DiamondType(argument=self.argument.depolarize(), result=self.result.depolarize(),
                            diamond=self.diamond)
 
+    def __hash__(self):
+        return super(DiamondType, self).__hash__()
+
 
 class BoxType(FunctorType):
     def __init__(self, argument: WordType, result: WordType, box: str):
@@ -182,6 +185,9 @@ class BoxType(FunctorType):
     def depolarize(self) -> 'FunctorType':
         return BoxType(argument=self.argument.depolarize(), result=self.result.depolarize(),
                        box=self.box)
+
+    def __hash__(self):
+        return super(BoxType, self).__hash__()
 
 
 class PolarizedType(AtomicType):
