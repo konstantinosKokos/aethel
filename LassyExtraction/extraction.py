@@ -299,6 +299,7 @@ def type_gaps(dag: DAG, head_deps: FrozenSet[str] = HeadDeps):
         return (interm_type, interm_color), (top_type, top_dep)
 
     gap_nodes = list(filter(lambda node: is_gap(dag, node, head_deps), dag.nodes))
+    gap_nodes = list(filter(lambda node: '_gap_typed' not in dag.attribs[node].keys(), gap_nodes))
 
     if not gap_nodes:
         return None
@@ -307,12 +308,15 @@ def type_gaps(dag: DAG, head_deps: FrozenSet[str] = HeadDeps):
     emb_types = list(map(lambda node: dag.attribs[node]['type'], gap_nodes))
     interms, tops = list(zip(*map(get_interm_top, gap_nodes)))
     gap_types_ = list(map(make_gap_functor, emb_types, interms, tops))
-    gap_types = {node: {**dag.attribs[node], **{'type': gap_type}} for node, gap_type in zip(gap_nodes, gap_types_)}
+    gap_types = {node: {**dag.attribs[node], **{'type': gap_type, '_gap_typed': 1}}
+                 for node, gap_type in zip(gap_nodes, gap_types_)}
     dag.attribs.update(gap_types)
 
-    derived_gaps = list(filter(lambda node: not dag.is_leaf(node), gap_nodes))
-    descendants = list(chain.from_iterable(map(dag.points_to, derived_gaps)))
-    descendant_attribs = {node: {k: v for k, v in dag.attribs[node].items() if k != 'type'} for node in descendants}
+    non_term_gaps = list(filter(lambda node: not dag.is_leaf(node), gap_nodes))
+    descendants = list(chain.from_iterable(map(dag.points_to, non_term_gaps)))
+    # clear type information from non-terminal gap descendants
+    descendant_attribs = {node: {k: v for k, v in dag.attribs[node].items()
+                                 if k != 'type' and k != '_gap_typed'} for node in descendants}
     dag.attribs.update(descendant_attribs)
 
 
@@ -397,6 +401,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
 
     accounted_copies = set.union(*minimal_downsets) if common_downsets else set()
     all_copies = set(filter(lambda node: is_copy(dag, node), dag.nodes))
+
     if accounted_copies != all_copies:
         raise ExtractionError('Unaccounted copies.', meta=dag.meta)
     if any(list(map(lambda acc: 'type' not in dag.attribs[acc].keys(), accounted_copies))):
@@ -408,9 +413,9 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
                                                        downset)),
                               minimal_downsets))
 
-    copy_typecolors = list(map(normalize_gap_copies, copy_colorsets))
+    copy_types_and_colors = list(map(normalize_gap_copies, copy_colorsets))
 
-    polymorphic_xs = list(map(make_polymorphic_x, initial_types, copy_typecolors))
+    polymorphic_xs = list(map(make_polymorphic_x, initial_types, copy_types_and_colors))
     crd_types = list(map(make_crd_type, polymorphic_xs, list(map(len, conj_targets))))
     secondary_crds = list(map(lambda crd: crd.target,
                               chain.from_iterable(crd[1::] for crd in crds)))
@@ -421,17 +426,16 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     dag.attribs.update(secondary_types)
 
 
-def type_dag(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: FrozenSet[str],
+def type_dag(dag: DAG[str, str], type_dict: Dict[str, AtomicType], pos_set: str, hd_deps: FrozenSet[str],
              mod_deps: FrozenSet[str], check: bool = True) -> DAG:
     def fully_typed(dag_: DAG) -> bool:
         return all(list(map(lambda node: 'type' in dag.attribs[node].keys(), dag_.nodes)))
 
+    type_top(dag, type_dict, pos_set)
     while not fully_typed(dag):
-        type_top(dag, type_dict, pos_set)
         type_core(dag, type_dict, pos_set, hd_deps, mod_deps)
         type_gaps(dag, hd_deps)
         type_copies(dag, hd_deps, mod_deps)
-        break
 
     if check:
         try:
