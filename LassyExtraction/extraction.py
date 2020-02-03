@@ -42,13 +42,16 @@ ObliquenessOrder = (
 )
 
 
+ArgSeq = List[Tuple[WordType, Optional[str]]]
+
+
 # Callable version
 class ObliquenessSort(object):
     def __init__(self, order: Iterable[Iterable[str]]):
         order = {k: i for i, k in enumerate(reversed(list(chain.from_iterable(order))))}
         self.order = defaultdict(lambda: -1, {**order, **{'cnj': -2}})
 
-    def __call__(self, argcolors: Iterable[Tuple[WordType, Optional[str]]]) -> List[Tuple[WordType, str]]:
+    def __call__(self, argcolors: ArgSeq) -> ArgSeq:
         return sorted(argcolors, key=lambda x: (self.order[snd(x)], str(fst(x))), reverse=True)
 
 
@@ -83,8 +86,11 @@ def get_type_plain(dag: DAG, node: Node, type_dict: Dict[str, AtomicType], pos_s
             return type_dict[cat]
 
 
-def make_functor(argument: WordType, result: WordType, dep: str) -> FunctorType:
-    return BoxType(argument, result, dep) if dep in ModDeps.union({'det'}) else DiamondType(argument, result, dep)
+def make_functor(argument: WordType, result: WordType, dep: Optional[str]) -> FunctorType:
+    if dep is None:
+        return FunctorType(argument=argument, result=result)
+    else:
+        return BoxType(argument, result, dep) if dep in ModDeps.union({'det'}) else DiamondType(argument, result, dep)
 
 
 def modifier_of(modified: WordType, dep: str) -> BoxType:
@@ -92,16 +98,14 @@ def modifier_of(modified: WordType, dep: str) -> BoxType:
 
 
 def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
-             sorting_fn: Callable[[List[Tuple[WordType, str]]], List[Tuple[WordType, str]]] = _obliqueness_sort) \
-        -> WordType:
+             sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
 def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
-               sorting_fn: Callable[[List[Tuple[WordType, str]]], List[Tuple[WordType, str]]] = _obliqueness_sort) \
-        -> WordType:
+               sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
     if not argcolors:
         return result
 
@@ -316,23 +320,23 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     def daughterhood_conditions(daughter: Edge[Node, str]) -> bool:
         return daughter.dep not in head_deps.union(mod_deps)
 
-    def normalize_gap_copies(typecolors: List[Tuple[WordType, Set[str]]]) -> List[Tuple[WordType, str]]:
+    def normalize_gap_copies(typecolors: List[Tuple[WordType, Set[str]]]) -> ArgSeq:
         def normalize_gap_copy(tc: Tuple[WordType, Set[str]]) -> Tuple[WordType, str]:
             if len(snd(tc)) == 1:
                 return fst(tc), fst(list(snd(tc)))
             elif len(snd(tc)) == 2:
                 color = fst(list(filter(lambda c: c not in head_deps, snd(tc))))
-                return fst(tc).argument.argument, color if color not in mod_deps else 'embedded'
+                return fst(tc).argument.argument, color if color not in mod_deps else None
             else:
                 raise ExtractionError('Multi-colored copy.', meta=dag.meta)
         return list(map(normalize_gap_copy, typecolors))
 
-    def make_polymorphic_x(initial: WordType, missing: List[Tuple[WordType, str]]) -> FunctorType:
+    def make_polymorphic_x(initial: WordType, missing: ArgSeq) -> WordType:
         # missing = list(map(lambda pair: (fst(pair), snd(pair) if snd(pair) not in mod_deps else 'embedded'),
         #                    missing))
         return binarize(missing, initial)
 
-    def make_crd_type(poly_x: WordType, repeats: int) -> FunctorType:
+    def make_crd_type(poly_x: WordType, repeats: int) -> WordType:
         ret = poly_x
         while repeats:
             ret = DiamondType(argument=poly_x, result=ret, diamond='cnj')
@@ -345,12 +349,31 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     if gap_conjuncts:
         raise ExtractionError('Gap conjunction.')
 
-    conj_groups = list(map(dag.outgoing, conjuncts))
-    crds = list(map(lambda conj_group: list(filter(lambda edge: edge.dep == 'crd', conj_group)), conj_groups))
+    # the edges coming out of each conjunct
+    conj_outgoing_edges: List[Edges] = list(map(dag.outgoing, conjuncts))
+
+    # the list of coordinator edges coming out of each conjunct
+    crds = list(map(lambda cg:
+                    list(filter(lambda edge: edge.dep == 'crd', cg)),
+                    conj_outgoing_edges))
+
     if any(list(map(lambda conj_group: len(conj_group) == 0, crds))):
         raise ExtractionError('Headless conjunction.', meta={'dag': dag.meta})
-    conj_groups = list(map(lambda conj_group: list(filter(daughterhood_conditions, conj_group)), conj_groups))
-    conj_targets = list(map(lambda conj_group: list(map(lambda edge: edge.target, conj_group)), conj_groups))
+
+    # the list of non-excluded edges coming out of each conjunct
+    conj_outgoing_edges = list(map(lambda cg:
+                                   set(filter(daughterhood_conditions, cg)),
+                                   conj_outgoing_edges))
+
+    # the list of non-excluded nodes pointed by each conjunct
+    conj_targets: List[Nodes] = list(map(lambda cg:
+                                         set(map(lambda edge: edge.target, cg)),
+                                         conj_outgoing_edges))
+
+    # the list including only typed branches
+    conj_targets = list(filter(lambda cg:
+                               all(list(map(lambda daughter: 'type' in dag.attribs[daughter].keys(), cg))),
+                               conj_targets))
 
     initial_typegroups: List[Set[WordType]] \
         = list(map(lambda conj_group: set(map(lambda daughter: dag.attribs[daughter]['type'], conj_group)),
@@ -379,14 +402,16 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     if any(list(map(lambda acc: 'type' not in dag.attribs[acc].keys(), accounted_copies))):
         raise ExtractionError('Untyped copies.', meta=dag.meta)
 
-    copy_typecolors = list(map(lambda downset: list(map(lambda node: (dag.attribs[node]['type'],
-                                                                      set(map(lambda edge: edge.dep,
-                                                                              dag.incoming(node)))),
-                                                        downset)),
-                               minimal_downsets))
-    copy_typecolors = list(map(normalize_gap_copies, copy_typecolors))
+    copy_colorsets = list(map(lambda downset: list(map(lambda node: (dag.attribs[node]['type'],
+                                                                     set(map(lambda edge: edge.dep,
+                                                                             dag.incoming(node)))),
+                                                       downset)),
+                              minimal_downsets))
+
+    copy_typecolors = list(map(normalize_gap_copies, copy_colorsets))
+
     polymorphic_xs = list(map(make_polymorphic_x, initial_types, copy_typecolors))
-    crd_types = list(map(make_crd_type, polymorphic_xs, list(map(len, conj_groups))))
+    crd_types = list(map(make_crd_type, polymorphic_xs, list(map(len, conj_targets))))
     secondary_crds = list(map(lambda crd: crd.target,
                               chain.from_iterable(crd[1::] for crd in crds)))
     primary_crds = list(map(lambda crd: crd.target, map(fst, crds)))
