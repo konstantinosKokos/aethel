@@ -24,7 +24,7 @@ PosDict = {k: AtomicType(v) for k, v in _PosDict.items()}
 PtDict = {k: AtomicType(v) for k, v in _PtDict.items()}
 
 # Head and modifier dependencies
-HeadDeps = frozenset(['hd', 'rhd', 'whd', 'cmp', 'crd'])
+HeadDeps = frozenset(['hd', 'rhd', 'whd', 'cmp', 'crd', 'det'])
 ModDeps = frozenset(['mod', 'predm', 'app'])
 
 # Obliqueness Hierarchy
@@ -90,7 +90,12 @@ def make_functor(argument: WordType, result: WordType, dep: Optional[str]) -> Fu
     if dep is None:
         return FunctorType(argument=argument, result=result)
     else:
-        return BoxType(argument, result, dep) if dep in ModDeps.union({'det'}) else DiamondType(argument, result, dep)
+        if dep in ModDeps:
+            return BoxType(argument, result, dep)
+        if dep == 'np_hd':
+            return BoxType(argument, result, 'det')
+        else:
+            return DiamondType(argument, result, dep)
 
 
 def modifier_of(modified: WordType, dep: str) -> BoxType:
@@ -354,7 +359,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
         raise ExtractionError('Gap conjunction.')
 
     # the edges coming out of each conjunct
-    conj_outgoing_edges: List[Edges] = list(map(dag.outgoing, conjuncts))
+    conj_outgoing_edges: List[Edges] = list(map(lambda c: dag.outgoing(c), conjuncts))
 
     # the list of coordinator edges coming out of each conjunct
     crds = list(map(lambda cg:
