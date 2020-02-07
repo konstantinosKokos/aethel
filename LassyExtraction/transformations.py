@@ -63,7 +63,7 @@ def tree_to_dag(tree: ElementTree, meta: Any = None) -> DAG:
     return DAG(nodes=set(attribs.keys()), edges=edges, attribs=attribs, meta=meta)
 
 
-def _cats_of_type(dag: DAG, cat: str, nodes: Optional[Nodes] = None) -> Nodes:
+def _cats_of_type(dag: DAG[Node, Any], cat: str, nodes: Optional[Nodes] = None) -> Nodes:
     if nodes is None:
         nodes = dag.nodes
     return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, nodes))
@@ -75,7 +75,7 @@ def order_nodes(dag: DAG[str, str], nodes: List[str]) -> List[str]:
                                                           dag.attribs[node]['id']))))
 
 
-def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
+def majority_vote(dag: DAG[Node, Any], nodes: Nodes, pos_set: str = 'pt') -> str:
     def get_vote(node_: Node) -> str:
         if pos_set in dag.attribs[node_].keys():
             return dag.attribs[node_][pos_set]
@@ -99,21 +99,24 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
         return fst(fst(votecounts))
 
 
-def remove_abstract_arguments(dag: DAG) -> DAG:
-    candidates = {'su', 'obj', 'obj1', 'obj2', 'sup', 'pobj'}
-    sentential_cats = {'sv1', 'smain', 'ssub', 'inf'}
+def remove_abstract_arguments(dag: DAG[Node, Any]) -> DAG[Node, Any]:
+    candidates: Set[str] = {'su', 'obj', 'obj1', 'obj2', 'sup', 'pobj'}
+    sentential_cats: Set[str] = {'sv1', 'smain', 'ssub', 'inf'}
 
     def has_sentential_parent(node: Node) -> bool:
         def is_sentential(node_: Node) -> bool:
-            if dag.attribs[node_]['cat'] in sentential_cats:
+            cat: str = dag.attribs[node_]['cat']
+            if cat in sentential_cats:
                 return True
-            elif dag.attribs[node_]['cat'] == 'conj':
-                return any(list(map(is_sentential, dag.predecessors(node_))))
+            elif cat == 'conj':
+                return any(list(map(lambda pred:
+                                    is_sentential(pred),
+                                    dag.predecessors(node_))))
             return False
 
         return any(list(map(lambda pred: is_sentential(pred), dag.predecessors(node))))
 
-    def is_candidate_dep(edge: Edge) -> bool:
+    def is_candidate_dep(edge: Edge[Node, str]) -> bool:
         return edge.dep in candidates
 
     def is_coindexed(node: Node) -> bool:
@@ -122,10 +125,11 @@ def remove_abstract_arguments(dag: DAG) -> DAG:
     def is_inf_or_ppart(node: Node) -> bool:
         return dag.attribs[node]['cat'] in {'ppart', 'inf'}
 
-    for_removal = set(filter(lambda e: is_candidate_dep(e)
-                                       and is_coindexed(e.target)
-                                       and is_inf_or_ppart(e.source)
-                                       and has_sentential_parent(e.target),
+    for_removal = set(filter(lambda e:
+                             is_candidate_dep(e)
+                             and is_coindexed(e.target)
+                             and is_inf_or_ppart(e.source)
+                             and has_sentential_parent(e.target),
                              dag.edges))
 
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(for_removal), attribs=dag.attribs, meta=dag.meta)
@@ -188,20 +192,15 @@ def swap_dp_headedness(dag: DAG) -> DAG:
     to_add, to_remove = set(), set()
 
     dets = list(dag.get_edges('det'))
-    try:
-        matches = list(
-            map(lambda edge: fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))), dets))
-    except IndexError:
-        from LassyExtraction.viz import ToGraphViz
-        ToGraphViz()(dag)
-        import pdb
-        pdb.set_trace()
+    matches = list(map(lambda edge:
+                       fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))),
+                       dets))
 
     for d, m in zip(dets, matches):
         to_remove.add(d)
         to_remove.add(m)
-        to_add.add(Edge(source=d.source, target=d.target, dep='hd'))
-        to_add.add(Edge(source=m.source, target=m.target, dep='det'))
+        to_add.add(Edge(source=d.source, target=d.target, dep='det'))
+        to_add.add(Edge(source=m.source, target=m.target, dep='np_hd'))
 
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
@@ -282,11 +281,13 @@ class Transformation(object):
         return rename_dag_src(sort_dags(dags))
 
 
+transformer = Transformation()
+
+
 def test(samples=100):
     from LassyExtraction.lassy import Lassy
     L = Lassy()
-    T = Transformation()
 
     meta = [{'src': last(L[i][1].split('/'))} for i in range(samples)]
 
-    return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(samples))), meta))))
+    return list(chain.from_iterable(list(map(transformer, list(map(lambda i: L[i][2], range(samples))), meta))))
