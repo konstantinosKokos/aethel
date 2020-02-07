@@ -58,7 +58,7 @@ strings = Sequence[str]
 class AtomicType(WordType):
     def __init__(self, wordtype: str) -> None:
         if not isinstance(wordtype, str):
-            raise TypeError('Expected result to be of type str, received {} instead.'.format(type(wordtype)))
+            raise TypeError(f'Expected result to be of type str, received {type(wordtype)} instead.')
         self.type = wordtype
 
     def __str__(self) -> str:
@@ -146,7 +146,7 @@ class DiamondType(FunctorType):
         self.diamond = diamond
 
     def __str__(self):
-        return '<' + self.argument.__str__() + '> ' + self.diamond + ' → ' + self.result.__str__()
+        return '<' + str(self.argument) + '> ' + self.diamond + ' → ' + str(self.result)
 
     def polish(self) -> str:
         return self.diamond + ' ' + self.argument.polish() + ' ' + self.result.polish()
@@ -219,7 +219,7 @@ def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0
         index, res = polarize_and_index(wordtype.result, polarity, index)
         return index, FunctorType(argument=arg, result=res)
     else:
-        raise TypeError('Expected wordtype to be of type WordType, received {} instead.'.format(type(wordtype)))
+        raise TypeError(f'Expected wordtype to be of type WordType, received {type(wordtype)} instead.')
 
 
 def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, List[WordType]]:
@@ -292,7 +292,7 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
         return argpos + respos, argneg + resneg
     else:
         raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
-                        ' received {} instead'.format(type(wordtype)))
+                        f' received {type(wordtype)} instead')
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
@@ -306,7 +306,7 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
         return argpos + respos, argneg + resneg
     else:
         raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
-                        ' received {} instead'.format(type(wordtype)))
+                        f' received {type(wordtype)} instead')
 
 
 def literal_invariance(premises: WordTypes):
@@ -320,7 +320,7 @@ def operator_count(wt: WordType) -> int:
     elif isinstance(wt, FunctorType):
         return operator_count(wt.result) - operator_count(wt.argument) - 1
     else:
-        raise TypeError('Expected wt to be of type WordType, received {} instead.'.format(type(wt)))
+        raise TypeError(f'Expected wt to be of type WordType, received {type(wt)} instead.')
 
 
 def operator_invariance(premises: WordTypes) -> int:
