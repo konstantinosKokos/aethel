@@ -40,6 +40,20 @@ class Edge(Generic[Node, Dep]):
     def adjacent(self) -> Nodes:
         return {self.source, self.target}
 
+    def __repr__(self) -> str:
+        return str(self.source) + ' --' + str(self.dep) + '--> ' + str(self.target)
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, Edge):
+            return self.target == other.target and self.dep == other.dep and self.source == other.source
+        return False
+
+    def __ne__(self, other: Any) -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return (self.source, self.dep, self.target).__hash__()
+
 
 Edges = Set[Edge]
 Path = Sequence[Edge]
@@ -80,7 +94,7 @@ class DAG(Generic[Node, Dep]):
         return set.union(*list(map(lambda edge: {edge.source}, incoming))) if incoming else set()
 
     def first_common_predecessor(self, nodes: Nodes) -> Optional[Node]:
-        predecessors = list(map(self.pointed_by, nodes))
+        predecessors = list(map(lambda node: self.pointed_by(node), nodes))
         common_predecessors = set.intersection(*predecessors) if predecessors else set()
         upsets = list(map(lambda pred: (pred, self.pointed_by(pred)), common_predecessors))
         upsets = list(filter(lambda upset:
@@ -98,17 +112,17 @@ class DAG(Generic[Node, Dep]):
         return set.union(*list(map(lambda edge: {edge.target}, outgoing))) if outgoing else set()
 
     def incoming_many(self, nodes: Nodes) -> Edges:
-        return set.union(*list(map(self.incoming, nodes)))
+        return set.union(*list(map(lambda node: self.incoming(node), nodes)))
 
     def outgoing_many(self, nodes: Nodes) -> Edges:
-        return set.union(*list(map(self.outgoing, nodes)))
+        return set.union(*list(map(lambda node: self.outgoing(node), nodes)))
 
     def points_to(self, node: Node) -> Nodes:
         ret: Nodes = set()
         fringe_nodes = {node}
 
         while True:
-            fringe_edges = set.union(*list(map(self.outgoing, fringe_nodes)))
+            fringe_edges = set.union(*list(map(lambda node: self.outgoing(node), fringe_nodes)))
             if not len(fringe_edges):
                 break
             fringe_nodes = {edge.target for edge in fringe_edges}
@@ -120,7 +134,7 @@ class DAG(Generic[Node, Dep]):
         fringe_nodes = {node}
 
         while True:
-            fringe_edges = set.union(*list(map(self.incoming, fringe_nodes)))
+            fringe_edges = set.union(*list(map(lambda node_: self.incoming(node_), fringe_nodes)))
             if not len(fringe_edges):
                 break
             fringe_nodes = {edge.source for edge in fringe_edges}
@@ -130,8 +144,8 @@ class DAG(Generic[Node, Dep]):
     def exists_path(self, node0: Node, node1: Node) -> bool:
         return node1 in self.points_to(node0)
 
-    def remove_nodes(self, condition: Callable[[Node], bool], normalize: bool = True) -> 'DAG':
-        nodes = set(filter(condition, self.nodes))
+    def remove_nodes(self, keep_condition: Callable[[Node], bool], normalize: bool = True) -> 'DAG':
+        nodes = set(filter(lambda node: keep_condition(node), self.nodes))
         node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
         if normalize:
             edges = set(filter(lambda edge: edge.source in nodes and edge.target in nodes, self.edges))
@@ -139,8 +153,8 @@ class DAG(Generic[Node, Dep]):
         else:
             return DAG(nodes=nodes, edges=self.edges, attribs=node_attribs, meta=self.meta)
 
-    def remove_edges(self, condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
-        edges = set(filter(condition, self.edges))
+    def remove_edges(self, keep_condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
+        edges = set(filter(keep_condition, self.edges))
         if normalize:
             nodes = occuring_nodes(edges)
             node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
@@ -162,7 +176,7 @@ class DAG(Generic[Node, Dep]):
     def remove_oneways(self) -> 'DAG':
         newdag = self
         while True:
-            oneways = list(filter(newdag.oneway, newdag.nodes))
+            oneways = list(filter(lambda n: newdag.oneway(n), newdag.nodes))
             if not len(oneways):
                 return newdag
             for node in oneways:
@@ -181,7 +195,7 @@ class DAG(Generic[Node, Dep]):
                                                                                        range(len(subnodes))))))),
                                 range(len(subnodes))))
         else:
-            subnodes = list(map(set, subnodes))
+            subnodes = list(map(lambda x: set(x), subnodes))
 
         subedges = list(map(lambda subgraph: set(filter(lambda edge: edge.adjacent().issubset(subgraph), self.edges)),
                             subnodes))
