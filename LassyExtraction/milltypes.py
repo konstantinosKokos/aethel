@@ -51,8 +51,8 @@ class WordType(ABC):
         pass
 
 
-WordTypes = Sequence[WordType]
-strings = Sequence[str]
+WordTypes = List[WordType]
+strings = List[str]
 
 
 class AtomicType(WordType):
@@ -104,6 +104,8 @@ class FunctorType(WordType):
         self.argument = argument
 
     def __str__(self) -> str:
+        if self.argument.arity() > 0:
+            return '(' + str(self.argument) + ')' + ' → ' + str(self.result)
         return str(self.argument) + ' → ' + str(self.result)
 
     def polish(self) -> str:
@@ -293,6 +295,10 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
     else:
         raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
                         f' received {type(wordtype)} instead')
+
+
+def depolarize(x: WordType) -> WordType:
+    return x.depolarize()
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
