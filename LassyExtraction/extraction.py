@@ -98,6 +98,13 @@ def make_functor(argument: WordType, result: WordType, dep: Optional[str]) -> Fu
             return DiamondType(argument, result, dep)
 
 
+def make_ho_functor(argument: WordType, result: WordType, dep: Optional[str]) -> FunctorType:
+    if dep is None or dep in HeadDeps or dep == 'np_hd':
+        return FunctorType(argument, result)
+    else:
+        return DiamondType(argument, result, dep)
+
+
 def modifier_of(modified: WordType, dep: str) -> BoxType:
     return BoxType(argument=modified, result=modified, box=dep)
 
@@ -107,6 +114,13 @@ def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
+
+
+def binarize_hots(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
+                  sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
+    argcolors = sorting_fn(argcolors)
+    return reduce(lambda x, y:
+                  make_ho_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
 def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
@@ -213,7 +227,8 @@ def type_heads_step(dag: DAG, head_deps: FrozenSet[str], mod_deps: FrozenSet[str
     heads_nodes: List[Tuple[Edge, List[str]]] \
         = list(map(lambda edge: (edge,
                                  order_nodes(dag, list(set(map(lambda edge: edge.target,
-                                                               filter(lambda edge: edge.dep in head_deps,                                                              dag.outgoing(edge.source))))))),
+                                                               filter(lambda edge: edge.dep in head_deps,
+                                                                      dag.outgoing(edge.source))))))),
                    filter(lambda edge: edge.dep in head_deps.difference({'crd'})
                                        and 'type' in dag.attribs[edge.source].keys()
                                        and 'type' not in dag.attribs[edge.target].keys()
@@ -277,10 +292,10 @@ def type_core(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, head_dep
 
 def type_gaps(dag: DAG, head_deps: FrozenSet[str] = HeadDeps):
     def make_gap_functor(emb_type: WordType, interm: Tuple[WordType, str], top: Tuple[WordType, str]) -> FunctorType:
-        if isinstance(emb_type, FunctorType):
-            argument = FunctorType(argument=emb_type, result=fst(interm))
-        else:
-            argument = DiamondType(argument=emb_type, result=fst(interm), diamond=snd(interm))
+        # if isinstance(emb_type, FunctorType):
+        #     # argument = FunctorType(argument=emb_type, result=fst(interm))
+        # else:
+        argument = DiamondType(argument=emb_type, result=fst(interm), diamond=snd(interm))
         return DiamondType(argument=argument, result=fst(top), diamond=snd(top)+'_body')
 
     def get_interm_top(gap: Node) -> Tuple[Tuple[WordType, str], Tuple[WordType, str]]:
@@ -343,7 +358,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     def make_polymorphic_x(initial: WordType, missing: ArgSeq) -> WordType:
         # missing = list(map(lambda pair: (fst(pair), snd(pair) if snd(pair) not in mod_deps else 'embedded'),
         #                    missing))
-        return binarize(missing, initial)
+        return binarize_hots(missing, initial)
 
     def make_crd_type(poly_x: WordType, repeats: int) -> WordType:
         ret = poly_x
@@ -452,6 +467,14 @@ def type_dag(dag: DAG[str, str], type_dict: Dict[str, AtomicType], pos_set: str,
         if not invariance_check(premises, goal):
             raise ExtractionError('Invariance check failed.', meta=dag.meta)
     return dag
+
+
+def untype_dag(dag: DAG) -> None:
+    for k in dag.attribs.keys():
+        if 'type' in dag.attribs[k].keys():
+            del dag.attribs[k]['type']
+        if '_gap_typed' in dag.attribs[k].keys():
+            del dag.attribs[k]['_gap_typed']
 
 
 class Extraction(object):
