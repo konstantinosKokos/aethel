@@ -345,13 +345,16 @@ def participating_conjunctions(dag: DAG, node: Node, exclude_heads: bool = False
                                          (fst(pair),
                                           # the subset of connections that have the most paths to node
                                           list(map(lambda daughter_connections:
+
                                                    set(filter(lambda connection:
                                                               not any(map(lambda other:
                                                                           len(dag.distinct_paths_to(other, node)) >
                                                                           len(dag.distinct_paths_to(connection, node)),
                                                                           daughter_connections)),
                                                               daughter_connections)),
-                                                   snd(pair)))),
+                                                   snd(pair)))
+
+                                          ),
                                          daughters_connections))
 
         daughters_connections = list(map(lambda pair:
