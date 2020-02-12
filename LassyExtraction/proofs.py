@@ -550,11 +550,13 @@ def last_instance_of(coordinator: WordType) -> WordType:
 
 def identify_missing(poly_x: WordType, missing: WordType, dep: str) -> WordType:
     while True:
-        if isinstance(poly_x, DiamondType) and poly_x.diamond == dep and poly_x.argument == missing:
-            break
-        if isinstance(poly_x, BoxType) and poly_x.box == dep and poly_x.argument == missing:
-            break
-        if isinstance(poly_x, FunctorType) and dep in HeadDeps and poly_x.argument == missing:
+        if isinstance(poly_x, DiamondType):
+            if poly_x.diamond == dep and poly_x.argument == missing:
+                break
+        elif isinstance(poly_x, BoxType):
+            if poly_x.box == dep and poly_x.argument == missing:
+                break
+        elif isinstance(poly_x, FunctorType) and poly_x.argument == missing and dep in HeadDeps.union({'np_hd'}):
             break
         poly_x = poly_x.result
     return poly_x.argument
@@ -585,8 +587,6 @@ def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
     daughter_index = paths.index(True)
 
     xs, res = isolate_xs(crd_type), last_instance_of(crd_type)
-    import pdb
-    pdb.set_trace()
     return identify_missing(xs[daughter_index], missing_type, edge.dep)
 
 
