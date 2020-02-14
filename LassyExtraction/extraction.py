@@ -102,7 +102,7 @@ def make_ho_functor(argument: WordType, result: WordType, dep: Optional[str]) ->
     if dep is None or dep in HeadDeps or dep == 'np_hd':
         return FunctorType(argument, result)
     else:
-        return DiamondType(argument, result, dep)
+        return make_functor(argument, result, dep)
 
 
 def modifier_of(modified: WordType, dep: str) -> BoxType:
