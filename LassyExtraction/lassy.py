@@ -3,9 +3,6 @@ import xml.etree.cElementTree as et
 from glob import glob
 from warnings import warn
 
-from torch.utils.data import Dataset
-from torchvision.transforms import Compose
-
 from LassyExtraction.graphutils import *
 
 
@@ -13,16 +10,16 @@ def is_public(filename: str) -> bool:
     return 'wiki' in filename or 'WR-P-E-J' in filename
 
 
-class Lassy(Dataset):
+class Lassy(object):
     """
         Lassy dataset. A wrapper that feeds samples into the extraction algorithm.
     """
 
     def __init__(self, root_dir: str = '/home/kokos/Projects/Lassy 4.0/LassySmall',
-                 treebank_dir: str = '/Treebank', transform: Optional[Compose] = None,
+                 treebank_dir: str = '/Treebank', transform: Optional[Callable] = None,
                  ignore: Optional[str] = 'LassyExtraction/utils/ignored.txt') -> None:
 
-        if os.path.isdir(root_dir) and os.path.isdir(root_dir+treebank_dir):
+        if os.path.isdir(root_dir) and os.path.isdir(root_dir + treebank_dir):
             self.root_dir = root_dir
             self.treebank_dir = root_dir + treebank_dir
         else:

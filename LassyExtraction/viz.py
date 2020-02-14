@@ -1,4 +1,4 @@
-import graphviz as gv
+import graphviz as gv  # type: ignore
 
 from LassyExtraction.graphutils import *
 
@@ -35,5 +35,3 @@ class ToGraphViz(object):
             graph = self.tree_to_gv(parse)
         if view:
             graph.render(view=True, **kwargs)
-
-

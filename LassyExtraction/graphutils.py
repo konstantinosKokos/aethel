@@ -31,13 +31,28 @@ Nodes = Set[Node]
 Dep = TypeVar('Dep')
 
 
-class Edge(NamedTuple):
-    source: Node
-    target: Node
-    dep: Dep
+class Edge(Generic[Node, Dep]):
+    def __init__(self, source: Node, target: Node, dep: Dep):
+        self.source = source
+        self.target = target
+        self.dep = dep
 
     def adjacent(self) -> Nodes:
         return {self.source, self.target}
+
+    def __repr__(self) -> str:
+        return str(self.source) + ' --' + str(self.dep) + '--> ' + str(self.target)
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, Edge):
+            return self.target == other.target and self.dep == other.dep and self.source == other.source
+        return False
+
+    def __ne__(self, other: Any) -> bool:
+        return not self.__eq__(other)
+
+    def __hash__(self) -> int:
+        return (self.source, self.dep, self.target).__hash__()
 
 
 Edges = Set[Edge]
@@ -49,11 +64,12 @@ def occuring_nodes(edges: Edges) -> Nodes:
     return set.union(*list(map(lambda edge: edge.adjacent(), edges))) if edges else set()
 
 
-class DAG(NamedTuple):
-    nodes: Nodes
-    edges: Edges
-    attribs: Dict[Node, Dict]
-    meta: Any = None
+class DAG(Generic[Node, Dep]):
+    def __init__(self, nodes: Nodes, edges: Edges, attribs: Dict[Node, Dict], meta: Any = None):
+        self.nodes = nodes
+        self.edges = edges
+        self.attribs = attribs
+        self.meta = meta
 
     def is_empty(self) -> bool:
         return len(self.nodes) == 0
@@ -78,7 +94,7 @@ class DAG(NamedTuple):
         return set.union(*list(map(lambda edge: {edge.source}, incoming))) if incoming else set()
 
     def first_common_predecessor(self, nodes: Nodes) -> Optional[Node]:
-        predecessors = list(map(self.pointed_by, nodes))
+        predecessors = list(map(lambda node: self.pointed_by(node), nodes))
         common_predecessors = set.intersection(*predecessors) if predecessors else set()
         upsets = list(map(lambda pred: (pred, self.pointed_by(pred)), common_predecessors))
         upsets = list(filter(lambda upset:
@@ -96,17 +112,17 @@ class DAG(NamedTuple):
         return set.union(*list(map(lambda edge: {edge.target}, outgoing))) if outgoing else set()
 
     def incoming_many(self, nodes: Nodes) -> Edges:
-        return set.union(*list(map(self.incoming, nodes)))
+        return set.union(*list(map(lambda node: self.incoming(node), nodes)))
 
     def outgoing_many(self, nodes: Nodes) -> Edges:
-        return set.union(*list(map(self.outgoing, nodes)))
+        return set.union(*list(map(lambda node: self.outgoing(node), nodes)))
 
     def points_to(self, node: Node) -> Nodes:
-        ret = set()
+        ret: Nodes = set()
         fringe_nodes = {node}
 
         while True:
-            fringe_edges = set.union(*list(map(self.outgoing, fringe_nodes)))
+            fringe_edges = set.union(*list(map(lambda node: self.outgoing(node), fringe_nodes)))
             if not len(fringe_edges):
                 break
             fringe_nodes = {edge.target for edge in fringe_edges}
@@ -114,11 +130,11 @@ class DAG(NamedTuple):
         return ret
 
     def pointed_by(self, node: Node) -> Nodes:
-        ret = set()
+        ret: Nodes = set()
         fringe_nodes = {node}
 
         while True:
-            fringe_edges = set.union(*list(map(self.incoming, fringe_nodes)))
+            fringe_edges = set.union(*list(map(lambda node_: self.incoming(node_), fringe_nodes)))
             if not len(fringe_edges):
                 break
             fringe_nodes = {edge.source for edge in fringe_edges}
@@ -128,8 +144,8 @@ class DAG(NamedTuple):
     def exists_path(self, node0: Node, node1: Node) -> bool:
         return node1 in self.points_to(node0)
 
-    def remove_nodes(self, condition: Callable[[Node], bool], normalize: bool = True) -> 'DAG':
-        nodes = set(filter(condition, self.nodes))
+    def remove_nodes(self, keep_condition: Callable[[Node], bool], normalize: bool = True) -> 'DAG':
+        nodes = set(filter(lambda node: keep_condition(node), self.nodes))
         node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
         if normalize:
             edges = set(filter(lambda edge: edge.source in nodes and edge.target in nodes, self.edges))
@@ -137,8 +153,8 @@ class DAG(NamedTuple):
         else:
             return DAG(nodes=nodes, edges=self.edges, attribs=node_attribs, meta=self.meta)
 
-    def remove_edges(self, condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
-        edges = set(filter(condition, self.edges))
+    def remove_edges(self, keep_condition: Callable[[Edge], bool], normalize: bool = True) -> 'DAG':
+        edges = set(filter(keep_condition, self.edges))
         if normalize:
             nodes = occuring_nodes(edges)
             node_attribs = {n: a for n, a in self.attribs.items() if n in nodes}
@@ -152,18 +168,18 @@ class DAG(NamedTuple):
     def remove_oneway(self, path: Node) -> 'DAG':
         incoming = list(self.incoming(path))[0]
         outgoing = list(self.outgoing(path))[0]
-        edge = Edge(incoming.source, outgoing.target, outgoing.dep)
-        newdag = self.remove_nodes(lambda node: node == path)
+        edge = Edge(incoming.source, outgoing.target, incoming.dep)
+        newdag = self.remove_nodes(lambda node: node != path)
         newdag.edges.add(edge)
         return newdag
 
     def remove_oneways(self) -> 'DAG':
         newdag = self
         while True:
-            oneways = list(filter(self.oneway, self.edges))
+            oneways = list(filter(lambda n: newdag.oneway(n), newdag.nodes))
             if not len(oneways):
                 return newdag
-            for node in list(filter(self.oneway, self.edges)):
+            for node in oneways:
                 newdag = newdag.remove_oneway(node)
 
     def get_rooted_subgraphs(self, erasing: bool = False) -> List['DAG']:
@@ -179,7 +195,7 @@ class DAG(NamedTuple):
                                                                                        range(len(subnodes))))))),
                                 range(len(subnodes))))
         else:
-            subnodes = list(map(set, subnodes))
+            subnodes = list(map(lambda x: set(x), subnodes))
 
         subedges = list(map(lambda subgraph: set(filter(lambda edge: edge.adjacent().issubset(subgraph), self.edges)),
                             subnodes))
@@ -197,10 +213,10 @@ class DAG(NamedTuple):
 
     def bfs_split(self, start: Callable[[Nodes], Node]) -> Optional[Tuple['DAG', 'DAG']]:
         if self.is_empty():
-            return
+            return None
 
         fringe_nodes = flooded_nodes = {start(self.nodes)}
-        flooded_edges = set()
+        flooded_edges: Edges = set()
 
         while True:
             new_fringe_edges = set.union(self.incoming_many(fringe_nodes), self.outgoing_many(fringe_nodes), set())
@@ -238,4 +254,3 @@ class DAG(NamedTuple):
             return set()
         else:
             return set.union(*[expand_path(edge, tuple()) for edge in self.outgoing(source)])
-

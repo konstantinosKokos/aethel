@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import reduce
 from operator import add
-from typing import Union, Set, Sequence, Tuple, Iterable, List, Callable
+from typing import Set, Sequence, Tuple, List, overload
 
 
 class WordType(ABC):
@@ -23,7 +23,7 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def get_arity(self) -> int:
+    def arity(self) -> int:
         pass
 
     @abstractmethod
@@ -31,11 +31,11 @@ class WordType(ABC):
         pass
 
     @abstractmethod
-    def __eq__(self, other: 'WordType') -> bool:
+    def __eq__(self, other: object) -> bool:
         pass
 
     @abstractmethod
-    def decolor(self) -> Union['AtomicType', 'ComplexType', 'CombinatorType']:
+    def decolor(self) -> 'WordType':
         pass
 
     @abstractmethod
@@ -51,18 +51,18 @@ class WordType(ABC):
         pass
 
 
-WordTypes = Sequence[WordType]
-strings = Sequence[str]
+WordTypes = List[WordType]
+strings = List[str]
 
 
 class AtomicType(WordType):
-    def __init__(self, result: str) -> None:
-        if not isinstance(result, str):
-            raise TypeError('Expected result to be of type str, received {} instead.'.format(type(result)))
-        self.result = result
+    def __init__(self, wordtype: str) -> None:
+        if not isinstance(wordtype, str):
+            raise TypeError(f'Expected result to be of type str, received {type(wordtype)} instead.')
+        self.type = wordtype
 
     def __str__(self) -> str:
-        return self.result
+        return self.type
 
     def polish(self) -> str:
         return self.__str__()
@@ -73,17 +73,17 @@ class AtomicType(WordType):
     def __hash__(self) -> int:
         return self.__str__().__hash__()
 
-    def get_arity(self) -> int:
+    def arity(self) -> int:
         return 0
 
     def __call__(self) -> str:
         return self.__str__()
 
-    def __eq__(self, other: WordType) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, AtomicType):
             return False
         else:
-            return self.result == other.result
+            return self.type == other.type
 
     def decolor(self) -> 'AtomicType':
         return self
@@ -98,12 +98,14 @@ class AtomicType(WordType):
         return self
 
 
-class ComplexType(WordType):
+class FunctorType(WordType):
     def __init__(self, argument: WordType, result: WordType) -> None:
         self.result = result
         self.argument = argument
 
     def __str__(self) -> str:
+        if self.argument.arity() > 0:
+            return '(' + str(self.argument) + ')' + ' → ' + str(self.result)
         return str(self.argument) + ' → ' + str(self.result)
 
     def polish(self) -> str:
@@ -115,20 +117,20 @@ class ComplexType(WordType):
     def __hash__(self) -> int:
         return self.__str__().__hash__()
 
-    def get_arity(self) -> int:
-        return max(self.argument.get_arity() + 1, self.result.get_arity())
+    def arity(self) -> int:
+        return max(self.argument.arity() + 1, self.result.arity())
 
     def __call__(self) -> str:
         return self.__str__()
 
-    def __eq__(self, other: WordType) -> bool:
-        if not isinstance(other, ComplexType):
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FunctorType):
             return False
         else:
             return self.argument == other.argument and self.result == other.result
 
-    def decolor(self) -> 'ComplexType':
-        return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
+    def decolor(self) -> 'FunctorType':
+        return FunctorType(argument=self.argument.decolor(), result=self.result.decolor())
 
     def get_atomic(self) -> Set[AtomicType]:
         return set.union(self.argument.get_atomic(), self.result.get_atomic())
@@ -136,75 +138,90 @@ class ComplexType(WordType):
     def get_colors(self) -> Set[str]:
         return set.union(self.argument.get_colors(), self.result.get_colors())
 
-    def depolarize(self) -> 'ComplexType':
-        return ComplexType(argument=self.argument.depolarize(), result=self.result.depolarize())
+    def depolarize(self) -> 'FunctorType':
+        return FunctorType(argument=self.argument.depolarize(), result=self.result.depolarize())
 
 
-class ColoredType(ComplexType):
-    def __init__(self, argument: WordType, result: WordType, color: str):
-        super(ColoredType, self).__init__(argument, result)
-        assert(isinstance(argument, WordType))
-        assert(isinstance(result, WordType))
-        assert(isinstance(color, str))
-        self.color = color
+class DiamondType(FunctorType):
+    def __init__(self, argument: WordType, result: WordType, diamond: str):
+        super(DiamondType, self).__init__(argument, result)
+        self.diamond = diamond
 
-    def __str__(self) -> str:
-        return '<' + str(self.argument) + '> ' + self.color + ' → ' + str(self.result)
+    def __str__(self):
+        return '<' + str(self.argument) + '> ' + self.diamond + ' → ' + str(self.result)
 
     def polish(self) -> str:
-        return '→ ' + '<' + self.argument.polish() + '> ' + self.color + ' ' + self.result.polish()
+        return self.diamond + ' ' + self.argument.polish() + ' ' + self.result.polish()
 
-    def polish_short(self) -> str:
-        argstr = self.argument.polish_short() if isinstance(self.argument, ColoredType) else self.argument.polish()
-        resstr = self.result.polish_short() if isinstance(self.result, ColoredType) else self.result.polish()
-        return self.color + ' ' + argstr + ' ' + resstr
-
-    def __repr__(self) -> str:
-        return self.__str__()
-
-    def __hash__(self) -> int:
-        return self.__str__().__hash__()
-
-    def __eq__(self, other: WordType) -> bool:
-        if not isinstance(other, ColoredType):
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, DiamondType):
             return False
         else:
-            return super(ColoredType, self).__eq__(other) and self.color == other.color
+            return self.diamond == other.diamond and super(DiamondType, self).__eq__(other)
 
-    def decolor(self) -> ComplexType:
-        return ComplexType(argument=self.argument.decolor(), result=self.result.decolor())
+    def depolarize(self) -> 'DiamondType':
+        return DiamondType(argument=self.argument.depolarize(), result=self.result.depolarize(),
+                           diamond=self.diamond)
 
-    def get_colors(self) -> Set[str]:
-        return set.union(super(ColoredType, self).get_colors(), {self.color})
-
-    def depolarize(self) -> 'ColoredType':
-        return ColoredType(argument=self.argument.depolarize(), result=self.result.depolarize(), color=self.color)
+    def __hash__(self):
+        return super(DiamondType, self).__hash__()
 
 
-class PolarizedIndexedType(AtomicType):
-    def __init__(self, result: str, polarity: bool, index: int) -> None:
-        super(PolarizedIndexedType, self).__init__(result=result)
+class BoxType(FunctorType):
+    def __init__(self, argument: WordType, result: WordType, box: str):
+        super(BoxType, self).__init__(argument, result)
+        self.box = box
+
+    def __str__(self):
+        return '[' + self.argument.__str__() + ' → ' + self.result.__str__() + '] ' + self.box
+
+    def polish(self) -> str:
+        return self.box + ' ' + self.argument.polish() + ' ' + self.result.polish()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BoxType):
+            return False
+        else:
+            return self.box == other.box and super(BoxType, self).__eq__(other)
+
+    def depolarize(self) -> 'FunctorType':
+        return BoxType(argument=self.argument.depolarize(), result=self.result.depolarize(),
+                       box=self.box)
+
+    def __hash__(self):
+        return super(BoxType, self).__hash__()
+
+
+class PolarizedType(AtomicType):
+    def __init__(self, wordtype: str, polarity: bool, index: int):
+        super(PolarizedType, self).__init__(wordtype=wordtype)
         self.polarity = polarity
         self.index = index
 
     def __str__(self) -> str:
-        return super(PolarizedIndexedType, self).__str__() + \
-               '(' + ('+' if self.polarity else '-') + ', ' + str(self.index) + ')'
+        return super(PolarizedType, self).__str__() + '(' + ('+' if self.polarity else '-') + str(self.index) + ')'
 
-    def depolarize(self) -> AtomicType:
-        return AtomicType(self.result)
+    def depolarize(self) -> 'AtomicType':
+        return AtomicType(wordtype=self.type)
 
 
 def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
     if isinstance(wordtype, AtomicType):
-        return index+1, PolarizedIndexedType(result=wordtype.result, polarity=polarity, index=index)
-    elif isinstance(wordtype, ComplexType):
+        return index + 1, PolarizedType(wordtype=wordtype.type, polarity=polarity, index=index)
+    elif isinstance(wordtype, DiamondType):
         index, arg = polarize_and_index(wordtype.argument, not polarity, index)
         index, res = polarize_and_index(wordtype.result, polarity, index)
-        if isinstance(wordtype, ColoredType):
-            return index, ColoredType(argument=arg, result=res, color=wordtype.color)
-        else:
-            return index, ComplexType(argument=arg, result=res)
+        return index, DiamondType(argument=arg, result=res, diamond=wordtype.diamond)
+    elif isinstance(wordtype, BoxType):
+        index, arg = polarize_and_index(wordtype.argument, not polarity, index)
+        index, res = polarize_and_index(wordtype.result, polarity, index)
+        return index, BoxType(argument=arg, result=res, box=wordtype.box)
+    elif isinstance(wordtype, FunctorType):
+        index, arg = polarize_and_index(wordtype.argument, not polarity, index)
+        index, res = polarize_and_index(wordtype.result, polarity, index)
+        return index, FunctorType(argument=arg, result=res)
+    else:
+        raise TypeError(f'Expected wordtype to be of type WordType, received {type(wordtype)} instead.')
 
 
 def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, List[WordType]]:
@@ -215,41 +232,73 @@ def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tu
     return index, ret
 
 
-def binarize(sorting_fn: Callable[[Iterable[Tuple[WordType, str]]], List[Tuple[WordType, str]]],
-             arguments: WordTypes, colors: strings, result: WordType) -> ColoredType:
-    argcolors = zip(arguments, colors)
-    argcolors = list(sorting_fn(argcolors))
-    return reduce(lambda x, y: ColoredType(result=x, argument=y[0], color=y[1]), argcolors, result)
+@overload
+def decolor(x: WordType) -> WordType:
+    pass
 
 
-def decolor(colored_type: WordType) -> Union[AtomicType, ComplexType]:
-    return colored_type.decolor()
+@overload
+def decolor(x: WordTypes) -> WordTypes:
+    pass
 
 
-def depolarize(polar_type: WordType) -> WordType:
-    return polar_type.depolarize()
-
-
-def get_atomic(something: Union[WordTypes, WordType]) -> Set[AtomicType]:
-    if isinstance(something, Sequence):
-        return set.union(*map(get_atomic, something))
+def decolor(x):
+    if isinstance(x, WordType):
+        return x.decolor()
     else:
-        return something.get_atomic()
+        return list(map(decolor, x))
 
 
-def get_colors(something: Union[WordTypes, WordType]) -> Set[str]:
-    if isinstance(something, Sequence):
-        return set.union(*map(get_colors, something))
+@overload
+def get_atomic(x: WordType) -> Set[AtomicType]:
+    pass
+
+
+@overload
+def get_atomic(x: WordTypes) -> Set[AtomicType]:
+    pass
+
+
+def get_atomic(x):
+    if isinstance(x, WordType):
+        return x.get_atomic()
     else:
-        return something.get_colors()
+        return set.union(*map(get_atomic, x))
 
 
-def polish(wordtype: WordType) -> str:
-    return wordtype.polish()
+@overload
+def get_colors(x: WordType) -> Set[str]:
+    pass
 
 
-def polish_short(wordtype: WordType) -> str:
-    return wordtype.polish() if isinstance(wordtype, AtomicType) else wordtype.polish_short()
+@overload
+def get_colors(x: WordTypes) -> Set[str]:
+    pass
+
+
+def get_colors(x):
+    if isinstance(x, WordType):
+        return x.get_colors()
+    else:
+        set.union(*map(get_colors, x))
+
+
+def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
+    if isinstance(wordtype, PolarizedType):
+        if str(wordtype)[0] == '_':
+            return [], []
+        return [], [(wordtype.depolarize(), wordtype.index)]
+    elif isinstance(wordtype, FunctorType):
+        argneg, argpos = get_polarities_and_indices(wordtype.argument)
+        respos, resneg = get_polarities_and_indices(wordtype.result)
+        return argpos + respos, argneg + resneg
+    else:
+        raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
+                        f' received {type(wordtype)} instead')
+
+
+def depolarize(x: WordType) -> WordType:
+    return x.depolarize()
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
@@ -257,25 +306,13 @@ def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicTyp
         if str(wordtype)[0] == '_':
             return [], []
         return [], [wordtype.depolarize()]
-    elif isinstance(wordtype, ComplexType):
+    elif isinstance(wordtype, FunctorType):
         argneg, argpos = get_polarities(wordtype.argument)
         respos, resneg = get_polarities(wordtype.result)
         return argpos + respos, argneg + resneg
     else:
-        raise TypeError
-
-
-def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
-    if isinstance(wordtype, AtomicType):
-        if str(wordtype)[0] == '_':
-            return [], []
-        return [], [(wordtype.depolarize(), wordtype.index)]
-    elif isinstance(wordtype, ComplexType):
-        argneg, argpos = get_polarities_and_indices(wordtype.argument)
-        respos, resneg = get_polarities_and_indices(wordtype.result)
-        return argpos + respos, argneg + resneg
-    else:
-        raise TypeError
+        raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
+                        f' received {type(wordtype)} instead')
 
 
 def literal_invariance(premises: WordTypes):
@@ -284,7 +321,12 @@ def literal_invariance(premises: WordTypes):
 
 
 def operator_count(wt: WordType) -> int:
-    return 0 if isinstance(wt, AtomicType) else operator_count(wt.result) - operator_count(wt.argument) - 1
+    if isinstance(wt, AtomicType):
+        return 0
+    elif isinstance(wt, FunctorType):
+        return operator_count(wt.result) - operator_count(wt.argument) - 1
+    else:
+        raise TypeError(f'Expected wt to be of type WordType, received {type(wt)} instead.')
 
 
 def operator_invariance(premises: WordTypes) -> int:
@@ -301,21 +343,3 @@ def invariance_check(premises: WordTypes, goal: WordType) -> bool:
     if operator_invariance(premises) != operator_count(goal):
         return False
     return True
-
-
-def polish_to_type(x: Sequence[str], colors: Set[str]) -> Tuple[WordType, Sequence[str]]:
-    if x[0] in colors:
-        color = x[0]
-        arg, rem = polish_to_type(x[1:], colors)
-        res, rem = polish_to_type(rem, colors)
-        return ColoredType(color=color, argument=arg, result=res), rem
-    else:
-        return AtomicType(x[0]), x[1:]
-
-
-class StrToType(object):
-    def __init__(self, colors: Set[str]):
-        self.colors = colors
-
-    def __call__(self, x: Sequence[str]) -> WordType:
-        return polish_to_type(x, self.colors)[0]

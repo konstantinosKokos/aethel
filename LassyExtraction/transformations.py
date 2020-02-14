@@ -3,18 +3,21 @@ from xml.etree.cElementTree import Element, ElementTree
 
 from LassyExtraction.graphutils import *
 
+DAGS = List[DAG]
 
-def sort_dags(dags: List[DAG]) -> List[DAG]:
-    def dag_to_key(dag_: DAG) -> Any:
-        leaves_ = order_nodes(dag_, set(filter(dag_.is_leaf, dag_.nodes)))
-        return list(map(lambda leaf_: tuple(map(int, (dag_.attribs[leaf_]['begin'],
-                                                      dag_.attribs[leaf_]['end'],
-                                                      dag_.attribs[leaf_]['id']))),
-                        leaves_))
+
+def sort_dags(dags: DAGS) -> DAGS:
+    def dag_to_key(dag: DAG) -> List[Tuple[int, ...]]:
+        leaves = order_nodes(dag, list(filter(dag.is_leaf, dag.nodes)))
+        return list(map(lambda leaf: tuple(map(int, (dag.attribs[leaf]['begin'],
+                                                      dag.attribs[leaf]['end'],
+                                                      dag.attribs[leaf]['id']))),
+                        leaves))
+
     return sorted(dags, key=lambda dag: dag_to_key(dag))
 
 
-def rename_dag_src(dags: List[DAG]) -> List[DAG]:
+def rename_dag_src(dags: DAGS) -> DAGS:
     metas = [None if dag.meta is None else {**dag.meta, **{'src': dag.meta['src'] + '_' + str(i)}}
              for i, dag in enumerate(dags)]
 
@@ -27,7 +30,7 @@ def rename_dag_src(dags: List[DAG]) -> List[DAG]:
 
 
 def get_sentence(dag: DAG) -> List[str]:
-    leaves = order_nodes(dag, set(filter(dag.is_leaf, dag.nodes)))
+    leaves = order_nodes(dag, list(filter(dag.is_leaf, dag.nodes)))
     return list(map(lambda leaf: dag.attribs[leaf]['word'], leaves))
 
 
@@ -45,14 +48,13 @@ def identify_nodes(nodes: Set[Element]) -> Dict[str, str]:
             for n in nodes}
 
 
-def convert_to_dag(tree: ElementTree, meta: Optional[Any] = None) -> DAG:
+def tree_to_dag(tree: ElementTree, meta: Any = None) -> DAG:
     nodes = set(tree.iter('node'))
     identifying_indices = identify_nodes(nodes)
-    edges = [Edge(source.attrib['id'], target.attrib['id'], target.attrib['rel'])
-             for source in nodes for target in source.findall('node')]
-    edges = filter(lambda edge: edge.dep != '--', edges)
     edges = set(map(lambda edge: Edge(identifying_indices[edge.source], identifying_indices[edge.target], edge.dep),
-                    edges))
+                    filter(lambda edge: edge.dep != '--',
+                           (Edge(source.attrib['id'], target.attrib['id'], target.attrib['rel'])
+                            for source in nodes for target in source.findall('node')))))
     occurring_indices = set.union(set([edge.source for edge in edges]), set([edge.target for edge in edges]))
     occuring_nodes = filter(lambda node: node.attrib['id'] in occurring_indices or ('pt' in node.attrib.keys()
                                                                                     and node.attrib['pt'] != 'let'),
@@ -61,19 +63,19 @@ def convert_to_dag(tree: ElementTree, meta: Optional[Any] = None) -> DAG:
     return DAG(nodes=set(attribs.keys()), edges=edges, attribs=attribs, meta=meta)
 
 
-def _cats_of_type(dag: DAG, cat: str, nodes: Optional[Nodes] = None) -> Nodes:
+def _cats_of_type(dag: DAG[Node, Any], cat: str, nodes: Optional[Nodes] = None) -> Nodes:
     if nodes is None:
         nodes = dag.nodes
     return set(filter(lambda node: 'cat' in dag.attribs[node] and dag.attribs[node]['cat'] == cat, nodes))
 
 
-def order_nodes(dag: DAG, nodes: Nodes) -> List[Node]:
+def order_nodes(dag: DAG[str, str], nodes: List[str]) -> List[str]:
     return sorted(nodes, key=lambda node: tuple(map(int, (dag.attribs[node]['begin'],
                                                           dag.attribs[node]['end'],
                                                           dag.attribs[node]['id']))))
 
 
-def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
+def majority_vote(dag: DAG[Node, Any], nodes: Nodes, pos_set: str = 'pt') -> str:
     def get_vote(node_: Node) -> str:
         if pos_set in dag.attribs[node_].keys():
             return dag.attribs[node_][pos_set]
@@ -86,32 +88,35 @@ def majority_vote(dag: DAG, nodes: Nodes, pos_set: str = 'pt') -> str:
     votes = sorted(votes)
     votecounts = list(map(lambda v: (fst(v), len(list(snd(v)))), groupby(votes, key=lambda x: x)))
     votecounts = sorted(votecounts, key=lambda pair: snd(pair), reverse=True)
-    votes = set(votes)
-    if 'smain' in votes:
+    voteset = set(votes)
+    if 'smain' in voteset:
         return 'smain'
-    elif 'np' in votes or 'n' in votes:
+    elif 'np' in voteset or 'n' in voteset:
         return 'np'
-    elif 'ap' in votes or 'a' in votes:
+    elif 'ap' in voteset or 'a' in voteset:
         return 'ap'
     else:
         return fst(fst(votecounts))
 
 
-def remove_abstract_arguments(dag: DAG) -> DAG:
-    candidates = {'su', 'obj', 'obj1', 'obj2', 'sup', 'pobj'}
-    sentential_cats = {'sv1', 'smain', 'ssub', 'inf'}
+def remove_abstract_arguments(dag: DAG[Node, Any]) -> DAG[Node, Any]:
+    candidates: Set[str] = {'su', 'obj', 'obj1', 'obj2', 'sup', 'pobj'}
+    sentential_cats: Set[str] = {'sv1', 'smain', 'ssub', 'inf'}
 
     def has_sentential_parent(node: Node) -> bool:
-        def is_sentential(node_: Node) -> True:
-            if dag.attribs[node_]['cat'] in sentential_cats:
+        def is_sentential(node_: Node) -> bool:
+            cat: str = dag.attribs[node_]['cat']
+            if cat in sentential_cats:
                 return True
-            elif dag.attribs[node_]['cat'] == 'conj':
-                return any(list(map(is_sentential, dag.predecessors(node_))))
+            elif cat == 'conj':
+                return any(list(map(lambda pred:
+                                    is_sentential(pred),
+                                    dag.predecessors(node_))))
             return False
 
         return any(list(map(lambda pred: is_sentential(pred), dag.predecessors(node))))
 
-    def is_candidate_dep(edge: Edge) -> bool:
+    def is_candidate_dep(edge: Edge[Node, str]) -> bool:
         return edge.dep in candidates
 
     def is_coindexed(node: Node) -> bool:
@@ -120,10 +125,11 @@ def remove_abstract_arguments(dag: DAG) -> DAG:
     def is_inf_or_ppart(node: Node) -> bool:
         return dag.attribs[node]['cat'] in {'ppart', 'inf'}
 
-    for_removal = set(filter(lambda e: is_candidate_dep(e)
-                                       and is_coindexed(e.target)
-                                       and is_inf_or_ppart(e.source)
-                                       and has_sentential_parent(e.target),
+    for_removal = set(filter(lambda e:
+                             is_candidate_dep(e)
+                             and is_coindexed(e.target)
+                             and is_inf_or_ppart(e.source)
+                             and has_sentential_parent(e.target),
                              dag.edges))
 
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(for_removal), attribs=dag.attribs, meta=dag.meta)
@@ -132,7 +138,7 @@ def remove_abstract_arguments(dag: DAG) -> DAG:
 def collapse_mwu(dag: DAG) -> DAG:
     dag = DAG(nodes=dag.nodes, edges=dag.edges, attribs=dag.attribs, meta=dag.meta)
     mwus = _cats_of_type(dag, 'mwu')
-    successors = list(map(lambda mwu: order_nodes(dag, dag.successors(mwu)), mwus))
+    successors = list(map(lambda mwu: order_nodes(dag, list(dag.successors(mwu))), mwus))
     collapsed_texts = list(map(lambda suc: ' '.join([dag.attribs[s]['word'] for s in suc]), successors))
     for mwu, succ, text in zip(mwus, successors, collapsed_texts):
         dag.attribs[mwu]['word'] = text
@@ -148,13 +154,8 @@ def refine_body(dag: DAG) -> DAG:
     to_add, to_remove = set(), set()
     for body in bodies:
         common_source = dag.outgoing(body.source)
-        match = list(filter(lambda edge: edge.dep in ('cmp', 'rhd', 'whd'), common_source))
-        if len(match) != 1:
-            from LassyExtraction.viz import ToGraphViz
-            import pdb
-            ToGraphViz()(dag)
-            pdb.set_trace()
-        match = fst(match)
+        matches = list(filter(lambda edge: edge.dep in ('cmp', 'rhd', 'whd'), common_source))
+        match = fst(matches)
         new_dep = match.dep + '_body'
         to_add.add(Edge(source=body.source, target=body.target, dep=new_dep))
         to_remove.add(body)
@@ -162,24 +163,24 @@ def refine_body(dag: DAG) -> DAG:
 
 
 def remove_secondary_dets(dag: DAG) -> DAG:
-    def tw_case(target: Node) -> bool:
+    def tw_case(target: Any) -> bool:
         return True if dag.attribs[target]['pt'] == 'tw' or dag.attribs[target]['word'] == 'beide' else False
-    to_add, to_remove = set(), set()
 
-    detgroups = list(dag.get_edges('det'))
-    detgroups = groupby(sorted(detgroups, key=lambda edge: edge.source), key=lambda edge: edge.source)
-    detgroups = list(map(lambda group: list(snd(group)), detgroups))
-    detgroups = list(filter(lambda group: len(group) > 1, detgroups))
-    for detgroup in detgroups:
+    to_add: Set[Edge] = set()
+    to_remove: Set[Edge] = set()
+
+    det_edges = sorted(list(dag.get_edges('det')), key=lambda edge: edge.source)
+    edges_grouped_by_parent = list(map(lambda g: list(snd(g)), groupby(det_edges, key=lambda edge: edge.source)))
+    edges_grouped_by_parent = list(filter(lambda g: len(g) > 1, edges_grouped_by_parent))
+
+    for detgroup in edges_grouped_by_parent:
         targets = list(map(lambda edge: edge.target, detgroup))
         if all(list(map(dag.is_leaf, targets))):
-            tw = filter(lambda x: tw_case(snd(x)), zip(detgroup, targets))
-            tw = set(map(fst, tw))
+            tw = set(map(fst, filter(lambda x: tw_case(snd(x)), zip(detgroup, targets))))
             to_remove = to_remove.union(tw)
             to_add = to_add.union(set(map(lambda edge: Edge(source=edge.source, target=edge.target, dep='mod'), tw)))
         else:
-            detp = filter(lambda x: not dag.is_leaf(snd(x)), zip(detgroup, targets))
-            detp = set(map(fst, detp))
+            detp = set(map(fst, filter(lambda x: not dag.is_leaf(snd(x)), zip(detgroup, targets))))
             to_remove = to_remove.union(detp)
             to_add = to_add.union(set(map(lambda edge: Edge(source=edge.source, target=edge.target, dep='mod'),
                                           detp)))
@@ -191,26 +192,29 @@ def swap_dp_headedness(dag: DAG) -> DAG:
     to_add, to_remove = set(), set()
 
     dets = list(dag.get_edges('det'))
-    matches = list(map(lambda edge: fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))), dets))
+    matches = list(map(lambda edge:
+                       fst(list(filter(lambda out: out.dep == 'hd', dag.outgoing(edge.source)))),
+                       dets))
 
     for d, m in zip(dets, matches):
         to_remove.add(d)
         to_remove.add(m)
-        to_add.add(Edge(source=d.source, target=d.target, dep='hd'))
-        to_add.add(Edge(source=m.source, target=m.target, dep='invdet'))
+        to_add.add(Edge(source=d.source, target=d.target, dep='det'))
+        to_add.add(Edge(source=m.source, target=m.target, dep='np_hd'))
 
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)
 
 
-def reattatch_conj_mods(dag: DAG, mod_candidates: Iterable[Dep] = ('mod', 'app', 'predm')) -> DAG:
-    to_add, to_remove = set(), set()
+def reattatch_conj_mods(dag: DAG, mod_candidates: FrozenSet[Any] = frozenset(['mod', 'app', 'predm'])) -> DAG:
+    to_add: Edges = set()
+    to_remove: Edges = set()
 
-    modgroups = sorted(set.union(*list(map(lambda m: set(dag.get_edges(m)), mod_candidates))),
+    mod_edges = sorted(set.union(*list(map(lambda m: set(dag.get_edges(m)), mod_candidates))),
                        key=lambda edge: edge.target)
-    modgroups = list(map(lambda g: list(snd(g)), groupby(modgroups, key=lambda edge: edge.target)))
+    modgroups = list(map(lambda g: list(snd(g)), groupby(mod_edges, key=lambda edge: edge.target)))
     modgroups = list(filter(lambda g: len(g) > 1, modgroups))
     for modgroup in modgroups:
-        sources = list(map(lambda edge: edge.source, modgroup))
+        sources = set(map(lambda edge: edge.source, modgroup))
         common_ancestor = dag.first_common_predecessor(sources)
         if common_ancestor is None:
             raise ValueError('No common ancestor.')
@@ -247,7 +251,7 @@ def good_sample(dag: DAG) -> bool:
             return True
     else:
         coords = list(map(lambda edge: dag.points_to(edge.source).difference({edge.target}), dag.get_edges('crd')))
-        coords = list(map(lambda nodes: list(filter(dag.is_leaf, nodes)), coords))
+        coords = list(map(lambda nodes: set(filter(dag.is_leaf, nodes)), coords))
         coords = list(filter(lambda leaves: len(leaves) < 2, coords))
         if len(coords):
             return False
@@ -257,12 +261,12 @@ def good_sample(dag: DAG) -> bool:
 
 class Transformation(object):
     def __init__(self):
-        self.cats_to_remove = {'du'}
-        self.deps_to_remove = {'dp', 'sat', 'nucl', 'tag'}
-        self.mod_deps = {'mod', 'app', 'predm'}
+        self.cats_to_remove = frozenset(['du'])
+        self.deps_to_remove = frozenset(['dp', 'sat', 'nucl', 'tag'])
+        self.mod_deps = frozenset(['mod', 'app', 'predm'])
 
     def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> List[DAG]:
-        dag = convert_to_dag(tree, meta)
+        dag = tree_to_dag(tree, meta)
         dag = collapse_mwu(dag)
         dags = remove_headless_branches(dag, self.cats_to_remove, self.deps_to_remove)
         dags = list(map(remove_abstract_arguments, dags))
@@ -276,11 +280,13 @@ class Transformation(object):
         return rename_dag_src(sort_dags(dags))
 
 
+transformer = Transformation()
+
+
 def test(samples=100):
     from LassyExtraction.lassy import Lassy
     L = Lassy()
-    T = Transformation()
 
     meta = [{'src': last(L[i][1].split('/'))} for i in range(samples)]
 
-    return list(chain.from_iterable(list(map(T, list(map(lambda i: L[i][2], range(samples))), meta))))
+    return list(chain.from_iterable(list(map(transformer, list(map(lambda i: L[i][2], range(samples))), meta))))
