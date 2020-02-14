@@ -237,7 +237,6 @@ def remove_headless_branches(dag: DAG, cats_to_remove: Iterable[str] = ('du',),
 def remove_non_leaves(dag: DAG) -> DAG:
     def non_leaf(node_: Node) -> bool:
         return not len(dag.outgoing(node_)) and 'cat' in dag.attribs[node_].keys()
-
     return dag.remove_nodes(lambda node: not non_leaf(node))
 
 
@@ -262,9 +261,9 @@ def good_sample(dag: DAG) -> bool:
 
 class Transformation(object):
     def __init__(self):
-        self.cats_to_remove = {'du'}
-        self.deps_to_remove = {'dp', 'sat', 'nucl', 'tag'}
-        self.mod_deps = {'mod', 'app', 'predm'}
+        self.cats_to_remove = frozenset(['du'])
+        self.deps_to_remove = frozenset(['dp', 'sat', 'nucl', 'tag'])
+        self.mod_deps = frozenset(['mod', 'app', 'predm'])
 
     def __call__(self, tree: ElementTree, meta: Optional[Any] = None) -> List[DAG]:
         dag = tree_to_dag(tree, meta)
