@@ -4,19 +4,28 @@ from LassyExtraction.graphutils import *
 
 
 class ToGraphViz(object):
-    def __init__(self, properties: Iterable[str] = ('id', 'word', 'pos', 'cat', 'index', 'type', 'pt')) -> None:
+    def __init__(self, properties: FrozenSet[str] = frozenset(['id', 'word', 'pos', 'cat', 'index', 'type', 'pt'])) \
+            -> None:
         self.properties = properties
+
+        #
 
     def make_node_label(self, attribs: Dict) -> str:
         return '\n'.join([str(attribs[k]) for k in self.properties if k in attribs.keys()])
 
+    def make_html_label(self, attribs: Dict) -> str:
+        return '<' + \
+            '<br/>'.join([str(attribs[k]) for k in self.properties if k in attribs.keys()]) \
+            + '>'
+
     def make_edge_label(self, edge: Any) -> str:
-        return edge
+        return str(edge)
 
     def dag_to_gv(self, dag: DAG) -> gv.Digraph:
         graph = gv.Digraph()
         for n in dag.nodes:
-            graph.node(n, label=self.make_node_label(dag.attribs[n]))
+            graph.node(n, label=self.make_node_label(dag.attribs[n]),
+                       _attributes={'shape': 'rectangle', 'color': 'gray'})
         for edge in dag.edges:
             graph.edge(edge.source, edge.target, self.make_edge_label(edge.dep))
         return graph
