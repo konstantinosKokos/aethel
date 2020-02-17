@@ -459,8 +459,7 @@ def type_dag(dag: DAG[str, str], type_dict: Dict[str, AtomicType], pos_set: str,
 
     if check:
         try:
-            premises = list(map(lambda node: dag.attribs[node]['type'], filter(lambda node: dag.is_leaf(node),
-                                                                               dag.nodes)))
+            premises = list(map(lambda node: dag.attribs[node]['type'], dag.get_leaves()))
         except KeyError:
             raise ExtractionError('Untyped leaves.')
         goal = dag.attribs[fst(list(dag.get_roots()))]['type']

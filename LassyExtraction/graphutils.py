@@ -80,6 +80,9 @@ class DAG(Generic[Node, Dep]):
     def is_leaf(self, node: Node) -> bool:
         return not len(self.outgoing(node))
 
+    def get_leaves(self) -> Nodes:
+        return set(filter(lambda node: self.is_leaf(node), self.nodes))
+
     def get_edges(self, dep: Dep) -> Iterable[Edge]:
         return filter(lambda edge: edge.dep == dep, self.edges)
 

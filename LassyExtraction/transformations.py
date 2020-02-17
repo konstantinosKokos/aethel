@@ -8,7 +8,7 @@ DAGS = List[DAG]
 
 def sort_dags(dags: DAGS) -> DAGS:
     def dag_to_key(dag: DAG) -> List[Tuple[int, ...]]:
-        leaves = order_nodes(dag, list(filter(dag.is_leaf, dag.nodes)))
+        leaves = order_nodes(dag, dag.get_leaves())
         return list(map(lambda leaf: tuple(map(int, (dag.attribs[leaf]['begin'],
                                                       dag.attribs[leaf]['end'],
                                                       dag.attribs[leaf]['id']))),
@@ -30,7 +30,7 @@ def rename_dag_src(dags: DAGS) -> DAGS:
 
 
 def get_sentence(dag: DAG) -> List[str]:
-    leaves = order_nodes(dag, list(filter(dag.is_leaf, dag.nodes)))
+    leaves = order_nodes(dag, dag.get_leaves())
     return list(map(lambda leaf: dag.attribs[leaf]['word'], leaves))
 
 
