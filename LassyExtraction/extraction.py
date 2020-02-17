@@ -496,4 +496,4 @@ class Extraction(object):
                 return None
 
 
-typer = Extraction(CatDict, PtDict, 'pt', HeadDeps, ModDeps)
+extractor = Extraction(CatDict, PtDict, 'pt', HeadDeps, ModDeps)

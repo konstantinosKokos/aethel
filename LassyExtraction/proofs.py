@@ -633,3 +633,21 @@ def deannotate_dag(dag: DAG) -> None:
 class ProofError(AssertionError):
     def __init__(self, message: str):
         super().__init__(message)
+
+
+class Prove(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, dag: DAG[str, str], raise_errors: bool = False) -> Optional[ProofNet]:
+        try:
+            pn = make_proofnet(dag)
+            return pn
+        except ProofError as e:
+            if raise_errors:
+                raise e
+            else:
+                return None
+
+
+prover = Prove()
