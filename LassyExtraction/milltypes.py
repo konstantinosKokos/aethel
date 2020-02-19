@@ -289,9 +289,9 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
             return [], []
         return [], [(wordtype.depolarize(), wordtype.index)]
     elif isinstance(wordtype, FunctorType):
-        argneg, argpos = get_polarities_and_indices(wordtype.argument)
-        respos, resneg = get_polarities_and_indices(wordtype.result)
-        return argpos + respos, argneg + resneg
+        argpos, argneg = get_polarities_and_indices(wordtype.argument)
+        resneg, respos = get_polarities_and_indices(wordtype.result)
+        return argneg + resneg, argpos + respos
     else:
         raise TypeError('Expected wordtype to be of type Union[PolarizedType, FunctorType],'
                         f' received {type(wordtype)} instead')
