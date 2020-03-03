@@ -166,6 +166,9 @@ class DiamondType(FunctorType):
     def __hash__(self):
         return super(DiamondType, self).__hash__()
 
+    def get_colors(self) -> Set[str]:
+        return set.union(self.argument.get_colors(), self.result.get_colors(), {self.diamond})
+
 
 class BoxType(FunctorType):
     def __init__(self, argument: WordType, result: WordType, box: str):
@@ -191,6 +194,9 @@ class BoxType(FunctorType):
     def __hash__(self):
         return super(BoxType, self).__hash__()
 
+    def get_colors(self) -> Set[str]:
+        return set.union(self.argument.get_colors(), self.result.get_colors(), {self.box})
+
 
 class PolarizedType(AtomicType):
     def __init__(self, wordtype: str, polarity: bool, index: int):
@@ -203,6 +209,47 @@ class PolarizedType(AtomicType):
 
     def depolarize(self) -> 'AtomicType':
         return AtomicType(wordtype=self.type)
+
+
+class BangType(WordType):
+    def __init__(self, wordtype: WordType):
+        self.content = wordtype
+
+    def __str__(self):
+        return '!' + str(self.content)
+
+    def polish(self) -> str:
+        return str(self)
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __hash__(self) -> int:
+        return self.__str__().__hash__()
+
+    def arity(self) -> int:
+        return self.content.arity()
+
+    def __call__(self) -> str:
+        return self.__str__()
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BangType):
+            return False
+        else:
+            return self.content == other.content
+
+    def decolor(self) -> 'FunctorType':
+        return BangType(self.content.decolor())
+
+    def get_atomic(self) -> Set[AtomicType]:
+        return self.content.get_atomic()
+
+    def get_colors(self) -> Set[str]:
+        return self.content.get_colors()
+
+    def depolarize(self) -> 'FunctorType':
+        return BangType(self.content.depolarize())
 
 
 def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
@@ -343,3 +390,15 @@ def invariance_check(premises: WordTypes, goal: WordType) -> bool:
     if operator_invariance(premises) != operator_count(goal):
         return False
     return True
+
+
+
+
+
+
+
+
+
+
+
+
