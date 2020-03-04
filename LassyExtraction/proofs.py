@@ -639,10 +639,10 @@ class Prove(object):
     def __init__(self):
         pass
 
-    def __call__(self, dag: DAG[str, str], raise_errors: bool = False) -> Optional[ProofNet]:
+    def __call__(self, dag: DAG[str, str], raise_errors: bool = False) -> Optional[Tuple[DAG, ProofNet]]:
         try:
             pn = make_proofnet(dag)
-            return pn
+            return dag, pn
         except ProofError as e:
             if raise_errors:
                 raise e
