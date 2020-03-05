@@ -29,16 +29,17 @@ ModDeps = frozenset(['mod', 'predm', 'app'])
 
 # Obliqueness Hierarchy
 ObliquenessOrder = (
-    ('mod', 'app', 'predm'),  # modifiers
-    ('body', 'rhd_body', 'whd_body'),  # clause bodies
-    ('svp',),  # phrasal verb part
-    ('ld', 'me', 'vc'),  # verb complements
-    ('predc', 'obj2', 'se', 'pc', 'hdf'),  # verb secondary arguments
-    ('obj1',),  # primary object
-    ('pobj',),  # preliminary object
-    ('su',),  # primary subject
+    ('mod', 'app', 'predm'),                # modifiers
+    ('body', 'rhd_body', 'whd_body'),       # clause bodies
     ('sup',),  # preliminary subject
-    ('det',),  # NP head
+    ('su',),  # primary subject
+    ('pobj',),  # preliminary object
+    ('obj1',),  # primary object
+    ('predc', 'obj2', 'se', 'pc', 'hdf'),  # verb secondary arguments
+    ('ld', 'me', 'vc'),  # verb complements
+    ('obcomp',),  # comparison complement
+    ('svp',),  # separable verb part
+    ('det',),                               # NP head
 )
 
 
