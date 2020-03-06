@@ -65,19 +65,19 @@ class AtomicType(WordType):
         return self.type
 
     def polish(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __hash__(self) -> int:
-        return self.__str__().__hash__()
+        return hash(str(self))
 
     def arity(self) -> int:
         return 0
 
     def __call__(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, AtomicType):
@@ -105,23 +105,23 @@ class FunctorType(WordType):
 
     def __str__(self) -> str:
         if self.argument.arity() > 0:
-            return '(' + str(self.argument) + ')' + ' → ' + str(self.result)
-        return str(self.argument) + ' → ' + str(self.result)
+            return f'({str(self.argument)}) → {str(self.result)}'
+        return f'{str(self.argument)} → {str(self.result)}'
 
     def polish(self) -> str:
-        return '→ ' + self.argument.polish() + ' ' + self.result.polish()
+        return f'→ {self.argument.polish()} {self.result.polish()}'
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __hash__(self) -> int:
-        return self.__str__().__hash__()
+        return hash(str(self))
 
     def arity(self) -> int:
         return max(self.argument.arity() + 1, self.result.arity())
 
     def __call__(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, FunctorType):
@@ -148,10 +148,10 @@ class DiamondType(FunctorType):
         self.diamond = diamond
 
     def __str__(self):
-        return '<' + str(self.argument) + '> ' + self.diamond + ' → ' + str(self.result)
+        return f'<{str(self.argument)}> {self.diamond} → {str(self.result)}'
 
     def polish(self) -> str:
-        return self.diamond + ' ' + self.argument.polish() + ' ' + self.result.polish()
+        return f'{self.diamond} {self.argument.polish()} {self.result.polish()}'
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, DiamondType):
@@ -176,10 +176,10 @@ class BoxType(FunctorType):
         self.box = box
 
     def __str__(self):
-        return '[' + self.argument.__str__() + ' → ' + self.result.__str__() + '] ' + self.box
+        return f'[{str(self.argument)} → {str(self.result)}] {self.box}'
 
     def polish(self) -> str:
-        return self.box + ' ' + self.argument.polish() + ' ' + self.result.polish()
+        return f'{self.box} {self.argument.polish()} {self.result.polish()}'
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, BoxType):
@@ -205,7 +205,7 @@ class PolarizedType(AtomicType):
         self.index = index
 
     def __str__(self) -> str:
-        return super(PolarizedType, self).__str__() + '(' + ('+' if self.polarity else '-') + str(self.index) + ')'
+        return super(PolarizedType, self).__str__() + f'({"+" if self.polarity else "-"},{str(self.index)})'
 
     def depolarize(self) -> 'AtomicType':
         return AtomicType(wordtype=self.type)
@@ -216,7 +216,7 @@ class BangType(WordType):
         self.content = wordtype
 
     def __str__(self):
-        return '!' + str(self.content)
+        return f'!{self.content}'
 
     def polish(self) -> str:
         return str(self)
@@ -225,13 +225,13 @@ class BangType(WordType):
         return str(self)
 
     def __hash__(self) -> int:
-        return self.__str__().__hash__()
+        return hash(str(self))
 
     def arity(self) -> int:
         return self.content.arity()
 
     def __call__(self) -> str:
-        return self.__str__()
+        return str(self)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, BangType):
@@ -321,6 +321,10 @@ def get_colors(x: WordType) -> Set[str]:
 @overload
 def get_colors(x: WordTypes) -> Set[str]:
     pass
+
+
+def polish(x: WordType) -> str:
+    return x.polish()
 
 
 def get_colors(x):
