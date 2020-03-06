@@ -30,7 +30,7 @@ def rename_dag_src(dags: DAGS) -> DAGS:
 
 
 def get_sentence(dag: DAG) -> List[str]:
-    leaves = order_nodes(dag, dag.get_leaves())
+    leaves = order_nodes(dag, list(dag.get_leaves()))
     return list(map(lambda leaf: dag.attribs[leaf]['word'], leaves))
 
 
