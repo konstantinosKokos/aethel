@@ -5,4 +5,4 @@ from LassyExtraction.milltypes import WordTypes
 
 
 def get_types(dag: DAG) -> WordTypes:
-    return list(map(lambda leaf: dag.attribs[leaf]['type'], list(dag.get_leaves())))
+    return list(map(lambda leaf: dag.attribs[leaf]['type'], list(order_nodes(dag, list(dag.get_leaves())))))

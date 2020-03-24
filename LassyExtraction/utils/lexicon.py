@@ -40,7 +40,7 @@ def make_some_freqs(dags: List[DAG], fn: Callable[[DAG[Node, Any], Node], T]) ->
 
 def make_type_lexicon(dags: List[DAG]) -> Dict[str, Counter]:
     all_dags = list(chain.from_iterable(list(map(lambda dag: project_dag(dag, get_type_word), dags))))
-    c = {str(wordtype): Counter() for wordtype in set(map(fst, all_dags))}
+    c = {wordtype: Counter() for wordtype in set(map(fst, all_dags))}
     for pair in all_dags:
         c[pair[0]][pair[1]] += 1
     return c
