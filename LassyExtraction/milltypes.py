@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload
+from typing import Set, Sequence, Tuple, List, overload, Mapping
 
 
 class WordType(ABC):
@@ -396,13 +396,21 @@ def invariance_check(premises: WordTypes, goal: WordType) -> bool:
     return True
 
 
+def polish_to_type(symbols: strings, operators: Set[str],
+                   operator_classes: Mapping[str, type]) -> WordType:
+    stack = list()
 
-
-
-
-
-
-
-
-
-
+    for symbol in reversed(symbols):
+        if symbol in operators:
+            _arg = stack.pop()
+            _res = stack.pop()
+            arg = _arg if isinstance(_arg, WordType) else AtomicType(_arg)
+            res = _res if isinstance(_res, WordType) else AtomicType(_res)
+            op_class = operator_classes[symbol]
+            if op_class == BoxType or op_class == DiamondType:
+                stack.append(op_class(arg, res, symbol))
+            else:
+                stack.append(op_class(arg, res))
+        else:
+            stack.append(symbol)
+    return stack.pop()
