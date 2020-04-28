@@ -28,8 +28,11 @@ def get_conclusion(_atoms: List[Tuple[AtomicType, int]], _proof: Proof) -> Tuple
     return conclusion_atom, conclusion_id
 
 
-def make_graph(dag: DAG, proof: Dict[int, int]) -> str:
-    words = get_words(dag) + ['conc']
+def get_lambda(dag: DAG, proof: Dict[int, int], use_word_names: bool = True) -> str:
+    if use_word_names:
+        words = list(map(lambda i: str(i[0]), enumerate(get_words(dag)))) + ['conc']
+    else:
+        words = get_words(dag) + ['conc']
     if len(words) == 2:
         return words[0]
     types = get_types(dag)
