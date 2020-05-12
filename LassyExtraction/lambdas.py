@@ -18,6 +18,10 @@ def translate_decoration(decoration: str) -> str:
     return decoration.lower().translate(SUP)
 
 
+def nodecorate(*args) -> str:
+    return ''
+
+
 def translate_type(wordtype: WordType) -> str:
     return str(wordtype).upper().translate(TYPES)
 
@@ -44,48 +48,54 @@ class Node:
 class Graph(object):
     def __init__(self):
         self.nodes = set()
-        self.edges = set()
+        self.intra_edges = set()
+        self.inter_edges = set()
 
     def add_intra_graphs(self, words: strings, types: WordTypes):
         nodes, edges = list(zip(*list(map(make_intra_graphs, words, types))))
         self.nodes.update(set.union(*nodes))
-        self.edges.update(set.union(*edges))
+        self.intra_edges.update(set.union(*edges))
 
     def add_inter_graphs(self, proofnet: IntMapping):
-        self.edges.update({(str(k), str(v)) for k, v in proofnet.items()})
+        self.inter_edges.update({(str(k), str(v)) for k, v in proofnet.items()})
 
     def get_node(self, idx: str) -> Node:
         nodes = list(filter(lambda node: node.idx == idx, self.nodes))
         assert len(nodes) == 1
         return nodes[0]
 
-    def downward(self, node: Node) -> Set[Node]:
-        node_ids = set(map(lambda edge: edge[0], filter(lambda edge: edge[1] == node.idx, self.edges)))
-        nodes = set(filter(lambda other: other.idx in node_ids, self.nodes))
-        return nodes
+    def get_root(self, node: Node) -> Optional[Node]:
+        node_ids = set(map(lambda edge: edge[0], filter(lambda edge: edge[1] == node.idx, self.intra_edges)))
+        nodes = list(filter(lambda other: other.idx in node_ids, self.nodes))
+        if len(nodes) == 1:
+            return nodes[0]
+        elif len(nodes) == 0:
+            return None
+        else:
+            raise AssertionError('More than one root.')
 
-    def upward(self, node: Node) -> Set[Node]:
-        node_ids = set(map(lambda edge: edge[1], filter(lambda edge: edge[0] == node.idx, self.edges)))
-        nodes = set(filter(lambda other: other.idx in node_ids, self.nodes))
-        return nodes
+    def get_daughters(self, node: Node) -> Set[Node]:
+        node_ids = set(map(lambda edge: edge[1], filter(lambda edge: edge[0] == node.idx, self.intra_edges)))
+        return set(filter(lambda other: other.idx in node_ids, self.nodes))
 
-    def to_input(self, node: Node) -> Node:
-        downward = self.downward(node)
-        downward_input = list(filter(lambda other: other.polarity, downward))
-        assert len(downward_input) == 1
-        return downward_input[0]
+    def get_pos_root(self, node: Node) -> Optional[Node]:
+        root = self.get_root(node)
+        if root is None or not root.polarity:
+            return None
+        return root
 
-    def to_output(self, node: Node) -> Node:
-        upward = self.upward(node)
-        upward_output = list(filter(lambda other: not other.polarity, upward))
-        assert len(upward_output) == 1
-        return upward_output[0]
+    def get_neg_daughter(self, node: Node) -> Optional[Node]:
+        daughters = self.get_daughters(node)
+        neg_daughters = list(filter(lambda daughter: not daughter.polarity, daughters))
+        if len(neg_daughters) == 1:
+            return neg_daughters[0]
+        return None
 
 
-def make_graph(words: strings, premises: WordTypes, conclusion: WordType) -> Graph:
+def make_graph(words: strings, premises: WordTypes, conclusion: WordType, add_types: bool) -> Graph:
     graph = Graph()
     words = list(map(lambda w, t:
-                     f'{w}::{translate_type(t.depolarize().decolor())}',
+                     f'{w}::{translate_type(t.depolarize().decolor())}' if add_types else f'{w}',
                      words,
                      premises + [conclusion]))
     graph.add_intra_graphs(words, premises + [conclusion])
@@ -124,55 +134,50 @@ def get_decoration(functor: FunctorType):
 
 
 def traverse(graph: Graph, idx: str, forward_dict: StrMapping, backward_dict: StrMapping, upward: bool,
-             varcount: int) -> Tuple[str, int]:
+             varcount: int, add_dependencies: bool) -> Tuple[str, int]:
+    if add_dependencies:
+        decorate = translate_decoration
+    else:
+        decorate = nodecorate
     node = graph.get_node(idx)
     if upward:
-        # leaf case, cross to input
         if node.terminal:
-            ret, varcount = traverse(graph, backward_dict[idx], forward_dict, backward_dict, not upward, varcount)
-            return ret, varcount
+            return traverse(graph, backward_dict[idx], forward_dict, backward_dict, False, varcount, add_dependencies)
         else:
             ret = f'λx{translate_id(varcount)}.'
             varcount += 1
-            ret2, varcount = traverse(graph, graph.to_output(node).idx, forward_dict,
-                                      backward_dict, upward, varcount)
+            ret2, varcount = traverse(graph, graph.get_neg_daughter(node).idx, forward_dict,
+                                      backward_dict, True, varcount, add_dependencies)
             return ret+ret2, varcount
     else:
-        # root case
-        if not graph.downward(node):
-            # terminal root case
+        proot = graph.get_pos_root(node)
+        root = graph.get_root(node)
+        if proot is None:
             if node.terminal:
-                ret = f' {node.name}'
-                return ret, varcount
+                if root:
+                    return f'x{translate_id(varcount - 1)}', varcount - 1
+                return f' {node.name}', varcount
             else:
-                # root impl case, move to other branch, switch mode
-                if node.polarity:
-                    ret = f'({node.name}'
-                    ret2, varcount = traverse(graph, graph.to_output(node).idx, forward_dict,
-                                              backward_dict, not upward, varcount)
-                    if node.decoration in {'mod', 'app', 'predm', 'det'}:
-                        return f'{ret}{translate_decoration(node.decoration)} {ret2})', varcount
-                    else:
-                        return f'{ret} {ret2}{translate_decoration(node.decoration)})', varcount
-                else:
-                    raise NotImplementedError
+                assert node.polarity
+                neg_daughter = graph.get_neg_daughter(node)
+                if neg_daughter is None:
+                    raise AssertionError
+                ret, varcount = traverse(graph, neg_daughter.idx, forward_dict, backward_dict,
+                                         True, varcount, add_dependencies)
+                if node.decoration in {'mod', 'app', 'predm', 'det'}:
+                    return f'({node.name}{decorate(node.decoration)} {ret})', varcount
+                return f'({node.name} {ret}{decorate(node.decoration)})', varcount
         else:
             if node.terminal:
-                try:
-                    ret, varcount = traverse(graph, graph.to_input(node).idx, forward_dict,
-                                             backward_dict, upward, varcount)
-                    return ret, varcount
-                except AssertionError:
-                    ret = f'x{translate_id(varcount - 1)}'
-                    return ret, varcount
+                return traverse(graph, proot.idx, forward_dict, backward_dict, False, varcount, add_dependencies)
             else:
-                ret2, varcount = traverse(graph, graph.to_input(node).idx, forward_dict,
-                                          backward_dict, upward, varcount)
-                ret3, varcount = traverse(graph, graph.to_output(node).idx, forward_dict,
-                                          backward_dict, not upward, varcount)
+                daughter = graph.get_neg_daughter(node)
+                ret_left, varcount = traverse(graph, proot.idx, forward_dict, backward_dict,
+                                              False, varcount, add_dependencies)
+                ret_right, varcount = traverse(graph, daughter.idx, forward_dict, backward_dict,
+                                               True, varcount, add_dependencies)
                 if node.decoration in {'mod', 'app', 'predm', 'det'}:
-                    ret2 += translate_decoration(node.decoration)
+                    ret_left += decorate(node.decoration)
                 else:
-                    ret3 += translate_decoration(node.decoration)
-                return f'({ret2} {ret3})', varcount
-
+                    ret_right += decorate(node.decoration)
+                return f'({ret_left} {ret_right})', varcount
