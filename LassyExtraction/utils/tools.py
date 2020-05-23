@@ -1,15 +1,17 @@
 from LassyExtraction.transformations import order_nodes
 from LassyExtraction.graphutils import DAG
 from LassyExtraction.transformations import get_sentence as get_words
-from LassyExtraction.milltypes import WordTypes, AtomicType, get_polarities_and_indices, PolarizedType
-from LassyExtraction.lambdas import make_graph as _make_graph, traverse
+from LassyExtraction.milltypes import (WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
+                                       polarize_and_index_many)
+from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
+from LassyExtraction.lassy import is_public as is_public_str
 
 from typing import List, Tuple, Dict
 
 from functools import reduce
 from operator import add
 
-Proof = Dict[int, int]
+Proof = List[Tuple[int, int]]
 
 
 def get_types(dag: DAG) -> WordTypes:
@@ -17,30 +19,37 @@ def get_types(dag: DAG) -> WordTypes:
 
 
 def get_conclusion(_atoms: List[Tuple[AtomicType, int]], _proof: Proof) -> Tuple[AtomicType, int]:
-    antecedents = set(map(lambda x: x[1], _atoms))
-    conclusion_id = list(set(map(lambda x: x[1],
-                                 _proof)).
-                         union(set(map(lambda x: x[0],
-                                       _proof))).
-                         difference(antecedents))[0]
-    conclusion_pair = list(filter(lambda pair: pair[1] == conclusion_id, _proof))[0][0]
-    conclusion_atom = list(filter(lambda a: a[1] == conclusion_pair, _atoms))[0][0]
+    if not _proof:
+        assert len(_atoms) == 1
+        return _atoms[0][0], 1
+    premises = set(map(lambda x: x[1], _atoms))
+    negatives = set(map(lambda p: p[1], _proof))
+    positives = set(map(lambda p: p[0], _proof))
+    conclusion_id = list((negatives.union(positives)).difference(premises))[0]
+    match = [k for k, v in _proof if v == conclusion_id][0]
+    conclusion_atom = [pair[0] for pair in _atoms if pair[1] == match][0]
     return conclusion_atom, conclusion_id
 
 
-def get_lambda(dag: DAG, proof: Dict[int, int], use_word_names: bool = True) -> str:
-    if use_word_names:
-        words = list(map(lambda i: str(i[0]), enumerate(get_words(dag)))) + ['conc']
-    else:
+def get_lambda(dag: DAG, proof: Proof,
+               show_word_names: bool = True, show_types: bool = True, show_decos: bool = True) -> str:
+    if show_word_names:
         words = get_words(dag) + ['conc']
-    if len(words) == 2:
-        return words[0]
+    else:
+        words = list(map(lambda i: f'w{translate_id(i)}', range(len(get_words(dag) + ['conc']))))
     types = get_types(dag)
+    if len(types) == 1:
+        _, types = polarize_and_index_many(types, 0)
+        proof = {(0, 1)}
     atoms = list(zip(*list(map(get_polarities_and_indices, types))))
     negative, positive = list(map(lambda x: reduce(add, x), atoms))
     conclusion, conclusion_id = get_conclusion(_atoms=negative + positive, _proof=proof)
     conclusion = PolarizedType(wordtype=conclusion.type, polarity=False, index=conclusion_id)
-    graph = _make_graph(words, types, conclusion)
+    graph = _make_graph(words, types, conclusion, show_types)
     the_lambda = traverse(graph, str(conclusion_id), {str(k): str(v) for k, v in proof},
-                          {str(v): str(k) for k, v in proof}, True, 0)[0]
+                          {str(v): str(k) for k, v in proof}, True, 0, show_decos)[0]
     return the_lambda
+
+
+def is_public(dag: DAG) -> bool:
+    return is_public_str(dag.meta['src'])

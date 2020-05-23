@@ -1,4 +1,4 @@
-from LassyExtraction.milltypes import WordType, PolarizedIndexedType, ColoredType
+from LassyExtraction.milltypes import *
 from LassyExtraction.graphutils import DAG, fst, snd, last, Node
 from LassyExtraction.extraction import order_nodes
 
@@ -14,7 +14,7 @@ class Atom(object):
         self.features = features
 
     def __str__(self) -> str:
-        return 'at(' + self.type + ', ' + str(self.features) + ')'
+        return f'at({self.type}, {str(self.features)})'
 
     def __repr__(self) -> str:
         return str(self)
@@ -26,10 +26,20 @@ class Implication(object):
         self.B = form_b
 
     def __str__(self) -> str:
-        return 'impl(' + str(self.A) + ', ' + str(self.B) + ')'
+        return f'impl({str(self.A)}, {str(self.B)})'
 
     def __repr__(self) -> str:
         return str(self)
+
+
+class ModalImplication(Implication):
+    def __init__(self, form_a: 'Formula', form_b: 'Formula', modality: str, dep: str):
+        super(ModalImplication, self).__init__(form_a, form_b)
+        self.modality = modality
+        self.dep = dep
+
+    def __str__(self) -> str:
+        return f'{self.modality}({self.dep}, {str(self.A)}, {str(self.B)})'
 
 
 Formula = Union[Atom, Implication]
@@ -45,10 +55,13 @@ class L1(NamedTuple):
     conclusion: Formula
 
     def __str__(self) -> str:
-        return 'lassy({}) :-\n\t{},\n\t{},\n\t{}\n\t{}\n\t{}\n\t{}\n.'.format(self.sent_id.split('/')[-1],
-                                                                              self.words, self.poses,
-                                                                              self.postags, self.lemmata,
-                                                                              self.formulas, self.conclusion)
+        return f'lassy({self.sent_id},' \
+               f'\n\t{self.words},' \
+               f'\n\t{self.poses},' \
+               f'\n\t{self.postags},' \
+               f'\n\t{self.lemmata},' \
+               f'\n\t{self.formulas},' \
+               f'\n\t{self.conclusion}).\n'
 
 
 def project_leaf(dag: DAG, leaf: Node) -> Tuple[str, WordType, str, str, str, str]:
@@ -81,36 +94,67 @@ def project_leaf(dag: DAG, leaf: Node) -> Tuple[str, WordType, str, str, str, st
     return tuple(map(lambda function: function(leaf), (get_word, get_type, get_pos, get_postag, get_lemma)))
 
 
-def to_l1(proof: ProofNet, dag: DAG) -> L1:
+def to_l1(dag: DAG, proof: ProofNet) -> L1:
     leaves = set(filter(lambda node: dag.is_leaf(node), dag.nodes))
-    leaves = order_nodes(dag, leaves)
+    leaves = order_nodes(dag, list(leaves))
     matchings = get_matchings(proof)
     words, types, poses, postags, lemmata = list(zip(*list(map(lambda leaf: project_leaf(dag, leaf), leaves))))
+    if len(types) == 1:
+        _, types = polarize_and_index_many(types, 0)
+        conclusion = Atom(str(types[0].depolarize()).lower(), [types[0].index])
+    else:
+        conclusion = get_conclusion(types, matchings)
     formulas = list(map(lambda type_: type_to_formula(type_, matchings), types))
-    sent_id = dag.meta['src']
-    return L1(sent_id, list(words), list(poses), list(postags), list(lemmata), list(formulas),
-              get_conclusion(types, matchings))
+    sent_id = dag.meta['src'].split('/')[-1].split('_')
+    sent_id = '.'.join(sent_id[0].split('.')[:-1]) + f'_{sent_id[1]}.xml'
+    return L1(sent_id, list(words), list(poses), list(postags), list(lemmata), list(formulas), conclusion)
 
 
-def atomic_type_to_atom(inp: PolarizedIndexedType, matchings: Dict[int, int]) -> Atom:
+def atomic_type_to_atom(inp: PolarizedType, matchings: Dict[int, int]) -> Atom:
     if inp.polarity:
         return Atom(str(inp.depolarize()).lower(), [inp.index])
     else:
         return Atom(str(inp.depolarize()).lower(), [matchings[inp.index]])
 
 
-def colored_type_to_impl(inp: ColoredType, matchings: Dict[int, int]) -> Implication:
-    a = inp.argument
-    b = inp.result
-    return Implication(atomic_type_to_atom(a, matchings) if isinstance(a, PolarizedIndexedType) else
-                       colored_type_to_impl(a, matchings),
-                       atomic_type_to_atom(b, matchings) if isinstance(b, PolarizedIndexedType) else
-                       colored_type_to_impl(b, matchings))
+@overload
+def functor_to_impl(inp: DiamondType, matchings: Dict[int, int]) -> ModalImplication:
+    pass
+
+
+@overload
+def functor_to_impl(inp: BoxType, matchings: Dict[int, int]) -> ModalImplication:
+    pass
+
+
+@overload
+def functor_to_impl(inp: FunctorType, matchings: Dict[int, int]) -> Implication:
+    pass
+
+
+def functor_to_impl(inp, matchings):
+    arg = inp.argument
+    res = inp.result
+    a = atomic_type_to_atom(arg, matchings) if isinstance(arg, PolarizedType) else functor_to_impl(arg, matchings)
+    b = atomic_type_to_atom(res, matchings) if isinstance(res, PolarizedType) else functor_to_impl(res, matchings)
+    if isinstance(inp, DiamondType):
+        return ModalImplication(a, b, 'dia', inp.diamond)
+    elif isinstance(inp, BoxType):
+        return ModalImplication(a, b, 'box', inp.box)
+    elif isinstance(inp, FunctorType):
+        return Implication(a, b)
+    else:
+        raise TypeError
 
 
 def type_to_formula(type_: WordType, matchings: Dict[int, int]) -> Formula:
-    return atomic_type_to_atom(type_, matchings) if isinstance(type_, PolarizedIndexedType) else \
-        colored_type_to_impl(type_, matchings)
+    if isinstance(type_, PolarizedType):
+        return atomic_type_to_atom(type_, matchings)
+    elif isinstance(type_, FunctorType):
+        return functor_to_impl(type_, matchings)
+    else:
+        print(type_)
+        raise TypeError
 
 
 def get_matchings(proof: ProofNet) -> Dict[int, int]:
@@ -127,51 +171,5 @@ def get_conclusion(types_: List[WordType], matchings: Dict[int, int]) -> Atom:
     return atomic_type_to_atom(conclusion, matchings)
 
 
-def project_one_dag(dag: DAG) -> List[Sequence[str]]:
-    leaves = set(filter(dag.is_leaf, dag.nodes))
-    leaves = order_nodes(dag, leaves)
-    leaves = list(map(lambda leaf: project_leaf(dag, leaf)[0:3], leaves))
-    return list(map(lambda leaf: (fst(leaf), snd(leaf).depolarize().__str__(), last(leaf)), leaves))
-
-
-def get_wtp_tuples(dags: List[DAG]) -> List[Sequence[str]]:
-    return list(map(lambda seq: tuple(seq[0:3]),
-                    list(chain.from_iterable(list(map(project_one_dag, dags))))))
-
-
-def wp_to_t(wtps: List[Sequence[str]]):
-    def getkey(wtp: Sequence[str]) -> Tuple[str, str]:
-        return fst(wtp), last(wtp)
-
-    def getvalue(wtp: Sequence[str]) -> str:
-        return snd(wtp)
-
-    keys = set(map(getkey, wtps))
-    values = set(map(getvalue, wtps))
-
-    outer = {k: {v: 0 for v in values} for k in keys}
-
-    for wtp in wtps:
-        key = getkey(wtp)
-        value = getvalue(wtp)
-        outer[key][value] = outer[key][value] + 1
-    return outer
-
-
-def sort_wpt(outer: Dict[Tuple[str, str], Dict[str, int]]) -> List[Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]]:
-    outer = {outer_key:
-                 sorted(filter(lambda pair: snd(pair) > 0, inner_dict.items()),
-                        key=lambda pair: snd(pair),
-                        reverse=True)
-             for outer_key, inner_dict in outer.items()}
-    return sorted(outer.items(), key=lambda pair: sum(list(map(snd, snd(pair)))))
-
-
-def print_sorted_wpt(outer: List[Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]]):
-    def print_one(wpt: Tuple[Tuple[str, str], Sequence[Tuple[str, int]]]) -> str:
-        def print_inner(inner: Sequence[Tuple[str, int]]) -> str:
-            def print_pair(pair: Tuple[str, int]) -> str:
-                return fst(pair) + ' #= ' + str(snd(pair))
-            return ' | '.join(list(map(print_pair, inner)))
-        return fst(fst(wpt))+'\t'+snd(fst(wpt)) + '\t' + print_inner(snd(wpt))
-    return '\n'.join(list(map(print_one, outer)))
+def print_l1s(l1s: List[L1]) -> str:
+    return '\n'.join(list(map(str, l1s)))
