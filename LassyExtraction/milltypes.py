@@ -146,7 +146,7 @@ Modality = TypeVar('Modality')
 
 
 class ModalFunctor(FunctorType, Generic[Modality]):
-    def __init__(self, argument: WordType, result: WordType, modality: str):
+    def __init__(self, argument: WordType, result: WordType, modality: Modality):
         super(ModalFunctor, self).__init__(argument, result)
         self.modality = modality
 
