@@ -6,7 +6,7 @@ from LassyExtraction.milltypes import (WordTypes, AtomicType, get_polarities_and
 from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
 from LassyExtraction.lassy import is_public as is_public_str
 
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 
 from functools import reduce
 from operator import add

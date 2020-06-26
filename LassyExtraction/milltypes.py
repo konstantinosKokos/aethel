@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, Mapping
+from typing import Set, Sequence, Tuple, List, overload
 
 
 class WordType(ABC):
@@ -348,8 +348,21 @@ def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicTyp
                         f' received {type(wordtype)} instead')
 
 
+@overload
 def depolarize(x: WordType) -> WordType:
-    return x.depolarize()
+    pass
+
+
+@overload
+def depolarize(x: WordTypes) -> WordTypes:
+    pass
+
+
+def depolarize(x):
+    if isinstance(x, list):
+        return list(map(depolarize, x))
+    elif isinstance(x, WordType):
+        return x.depolarize()
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
