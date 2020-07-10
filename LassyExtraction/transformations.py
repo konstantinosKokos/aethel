@@ -93,7 +93,9 @@ def majority_vote(dag: DAG[Node, Any], nodes: Nodes, pos_set: str = 'pt') -> str
         return 'smain'
     elif 'np' in voteset or 'n' in voteset:
         return 'np'
-    elif 'ap' in voteset or 'a' in voteset:
+    elif 'spec' in voteset:
+        return 'spec'
+    elif 'ap' in voteset or 'adj' in voteset:
         return 'ap'
     else:
         return fst(fst(votecounts))
