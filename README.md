@@ -23,7 +23,8 @@ If you intend to use the visualization utilities you will also need GraphViz.
 
 ---
 ### Using with Æthel
-The code in this repository is necessary to open and edit the binarized dumps of ÆThel with Python.
+The code in this repository is necessary to open and edit the binarized dumps of 
+[ÆThel](https://github.com/konstantinosKokos/aethel-public) with Python.
 Begin by cloning the project locally and placing the dump file in the outermost directory.
 You can then access the data by running:
 ```
