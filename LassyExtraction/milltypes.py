@@ -200,9 +200,6 @@ class BoxType(ModalFunctor[Literal['box']]):
         return BoxType(argument=self.argument.depolarize(), result=self.result.depolarize(),
                        box=self.box)
 
-    def __hash__(self):
-        return super(BoxType, self).__hash__()
-
     def get_colors(self) -> Set[str]:
         return set.union(self.argument.get_colors(), self.result.get_colors(), {self.box})
 
@@ -327,10 +324,10 @@ def depolarize(x: WordTypes) -> WordTypes:
 
 
 def depolarize(x):
-    if isinstance(x, list):
-        return list(map(depolarize, x))
-    elif isinstance(x, WordType):
+    if isinstance(x, WordType):
         return x.depolarize()
+    else:
+        return list(map(depolarize, x))
 
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
