@@ -44,3 +44,6 @@ class ToGraphViz(object):
             graph = self.tree_to_gv(parse)
         if view:
             graph.render(view=True, **kwargs)
+
+
+graphviz = ToGraphViz()

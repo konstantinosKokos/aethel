@@ -28,9 +28,9 @@ The code in this repository is necessary to open and edit the binarized dumps of
 Begin by cloning the project locally and placing the dump file in the outermost directory.
 You can then access the data by running:
 ```
-import pickle
-with open('./dump_file.p', 'rb') as f: 
-    data = pickle.load(f)
+>>> import pickle
+>>> with open('./dump_file.p', 'rb') as f: 
+>>>     data = pickle.load(f)
 ```
 Example usage:
 ```
