@@ -616,7 +616,7 @@ def update_types(dag: DAG[Node, str], leaves: List[Node], types: WordTypes) -> N
 
 
 def annotate_leaves(dag: DAG[str, str]) -> int:
-    leaf_set = dag.get_leaves()
+    leaf_set = list(dag.get_leaves())
     leaves_sorted = order_nodes(dag, leaf_set)
     leaf_types: WordTypes = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves_sorted))
     idx, leaf_types = polarize_and_index_many(leaf_types)

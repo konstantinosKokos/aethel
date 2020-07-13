@@ -3,7 +3,7 @@ from LassyExtraction.graphutils import DAG
 from LassyExtraction.transformations import get_sentence as get_words
 from LassyExtraction.milltypes import (WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
                                        polarize_and_index_many)
-from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
+from LassyExtraction.proofnets import make_graph as _make_graph, traverse, translate_id
 from LassyExtraction.lassy import is_public as is_public_str
 
 from typing import List, Tuple
