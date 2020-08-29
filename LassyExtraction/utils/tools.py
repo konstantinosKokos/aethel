@@ -3,7 +3,7 @@ from LassyExtraction.graphutils import DAG
 from LassyExtraction.transformations import get_sentence as get_words
 from LassyExtraction.milltypes import (WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
                                        polarize_and_index_many)
-from LassyExtraction.proofnets import make_graph as _make_graph, traverse, translate_id
+from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
 from LassyExtraction.lassy import is_public as is_public_str
 
 from typing import List, Tuple
@@ -52,4 +52,8 @@ def get_lambda(dag: DAG, proof: Proof,
 
 
 def is_public(dag: DAG) -> bool:
-    return is_public_str(dag.meta['src'])
+    return is_public_str(get_name(dag))
+
+
+def get_name(dag: DAG) -> str:
+    return dag.meta['src']
