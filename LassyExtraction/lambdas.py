@@ -130,7 +130,7 @@ def make_intra_graphs(word: str, wordtype: WordType, polarity: bool = True, pare
 
 
 def get_decoration(functor: FunctorType):
-    return functor.diamond if isinstance(functor, DiamondType) else functor.box if isinstance(functor, BoxType) else '→'
+    return functor.diamond if isinstance(functor, DiamondType) else functor.box if isinstance(functor, BoxType) else ''
 
 
 def traverse(graph: Graph, idx: str, forward_dict: StrMapping, backward_dict: StrMapping, upward: bool,
@@ -165,8 +165,10 @@ def traverse(graph: Graph, idx: str, forward_dict: StrMapping, backward_dict: St
                 ret, varcount = traverse(graph, neg_daughter.idx, forward_dict, backward_dict,
                                          True, varcount, add_dependencies)
                 if node.decoration in {'mod', 'app', 'predm', 'det'}:
-                    return f'({node.name}{decorate(node.decoration)} {ret})', varcount
-                return f'({node.name} {ret}{decorate(node.decoration)})', varcount
+                    return (f'({node.name}{decorate(node.decoration)} {ret})', varcount) if not root else \
+                        (f'(x{translate_id(varcount - 1)}{decorate(node.decoration)} {ret})', varcount - 1)
+                return (f'({node.name} {ret}{decorate(node.decoration)})', varcount) if not root \
+                    else (f'(x{translate_id(varcount - 1)} {ret}{decorate(node.decoration)})', varcount)
         else:
             if node.terminal:
                 return traverse(graph, proot.idx, forward_dict, backward_dict, False, varcount, add_dependencies)
