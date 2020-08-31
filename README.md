@@ -24,25 +24,52 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ---
 ### Using with Æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
-[ÆThel](https://github.com/konstantinosKokos/aethel) with Python.
+[Æthel](https://github.com/konstantinosKokos/aethel) with Python.
 Begin by cloning the project locally and placing the dump file in the outermost directory.
 You can then access the data by running:
 ```
 >>> import pickle
->>> with open('./dump_file.p', 'rb') as f: 
->>>     data = pickle.load(f)
+>>> with open('./train_dev_test.p', 'rb') as f: 
+>>>     train, dev, test = pickle.load(f)
 ```
 Example usage:
 ```
 >>> from LassyExtraction.utils.tools import *
->>> sample = data[1312]
+>>> from pprint import pprint
+>>> sample = train[1312]
 >>> dag, proof = sample
->>> get_words(dag)
-['Hij', 'werd', 'als', 'gevangene', 'aan', 'boord', 'van', 'het', 'marineschip', 'Northumberland', 'vervoerd', 'en', 'na', 'een', 'tocht', 'van', '70', 'dagen', 'afgezet', 'op', 'het', 'verlaten', 'eiland', 'Sint Helena', 'in', 'het', 'zuidelijke', 'deel', 'van', 'de', 'Atlantische Oceaan']
->>> get_types(dag)
-[VNW(+,0), <PPART(-,1)> vc → <VNW(-,2)> su → SMAIN(+,3), <WW(-,4)> cmp_body → [SMAIN(-,5) → SMAIN(+,6)] predm, WW(+,7), <NP(-,8)> obj1 → [PPART(-,9) → PPART(+,10)] mod, NP(+,11), <NP(-,12)> obj1 → [NP(-,13) → NP(+,14)] mod, [N(-,15) → NP(+,16)] det, N(+,17), [NP(-,18) → NP(+,19)] app, PPART(+,20), <PPART(-,21)> cnj → <PPART(-,22)> cnj → PPART(+,23), <NP(-,24)> obj1 → [PPART(-,25) → PPART(+,26)] mod, [N(-,27) → NP(+,28)] det, N(+,29), <NP(-,30)> obj1 → [NP(-,31) → NP(+,32)] mod, [N(-,33) → NP(+,34)] det, N(+,35), PPART(+,36), <NP(-,37)> obj1 → [PPART(-,38) → PPART(+,39)] mod, [N(-,40) → NP(+,41)] det, [NP(-,42) → NP(+,43)] mod, N(+,44), [NP(-,45) → NP(+,46)] app, <NP(-,47)> obj1 → [NP(-,48) → NP(+,49)] mod, [N(-,50) → NP(+,51)] det, [NP(-,52) → NP(+,53)] mod, N(+,54), <NP(-,55)> obj1 → [NP(-,56) → NP(+,57)] mod, [ADJ(-,58) → NP(+,59)] det, ADJ(+,60)]
->>> get_lambda(dag, proof)
-((als::ᴡᴡ → sᴍᴀɪɴ → sᴍᴀɪɴ  gevangene::ᴡᴡᶜᵐᵖ_ᵇᵒᵈʸ)ᵖʳᵉᵈᵐ ((werd::ᴘᴘᴀʀᴛ → ᴠɴᴡ → sᴍᴀɪɴ ((en::ᴘᴘᴀʀᴛ → ᴘᴘᴀʀᴛ → ᴘᴘᴀʀᴛ ((aan::ɴᴘ → ᴘᴘᴀʀᴛ → ᴘᴘᴀʀᴛ ((van::ɴᴘ → ɴᴘ → ɴᴘ (Northumberland::ɴᴘ → ɴᴘᵃᵖᵖ (het::ɴ → ɴᴘᵈᵉᵗ  marineschip::ɴ))ᵒᵇʲ¹)ᵐᵒᵈ  boord::ɴᴘ)ᵒᵇʲ¹)ᵐᵒᵈ  vervoerd::ᴘᴘᴀʀᴛ)ᶜⁿʲ) ((op::ɴᴘ → ᴘᴘᴀʀᴛ → ᴘᴘᴀʀᴛ ((in::ɴᴘ → ɴᴘ → ɴᴘ ((van::ɴᴘ → ɴᴘ → ɴᴘ (de::ᴀᴅᴊ → ɴᴘᵈᵉᵗ  Atlantische Oceaan::ᴀᴅᴊ)ᵒᵇʲ¹)ᵐᵒᵈ (zuidelijke::ɴᴘ → ɴᴘᵐᵒᵈ (het::ɴ → ɴᴘᵈᵉᵗ  deel::ɴ)))ᵒᵇʲ¹)ᵐᵒᵈ (Sint Helena::ɴᴘ → ɴᴘᵃᵖᵖ (verlaten::ɴᴘ → ɴᴘᵐᵒᵈ (het::ɴ → ɴᴘᵈᵉᵗ  eiland::ɴ))))ᵒᵇʲ¹)ᵐᵒᵈ ((na::ɴᴘ → ᴘᴘᴀʀᴛ → ᴘᴘᴀʀᴛ ((van::ɴᴘ → ɴᴘ → ɴᴘ (70::ɴ → ɴᴘᵈᵉᵗ  dagen::ɴ)ᵒᵇʲ¹)ᵐᵒᵈ (een::ɴ → ɴᴘᵈᵉᵗ  tocht::ɴ))ᵒᵇʲ¹)ᵐᵒᵈ  afgezet::ᴘᴘᴀʀᴛ))ᶜⁿʲ)ᵛᶜ)  Hij::ᴠɴᴡˢᵘ))
+>>> pprint(get_context(dag))
+[('In', <NP(-,0)> obj1 → [PPART(-,1) → PPART(+,2)] mod),
+ ('het', [N(-,3) → NP(+,4)] det),
+ ('laatste', [NP(-,5) → NP(+,6)] mod),
+ ('hoofdstuk', N(+,7)),
+ ('van', <NP(-,8)> obj1 → [NP(-,9) → NP(+,10)] mod),
+ ('dit', [N(-,11) → NP(+,12)] det),
+ ('tweede', [NP(-,13) → NP(+,14)] mod),
+ ('deel', N(+,15)),
+ ('worden', <PPART(-,16)> vc → <NP(-,17)> su → SMAIN(+,18)),
+ ('door', <NP(-,19)> obj1 → [PPART(-,20) → PPART(+,21)] mod),
+ ('Professor', NP(+,22)),
+ ('Dimitri Mortelmans', [NP(-,23) → NP(+,24)] app),
+ ('Koen Ponnet', NP(+,25)),
+ ('en', <NP(-,26)> cnj → <NP(-,27)> cnj → <NP(-,28)> cnj → NP(+,29)),
+ ('Koen Vleminckx', NP(+,30)),
+ ('de', [N(-,31) → NP(+,32)] det),
+ ('resultaten', N(+,33)),
+ ('gepresenteerd', PPART(+,34)),
+ ('van', <NP(-,35)> obj1 → [NP(-,36) → NP(+,37)] mod),
+ ('een', [N(-,38) → NP(+,39)] det),
+ ('analyse', N(+,40)),
+ ('naar', <NP(-,41)> obj1 → [NP(-,42) → NP(+,43)] mod),
+ ('de', [N(-,44) → NP(+,45)] det),
+ ('noden', N(+,46)),
+ ('en',
+  <([N(-,47) → NP(+,48)] det) → NP(-,49)> cnj → <([N(-,50) → NP(+,51)] det) → NP(-,52)> cnj → ([N(+,53) → NP(-,54)] det) → NP(+,55)),
+ ('behoeften', N(+,56)),
+ ('van', <N(-,57)> obj1 → [NP(-,58) → NP(+,59)] mod),
+ ('weduwen', N(+,60))]
+>>> get_lambda(dag, proof, show_types=False, show_word_names=False)
+'((w₈ ((w₉ (((w₁₃ (w₁₁ᵃᵖᵖ  w₁₀)ᶜⁿʲ)  w₁₂ᶜⁿʲ)  w₁₄ᶜⁿʲ)ᵒᵇʲ¹)ᵐᵒᵈ ((w₀ ((w₄ (w₆ᵐᵒᵈ (w₅ᵈᵉᵗ  w₇))ᵒᵇʲ¹)ᵐᵒᵈ (w₂ᵐᵒᵈ (w₁ᵈᵉᵗ  w₃)))ᵒᵇʲ¹)ᵐᵒᵈ  w₁₇))ᵛᶜ) ((w₁₈ ((w₂₁ ((w₂₆  w₂₇ᵒᵇʲ¹)ᵐᵒᵈ (((w₂₄ λx₀.(x₀ᵈᵉᵗ  w₂₃)ᶜⁿʲ) λx₀.(x₀ᵈᵉᵗ  w₂₅)ᶜⁿʲ) λx₀.(w₂₂ᵈᵉᵗ x₀)))ᵒᵇʲ¹)ᵐᵒᵈ (w₁₉ᵈᵉᵗ  w₂₀))ᵒᵇʲ¹)ᵐᵒᵈ (w₁₅ᵈᵉᵗ  w₁₆))ˢᵘ)'
 ``` 
 ---
 If you have issues using the code or need help getting started, feel free to get in touch.
