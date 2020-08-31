@@ -1,7 +1,7 @@
 from LassyExtraction.transformations import order_nodes
 from LassyExtraction.graphutils import DAG
 from LassyExtraction.transformations import get_sentence as get_words
-from LassyExtraction.milltypes import (WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
+from LassyExtraction.milltypes import (WordType, WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
                                        polarize_and_index_many)
 from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
 from LassyExtraction.lassy import is_public as is_public_str
@@ -16,6 +16,12 @@ Proof = List[Tuple[int, int]]
 
 def get_types(dag: DAG) -> WordTypes:
     return list(map(lambda leaf: dag.attribs[leaf]['type'], list(order_nodes(dag, list(dag.get_leaves())))))
+
+
+def get_context(dag: DAG) -> List[Tuple[str, WordType]]:
+    words = get_words(dag)
+    types = get_types(dag)
+    return list(zip(words, types))
 
 
 def get_conclusion(_atoms: List[Tuple[AtomicType, int]], _proof: Proof) -> Tuple[AtomicType, int]:
