@@ -62,4 +62,9 @@ def is_public(dag: DAG) -> bool:
 
 
 def get_name(dag: DAG) -> str:
-    return dag.meta['src']
+    name = dag.meta['src']
+    if '_' not in name:
+        return name
+    else:
+        prefix, suffix = name.split('_')[0:2]
+        return prefix.split('.xml')[0] + f'_{suffix}' + '.xml'
