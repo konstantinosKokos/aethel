@@ -299,7 +299,7 @@ def get_colors(x):
     if isinstance(x, WordType):
         return x.get_colors()
     else:
-        set.union(*map(get_colors, x))
+        return set.union(*map(get_colors, x))
 
 
 def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
