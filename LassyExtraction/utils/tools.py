@@ -10,6 +10,7 @@ from typing import List, Tuple
 
 from functools import reduce
 from operator import add
+from collections import Counter
 
 Proof = List[Tuple[int, int]]
 
@@ -68,3 +69,7 @@ def get_name(dag: DAG) -> str:
     else:
         prefix, suffix = name.split('_')[0:2]
         return prefix.split('.xml')[0] + f'_{suffix}' + '.xml'
+
+
+def get_type_set(dags: List[DAG]) -> Counter:
+    return reduce(add, map(lambda dag: Counter(map(lambda t: t.depolarize(), get_types(dag))), dags))

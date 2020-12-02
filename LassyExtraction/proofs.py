@@ -7,12 +7,12 @@ from LassyExtraction.milltypes import (polarize_and_index_many, polarize_and_ind
                                        PolarizedType, BoxType, WordTypes, FunctorType, depolarize)
 from LassyExtraction.transformations import _cats_of_type
 
-ProofNet = Set[Tuple[int, int]]
+AxiomLinks = Set[Tuple[int, int]]
 
 placeholder = AtomicType('_')
 
 
-def match(proofnet: ProofNet, positive: WordType, negative: WordType) -> ProofNet:
+def match(links: AxiomLinks, positive: WordType, negative: WordType) -> AxiomLinks:
     if positive != negative:
         raise ProofError(f'Formulas are not equal.\t{positive}\t{negative}.')
     if any(map(lambda x: not is_indexed(x), [positive, negative])):
@@ -23,20 +23,20 @@ def match(proofnet: ProofNet, positive: WordType, negative: WordType) -> ProofNe
         if negative.polarity:
             raise ProofError(f'Negative formula has positive index.\t{positive}\t{negative}.')
 
-        if positive.index in set(map(fst, proofnet)):
-            raise ProofError(f'Positive formula already assigned.\n{positive}\n{negative}\n{proofnet}.')
-        if negative.index in set(map(snd, proofnet)):
+        if positive.index in set(map(fst, links)):
+            raise ProofError(f'Positive formula already assigned.\n{positive}\n{negative}\n{links}.')
+        if negative.index in set(map(snd, links)):
             raise ProofError(f'Negative formula already assigned.\t{positive}\t{negative}.')
-        proofnet = proofnet.union({(positive.index, negative.index)})
+        links = links.union({(positive.index, negative.index)})
     elif isinstance(negative, FunctorType) and isinstance(positive, FunctorType):
-        proofnet = match(proofnet, negative.argument, positive.argument)
-        proofnet = match(proofnet, positive.result, negative.result)
+        links = match(links, negative.argument, positive.argument)
+        links = match(links, positive.result, negative.result)
     else:
         raise ProofError(f'Unexpected types.')
-    return proofnet
+    return links
 
 
-def merge_proof(core: ProofNet, local: ProofNet) -> ProofNet:
+def merge_proof(core: AxiomLinks, local: AxiomLinks) -> AxiomLinks:
     for k, v in local:
         if k in set(map(fst, core)) and (k, v) not in core:
             raise ProofError('Positive formula already assigned in core proof.\t{}\t{}\t{}'.format(k, v, core))
@@ -46,13 +46,13 @@ def merge_proof(core: ProofNet, local: ProofNet) -> ProofNet:
     return core
 
 
-def merge_proofs(locals_: List[ProofNet], core: Optional[ProofNet] = None) -> ProofNet:
+def merge_proofs(locals_: List[AxiomLinks], core: Optional[AxiomLinks] = None) -> AxiomLinks:
     if core is None:
         return reduce(merge_proof, locals_) if locals_ else set()
     return reduce(merge_proof, locals_, core)
 
 
-def make_proofnet(dag: DAG[str, str]) -> ProofNet:
+def make_links(dag: DAG[str, str]) -> AxiomLinks:
     if not dag.edges:
         return set()
 
@@ -71,7 +71,7 @@ def make_proofnet(dag: DAG[str, str]) -> ProofNet:
     return proof
 
 
-def correctness_check(proof: ProofNet, dag: DAG, idx: int) -> None:
+def correctness_check(proof: AxiomLinks, dag: DAG, idx: int) -> None:
     positives = set(map(fst, proof))
     negatives = set(map(snd, proof))
     immaterial = set(map(lambda type_:
@@ -87,8 +87,8 @@ def correctness_check(proof: ProofNet, dag: DAG, idx: int) -> None:
         raise ProofError('Unmatched types.')
 
 
-def iterate_simple_fringe(dag: DAG[str, str]) -> ProofNet:
-    proof: ProofNet = set()
+def iterate_simple_fringe(dag: DAG[str, str]) -> AxiomLinks:
+    proof: AxiomLinks = set()
     while True:
         temp = annotate_simple_branches(dag)
         if temp is None:
@@ -97,7 +97,7 @@ def iterate_simple_fringe(dag: DAG[str, str]) -> ProofNet:
     return proof
 
 
-def annotate_simple_branches(dag: DAG[str, str]) -> Optional[ProofNet]:
+def annotate_simple_branches(dag: DAG[str, str]) -> Optional[AxiomLinks]:
     parents = get_simple_branches(dag)
 
     if not parents:
@@ -109,7 +109,7 @@ def annotate_simple_branches(dag: DAG[str, str]) -> Optional[ProofNet]:
     return merge_proofs(branch_proofs)
 
 
-def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[ProofNet, WordType]:
+def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks, WordType]:
     def simplify_crd(crd_type: WordType, arg_types_: WordTypes) -> WordType:
         xs = isolate_xs(crd_type)
         result = last_instance_of(crd_type)
@@ -177,7 +177,7 @@ def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[ProofNet, W
     return merge_proof(arg_proof, mod_proof), branch_output
 
 
-def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple[ProofNet, WordType]:
+def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple[AxiomLinks, WordType]:
     def color_fold(functor_: WordType) -> List[Tuple[str, WordType]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[str, WordType], WordType]]:
             if isinstance(x, FunctorType):
@@ -200,7 +200,7 @@ def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple
                 rem.append(neg)
         return ret, rem
 
-    def match_args(proof_: ProofNet, pair: Tuple[WordType, WordType]) -> ProofNet:
+    def match_args(proof_: AxiomLinks, pair: Tuple[WordType, WordType]) -> AxiomLinks:
         return match(proof_, fst(pair), snd(pair))
 
     proof: Set[Tuple[int, int]] = set()
@@ -219,8 +219,8 @@ def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple
     return proof, functor
 
 
-def align_mods(mod_input: WordType, mods: WordTypes) -> Tuple[ProofNet, WordType]:
-    def match_modchain(proof_: ProofNet, modpair: Tuple[WordType, WordType]) -> ProofNet:
+def align_mods(mod_input: WordType, mods: WordTypes) -> Tuple[AxiomLinks, WordType]:
+    def match_modchain(proof_: AxiomLinks, modpair: Tuple[WordType, WordType]) -> AxiomLinks:
         prev = fst(modpair)
         curr = snd(modpair)
         if isinstance(prev, FunctorType) and isinstance(curr, FunctorType):
@@ -239,7 +239,7 @@ def align_mods(mod_input: WordType, mods: WordTypes) -> Tuple[ProofNet, WordType
     return proof, mod_input
 
 
-def match_copies_with_crds(dag: DAG[Node, Any]) -> ProofNet:
+def match_copies_with_crds(dag: DAG[Node, Any]) -> AxiomLinks:
     def get_copy_color(copy_: Node) -> str:
         incoming_ = set(map(lambda inc_: inc_.dep, dag.incoming(copy_)))
         assert len(incoming_) == 1
@@ -341,7 +341,7 @@ def participating_conjunctions(dag: DAG[Node, str], node: Node, exclude_heads: b
 
 
 def intra_crd_match(dag: DAG[Node, str], hierarchy: List[Tuple[Node, List[Optional[Node]]]],
-                    copy_type: WordType, copy_color: str) -> ProofNet:
+                    copy_type: WordType, copy_color: str) -> AxiomLinks:
 
     isolated: List[Tuple[WordTypes, List[Optional[Node]]]]
     isolated = list(map(lambda pair:
@@ -370,7 +370,7 @@ def intra_crd_match(dag: DAG[Node, str], hierarchy: List[Tuple[Node, List[Option
                   matches, set())
 
 
-def match_copied_gaps_with_crds(dag: DAG[str, str]) -> ProofNet:
+def match_copied_gaps_with_crds(dag: DAG[str, str]) -> AxiomLinks:
     def extract_color(type_: WordType) -> str:
         if isinstance(type_, FunctorType):
             if isinstance(type_.argument, DiamondType):
@@ -639,9 +639,9 @@ class Prove(object):
     def __init__(self):
         pass
 
-    def __call__(self, dag: DAG[str, str], raise_errors: bool = False) -> Optional[Tuple[DAG, ProofNet]]:
+    def __call__(self, dag: DAG[str, str], raise_errors: bool = False) -> Optional[Tuple[DAG, AxiomLinks]]:
         try:
-            pn = make_proofnet(dag)
+            pn = make_links(dag)
             return dag, pn
         except ProofError as e:
             if raise_errors:
