@@ -1,11 +1,11 @@
 from functools import reduce
 from itertools import chain
 
-from LassyExtraction.extraction import order_nodes, is_gap, is_copy, HeadDeps, ModDeps, make_functor
-from LassyExtraction.graphutils import *
-from LassyExtraction.milltypes import (polarize_and_index_many, polarize_and_index, WordType, AtomicType, DiamondType,
-                                       PolarizedType, BoxType, WordTypes, FunctorType, depolarize)
-from LassyExtraction.transformations import _cats_of_type
+from .extraction import order_nodes, is_gap, is_copy, HeadDeps, ModDeps, make_functor
+from .graphutils import *
+from .milltypes import (polarize_and_index_many, polarize_and_index, WordType, AtomicType, DiamondType,
+                        PolarizedType, BoxType, WordTypes, FunctorType, depolarize)
+from .transformations import _cats_of_type
 
 AxiomLinks = Set[Tuple[int, int]]
 

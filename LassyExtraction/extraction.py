@@ -1,10 +1,10 @@
 from collections import defaultdict
 from itertools import chain
 
-from LassyExtraction.graphutils import *
-from LassyExtraction.milltypes import (AtomicType, WordType, FunctorType, WordTypes, DiamondType, BoxType, strings,
+from .graphutils import *
+from .milltypes import (AtomicType, WordType, FunctorType, WordTypes, DiamondType, BoxType, strings,
                                        invariance_check, reduce)
-from LassyExtraction.transformations import majority_vote, _cats_of_type, order_nodes
+from .transformations import majority_vote, _cats_of_type, order_nodes
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types

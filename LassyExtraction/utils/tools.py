@@ -1,10 +1,10 @@
-from LassyExtraction.transformations import order_nodes
-from LassyExtraction.graphutils import DAG
-from LassyExtraction.transformations import get_sentence as get_words
-from LassyExtraction.milltypes import (WordType, WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
+from ..transformations import order_nodes
+from ..graphutils import DAG
+from ..transformations import get_sentence as get_words
+from ..milltypes import (WordType, WordTypes, AtomicType, get_polarities_and_indices, PolarizedType,
                                        polarize_and_index_many)
-from LassyExtraction.lambdas import make_graph as _make_graph, traverse, translate_id
-from LassyExtraction.lassy import is_public as is_public_str
+from ..lambdas import make_graph as _make_graph, traverse, translate_id
+from ..lassy import is_public as is_public_str
 
 from typing import List, Tuple
 

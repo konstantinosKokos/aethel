@@ -1,8 +1,8 @@
-from LassyExtraction.milltypes import *
-from LassyExtraction.graphutils import DAG, fst, snd, last, Node
-from LassyExtraction.extraction import order_nodes
+from ..milltypes import *
+from ..graphutils import DAG, fst, snd, last, Node
+from ..extraction import order_nodes
 
-from LassyExtraction.proofs import ProofNet
+from LassyExtraction.proofs import AxiomLinks
 
 from itertools import chain
 from typing import *
@@ -94,7 +94,7 @@ def project_leaf(dag: DAG, leaf: Node) -> Tuple[str, WordType, str, str, str, st
     return tuple(map(lambda function: function(leaf), (get_word, get_type, get_pos, get_postag, get_lemma)))
 
 
-def to_l1(dag: DAG, proof: ProofNet) -> L1:
+def to_l1(dag: DAG, proof: AxiomLinks) -> L1:
     leaves = set(filter(lambda node: dag.is_leaf(node), dag.nodes))
     leaves = order_nodes(dag, list(leaves))
     matchings = get_matchings(proof)
@@ -157,7 +157,7 @@ def type_to_formula(type_: WordType, matchings: Dict[int, int]) -> Formula:
         raise TypeError
 
 
-def get_matchings(proof: ProofNet) -> Dict[int, int]:
+def get_matchings(proof: AxiomLinks) -> Dict[int, int]:
     return {v: k for k, v in proof}
 
 

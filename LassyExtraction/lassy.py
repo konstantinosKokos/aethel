@@ -3,7 +3,7 @@ import xml.etree.cElementTree as et
 from glob import glob
 from warnings import warn
 
-from LassyExtraction.graphutils import *
+from .graphutils import *
 
 
 def is_public(filename: str) -> bool:

@@ -1,11 +1,11 @@
 from itertools import chain
 
-from LassyExtraction.extraction import extractor
-from LassyExtraction.lassy import Lassy
-from LassyExtraction.proofs import prover, AxiomLinks
-from LassyExtraction.transformations import transformer
-from LassyExtraction.graphutils import DAG
-from LassyExtraction.viz import ToGraphViz
+from .extraction import extractor
+from .lassy import Lassy
+from .proofs import prover, AxiomLinks
+from .transformations import transformer
+from .graphutils import DAG
+from .viz import ToGraphViz
 
 from typing import Optional, Union, Tuple, List
 

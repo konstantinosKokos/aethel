@@ -1,6 +1,6 @@
 import graphviz as gv  # type: ignore
 
-from LassyExtraction.graphutils import *
+from .graphutils import *
 
 
 class ToGraphViz(object):

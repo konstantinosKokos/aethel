@@ -404,3 +404,10 @@ def polish_to_type(symbols: strings, operators: Set[str],
     assert not stack
     assert isinstance(ret, WordType)
     return ret
+
+
+_A, _B, _C = AtomicType('A'), AtomicType('B'), AtomicType('C')
+_F1, _F2 = FunctorType(_A, _B), FunctorType(_A, _C)
+_F3, _F4 = FunctorType(_F1, _F2), FunctorType(_F1, _C)
+_F5 = FunctorType(_F4, _F3)
+_, examples = polarize_and_index_many([_A, _B, _C, _F1, _F2, _F3, _F4, _F5], 0)

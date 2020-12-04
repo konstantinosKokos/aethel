@@ -1,7 +1,7 @@
 from itertools import groupby, chain
 from xml.etree.cElementTree import Element, ElementTree
 
-from LassyExtraction.graphutils import *
+from .graphutils import *
 
 DAGS = List[DAG]
 
