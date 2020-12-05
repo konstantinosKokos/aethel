@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, Generic, Literal, TypeVar, Mapping
+from typing import Set, Sequence, Tuple, List, overload, Generic, Literal, TypeVar, Mapping, Union
 
 
 class WordType(ABC):
@@ -406,8 +406,42 @@ def polish_to_type(symbols: strings, operators: Set[str],
     return ret
 
 
-_A, _B, _C = AtomicType('A'), AtomicType('B'), AtomicType('C')
-_F1, _F2 = FunctorType(_A, _B), FunctorType(_A, _C)
-_F3, _F4 = FunctorType(_F1, _F2), FunctorType(_F1, _C)
-_F5 = FunctorType(_F4, _F3)
-_, examples = polarize_and_index_many([_A, _B, _C, _F1, _F2, _F3, _F4, _F5], 0)
+def get_type_indices(wordtype: WordType) -> List[int]:
+    pos, neg = get_polarities_and_indices(wordtype)
+    return sorted(reduce(add, map(lambda x: [x[1]], pos), []) + reduce(add, map(lambda x: [x[1]], neg), []))
+
+
+def get_deco(wordtype: FunctorType) -> str:
+    return wordtype.diamond if isinstance(wordtype, DiamondType) \
+        else wordtype.box if isinstance(wordtype, BoxType) \
+        else '→'
+
+
+Path = List[Union[int, str]]
+Paths = List[Path]
+
+
+def paths(wordtype: WordType) -> List[Tuple[Path, Paths]]:
+    return [(p[::-1], ps) for p, ps in traverse_pos(wordtype, [])]
+
+
+def traverse_pos(wordtype: WordType, history: Path) -> List[Tuple[Path, Paths]]:
+    if isinstance(wordtype, PolarizedType):
+        return [(history + [wordtype.index], [])]
+    elif isinstance(wordtype, FunctorType):
+        pcont = traverse_pos(wordtype.result, history + [get_deco(wordtype)])
+        neg, rest = traverse_neg(wordtype.argument, [])
+        pc = pcont[0]
+        return [(pc[0], [neg] + pc[1])] + pcont[1:] + rest
+    else:
+        raise TypeError
+
+
+def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[Path, Paths]]]:
+    if isinstance(wordtype, FunctorType):
+        ncont, rest = traverse_neg(wordtype.result, hist + [get_deco(wordtype)])
+        return ncont, traverse_pos(wordtype.argument, []) + rest
+    elif isinstance(wordtype, PolarizedType):
+        return hist + [wordtype.index], []
+    else:
+        raise TypeError
