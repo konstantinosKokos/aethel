@@ -22,9 +22,9 @@ Python3.8
 If you intend to use the visualization utilities you will also need GraphViz.
 
 ---
-### Using with Æthel
+### Using with æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
-[Æthel](https://github.com/konstantinosKokos/aethel) with Python.
+[æthel](https://github.com/konstantinosKokos/aethel) with Python.
 You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/WtcjKP7renMHTjU).
 Begin by cloning the project locally and placing the data file in the outermost directory.
 You can then access the data by running:
@@ -33,6 +33,8 @@ You can then access the data by running:
 >>> with open('./train_dev_test.p', 'rb') as f: 
 >>>     train, dev, test = pickle.load(f)
 ```
+where `train`, `dev` and `test` are lists of the [ProofNet](https://github.com/konstantinosKokos/lassy-tlg-extraction/blob/79ded342d3057c967d4f68b400fee41bab43670d/LassyExtraction/aethel.py#L66) class.
+
 Example usage:
 ```
 >>> sample = train[1312]
