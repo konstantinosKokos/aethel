@@ -7,13 +7,13 @@ Source code for the conversion of Lassy dependency graphs into type-logical gram
 
 ## Project Structure
 * `LassyExtraction.milltypes` implements the type grammar.
+* `LassyExtraction.terms` implements the term grammar.
 * `LassyExtraction.graphutils` contains utility classes and functions for graph processing.
 * `LassyExtraction.transformations` implements the preprocessing compatibility transformations for Lassy graphs.
 * `LassyExtraction.extraction` implements the typing algorithm for dependency graph nodes.
 * `LassyExtraction.proofs` implements the conversion from typed graphs to atomic type bijections (proofnet axiom links).
-* `LassyExtraction.lambdas` implements the conversion from typed graphs and axiom links to lambda terms.
-* `LassyExtraction.viz` contains utility classes for graph visualization. 
-* `LassyExtraction.utils.tools` contains helper functions and shortcuts for parsed data.
+* `LassyExtraction.aethel` implements high-level classes intended for front-end use.
+* `LassyExtraction.viz` contains utility classes for graph visualization.
 
 ---
 ### Requirements
@@ -34,42 +34,17 @@ You can then access the data by running:
 ```
 Example usage:
 ```
->>> from LassyExtraction.utils.tools import *
->>> from pprint import pprint
 >>> sample = train[1312]
->>> dag, proof = sample
->>> pprint(get_context(dag))
-[('In', <NP(-,0)> obj1 → [PPART(-,1) → PPART(+,2)] mod),
- ('het', [N(-,3) → NP(+,4)] det),
- ('laatste', [NP(-,5) → NP(+,6)] mod),
- ('hoofdstuk', N(+,7)),
- ('van', <NP(-,8)> obj1 → [NP(-,9) → NP(+,10)] mod),
- ('dit', [N(-,11) → NP(+,12)] det),
- ('tweede', [NP(-,13) → NP(+,14)] mod),
- ('deel', N(+,15)),
- ('worden', <PPART(-,16)> vc → <NP(-,17)> su → SMAIN(+,18)),
- ('door', <NP(-,19)> obj1 → [PPART(-,20) → PPART(+,21)] mod),
- ('Professor', NP(+,22)),
- ('Dimitri Mortelmans', [NP(-,23) → NP(+,24)] app),
- ('Koen Ponnet', NP(+,25)),
- ('en', <NP(-,26)> cnj → <NP(-,27)> cnj → <NP(-,28)> cnj → NP(+,29)),
- ('Koen Vleminckx', NP(+,30)),
- ('de', [N(-,31) → NP(+,32)] det),
- ('resultaten', N(+,33)),
- ('gepresenteerd', PPART(+,34)),
- ('van', <NP(-,35)> obj1 → [NP(-,36) → NP(+,37)] mod),
- ('een', [N(-,38) → NP(+,39)] det),
- ('analyse', N(+,40)),
- ('naar', <NP(-,41)> obj1 → [NP(-,42) → NP(+,43)] mod),
- ('de', [N(-,44) → NP(+,45)] det),
- ('noden', N(+,46)),
- ('en',
-  <([N(-,47) → NP(+,48)] det) → NP(-,49)> cnj → <([N(-,50) → NP(+,51)] det) → NP(-,52)> cnj → ([N(+,53) → NP(-,54)] det) → NP(+,55)),
- ('behoeften', N(+,56)),
- ('van', <N(-,57)> obj1 → [NP(-,58) → NP(+,59)] mod),
- ('weduwen', N(+,60))]
->>> get_lambda(dag, proof, show_types=False, show_word_names=False)
-'((w₈ ((w₉ (((w₁₃ (w₁₁ᵃᵖᵖ  w₁₀)ᶜⁿʲ)  w₁₂ᶜⁿʲ)  w₁₄ᶜⁿʲ)ᵒᵇʲ¹)ᵐᵒᵈ ((w₀ ((w₄ (w₆ᵐᵒᵈ (w₅ᵈᵉᵗ  w₇))ᵒᵇʲ¹)ᵐᵒᵈ (w₂ᵐᵒᵈ (w₁ᵈᵉᵗ  w₃)))ᵒᵇʲ¹)ᵐᵒᵈ  w₁₇))ᵛᶜ) ((w₁₈ ((w₂₁ ((w₂₆  w₂₇ᵒᵇʲ¹)ᵐᵒᵈ (((w₂₄ λx₀.(x₀ᵈᵉᵗ  w₂₃)ᶜⁿʲ) λx₀.(x₀ᵈᵉᵗ  w₂₅)ᶜⁿʲ) λx₀.(w₂₂ᵈᵉᵗ x₀)))ᵒᵇʲ¹)ᵐᵒᵈ (w₁₉ᵈᵉᵗ  w₂₀))ᵒᵇʲ¹)ᵐᵒᵈ (w₁₅ᵈᵉᵗ  w₁₆))ˢᵘ)'
+>>> sample.proof_frame
+op:<ɴᴘ> obj1 → [ɪɴғ → ɪɴғ] mod, de:[ɴ → ɴᴘ] det, verjaardag:ɴ, laat:<ɪɴғ> vc → <ɴᴘ> obj1 → <ɴ> su → sᴍᴀɪɴ, Laslo:ɴ, de:[ɴ → ɴᴘ] det, wens:ɴ, van:<ɴᴘ> obj1 → [ɴᴘ → ɴᴘ] mod, zijn:[ɴ → ɴᴘ] det, moeder:ɴ, in vervulling:ɴᴘ, gaan:<ɴᴘ> svp → ɪɴғ ⊢ SMAIN
+>>> sample.proof_frame.get_words()
+['op', 'de', 'verjaardag', 'laat', 'Laslo', 'de', 'wens', 'van', 'zijn', 'moeder', 'in vervulling', 'gaan']
+>>> sample.proof_frame.get_types()
+'[<NP(-,0)> obj1 → [INF(-,1) → INF(+,2)] mod, [N(-,3) → NP(+,4)] det, N(+,5), <INF(-,6)> vc → <NP(-,7)> obj1 → <N(-,8)> su → SMAIN(+,9), N(+,10), [N(-,11) → NP(+,12)] det, N(+,13), <NP(-,14)> obj1 → [NP(-,15) → NP(+,16)] mod, [N(-,17) → NP(+,18)] det, N(+,19), NP(+,20), <NP(-,21)> svp → INF(+,22)]'
+>>> sample.axiom_links
+{(16, 7), (9, 23), (4, 0), (10, 8), (19, 17), (22, 1), (20, 21), (2, 6), (12, 15), (5, 3), (13, 11), (18, 14)}
+>>> sample.print_term(show_words=True, show_types=False, show_decorations=True)
+'(((laat ((op (deᵈᵉᵗ verjaardag)ᵒᵇʲ¹)ᵐᵒᵈ (gaan in vervullingˢᵛᵖ))ᵛᶜ) ((van (zijnᵈᵉᵗ moeder)ᵒᵇʲ¹)ᵐᵒᵈ (deᵈᵉᵗ wens))ᵒᵇʲ¹) Lasloˢᵘ)'
 ``` 
 ---
 If you have issues using the code or need help getting started, feel free to get in touch.
