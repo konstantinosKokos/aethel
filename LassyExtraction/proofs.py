@@ -3,13 +3,11 @@ from itertools import chain
 
 from .extraction import order_nodes, is_gap, is_copy, HeadDeps, ModDeps, make_functor
 from .graphutils import *
-from .milltypes import (polarize_and_index_many, polarize_and_index, WordType, AtomicType, DiamondType,
+from .milltypes import (polarize_and_index_many, polarize_and_index, WordType, EmptyType, DiamondType,
                         PolarizedType, BoxType, WordTypes, FunctorType, depolarize)
 from .transformations import _cats_of_type
 
 AxiomLinks = Set[Tuple[int, int]]
-
-placeholder = AtomicType('_')
 
 
 def match(links: AxiomLinks, positive: WordType, negative: WordType) -> AxiomLinks:
@@ -77,7 +75,7 @@ def correctness_check(proof: AxiomLinks, dag: DAG, idx: int) -> None:
     immaterial = set(map(lambda type_:
                          type_.index,
                          filter(lambda type_:
-                                type_ == placeholder,
+                                isinstance(type_, EmptyType),
                                 map(lambda leaf:
                                     dag.attribs[leaf]['type'],
                                     filter(lambda node:
@@ -138,7 +136,7 @@ def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks,
                           outgoing))
 
     heads = list(filter(lambda edge:
-                        edge.dep in HeadDeps and dag.attribs[edge.target]['type'] != placeholder,
+                        edge.dep in HeadDeps and not isinstance(dag.attribs[edge.target]['type'], EmptyType),
                         outgoing))
 
     if len(heads) != 1:
@@ -516,7 +514,7 @@ def get_simple_functor(dag: DAG[Node, Any], node: Node) -> WordType:
 
 def get_crd_type(dag: DAG[Node, Any], node: Node) -> WordType:
     crds = list(filter(lambda out:
-                       out.dep == 'crd' and dag.attribs[out.target]['type'] != placeholder,
+                       out.dep == 'crd' and not isinstance(dag.attribs[out.target]['type'], EmptyType),
                        dag.outgoing(node)))
     if len(crds) != 1:
         raise ProofError('Too many coordinators.')

@@ -220,7 +220,14 @@ class PolarizedType(AtomicType):
         return AtomicType(wordtype=self.type)
 
 
+class EmptyType(AtomicType):
+    def __init__(self):
+        super(EmptyType, self).__init__(wordtype='_')
+
+
 def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
+    if isinstance(wordtype, EmptyType):
+        return index, wordtype
     if isinstance(wordtype, AtomicType):
         return index + 1, PolarizedType(wordtype=wordtype.type, polarity=polarity, index=index)
     elif isinstance(wordtype, DiamondType):
@@ -304,7 +311,7 @@ def get_colors(x):
 
 def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
     if isinstance(wordtype, PolarizedType):
-        if str(wordtype)[0] == '_':
+        if isinstance(wordtype, EmptyType):
             return [], []
         return [], [(wordtype.depolarize(), wordtype.index)]
     elif isinstance(wordtype, FunctorType):
@@ -335,7 +342,7 @@ def depolarize(x):
 
 def get_polarities(wordtype: WordType) -> Tuple[List[AtomicType], List[AtomicType]]:
     if isinstance(wordtype, AtomicType):
-        if str(wordtype)[0] == '_':
+        if isinstance(wordtype, EmptyType):
             return [], []
         return [], [wordtype.depolarize()]
     elif isinstance(wordtype, FunctorType):
@@ -366,7 +373,7 @@ def operator_invariance(premises: WordTypes) -> int:
 
 
 def invariance_check(premises: WordTypes, goal: WordType) -> bool:
-    premises = list(filter(lambda type_: type_ != AtomicType('_'), premises))
+    premises = list(filter(lambda type_: not isinstance(type_, EmptyType), premises))
     inferred = literal_invariance(premises)
     if list(inferred.values()) != [1]:
         return False
@@ -422,6 +429,8 @@ Paths = List[Path]
 
 
 def paths(wordtype: WordType) -> List[Tuple[Path, Paths]]:
+    if isinstance(wordtype, EmptyType):
+        return []
     return [(p[::-1], ps) for p, ps in traverse_pos(wordtype, [])]
 
 

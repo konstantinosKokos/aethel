@@ -2,8 +2,8 @@ from collections import defaultdict
 from itertools import chain
 
 from .graphutils import *
-from .milltypes import (AtomicType, WordType, FunctorType, WordTypes, DiamondType, BoxType, strings,
-                                       invariance_check, reduce)
+from .milltypes import (AtomicType, WordType, FunctorType, WordTypes, DiamondType, BoxType, EmptyType, strings,
+                        invariance_check, reduce)
 from .transformations import majority_vote, _cats_of_type, order_nodes
 
 # # # Extraction variables # # #
@@ -262,7 +262,7 @@ def type_heads_step(dag: DAG, head_deps: FrozenSet[str], mod_deps: FrozenSet[str
                                                           heading_edges))
 
     head_types = [(node, make_hd_functor(res, argcs)) for node, res, argcs in zip(targets, types, argcolors)] + \
-                 [(node, AtomicType('_')) for node in double_heads]
+                 [(node, EmptyType()) for node in double_heads]
 
     return {**{node: {**dag.attribs[node], **{'type': _type}} for node, _type in head_types}}
 
@@ -443,7 +443,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     primary_crds = list(map(lambda crd: crd.target, map(fst, crds)))
     copy_types = {crd: {**dag.attribs[crd], **{'type': crd_type}} for crd, crd_type in zip(primary_crds, crd_types)}
     dag.attribs.update(copy_types)
-    secondary_types = {crd: {**dag.attribs[crd], **{'type': AtomicType('_')}} for crd in secondary_crds}
+    secondary_types = {crd: {**dag.attribs[crd], **{'type': EmptyType()}} for crd in secondary_crds}
     dag.attribs.update(secondary_types)
 
 
