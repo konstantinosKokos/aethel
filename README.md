@@ -1,7 +1,7 @@
-# Lassy-TLG-Extraction
+# lassy-tlg-extraction
 Source code for the conversion of Lassy dependency graphs into type-logical grammar derivations.
 
-[Link to paper](http://www.lrec-conf.org/proceedings/lrec2020/pdf/2020.lrec-1.647.pdf)
+Read more about the process in our LREC [paper](http://www.lrec-conf.org/proceedings/lrec2020/pdf/2020.lrec-1.647.pdf).
 
 ---
 
@@ -50,4 +50,5 @@ op:<ɴᴘ> obj1 → [ɪɴғ → ɪɴғ] mod, de:[ɴ → ɴᴘ] det, verjaardag:�
 '(((laat ((op (deᵈᵉᵗ verjaardag)ᵒᵇʲ¹)ᵐᵒᵈ (gaan in vervullingˢᵛᵖ))ᵛᶜ) ((van (zijnᵈᵉᵗ moeder)ᵒᵇʲ¹)ᵐᵒᵈ (deᵈᵉᵗ wens))ᵒᵇʲ¹) Lasloˢᵘ)'
 ``` 
 ---
-If you have issues using the code or need help getting started, feel free to get in touch.
+If you need access to the processed Lassy trees, encounter issues using the code or just need help getting started, 
+feel free to get in touch.
