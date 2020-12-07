@@ -25,7 +25,8 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ### Using with Æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
 [Æthel](https://github.com/konstantinosKokos/aethel) with Python.
-Begin by cloning the project locally and placing the dump file in the outermost directory.
+You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/WtcjKP7renMHTjU).
+Begin by cloning the project locally and placing the data file in the outermost directory.
 You can then access the data by running:
 ```
 >>> import pickle
