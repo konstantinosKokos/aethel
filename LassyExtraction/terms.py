@@ -69,11 +69,11 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
         else:
             return f'λ{pt(term.abstraction)}{superscript(term.decoration)}.({pt(term.body)})'
     elif isinstance(term, AppTerm):
-        if show_decorations and term.decoration != '→' and not isinstance(term.argument, Constant):
+        if show_decorations and term.decoration != '→' and not isinstance(term.argument, Var):
             if term.decoration in ModDeps or term.decoration in HeadDeps:
-                return f'(({pt(term.functor)}){superscript(term.decoration)} ({pt(term.argument)})'
+                return f'({pt(term.functor)}{superscript(term.decoration)} {pt(term.argument)})'
             else:
-                return f'({pt(term.functor)} ({pt(term.argument)}){superscript(term.decoration)})'
+                return f'({pt(term.functor)} {pt(term.argument)}{superscript(term.decoration)})'
         else:
             return f'({pt(term.functor)} {pt(term.argument)})'
     else:
