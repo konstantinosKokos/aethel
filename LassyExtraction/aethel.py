@@ -1,5 +1,5 @@
-from .terms import Term, AppTerm, AbsTerm, Constant, subscript, smallcaps, print_term
-from .milltypes import (WordType, WordTypes, PolarizedType, AtomicType, get_polarities_and_indices, Path, Paths, paths,
+from .terms import Term, Application, Abstraction, Atom, subscript, smallcaps, print_term
+from .milltypes import (WordType, WordTypes, PolarizedType, EmptyType, get_polarities_and_indices, Path, Paths, paths,
                         polarize_and_index_many)
 from .proofs import AxiomLinks
 from functools import reduce
@@ -51,6 +51,7 @@ class ProofFrame:
         if len(types) == 1:
             _, types = polarize_and_index_many(types, 0)
         premises = [Premise(word, wordtype) for (word, wordtype) in zip(words, types)]
+        types = [t for t in types if not isinstance(t, EmptyType)]
         atoms = list(zip(*list(map(get_polarities_and_indices, types))))
         negative, positive = list(map(lambda x: reduce(add, x), atoms))
         rem = (Counter([x[0] for x in positive]) - Counter([x[0] for x in negative]))
@@ -90,7 +91,7 @@ class ProofNet:
                 app = (varcount, False)
             else:
                 app = (idx, True)
-            return AppTerm.from_arglist(Constant.make(*app), bodies, pos_path[::-1]), varcount
+            return Application.from_arglist(Atom.make(*app), bodies, pos_path[::-1]), varcount
 
         def neg_to_lambda(path: Path, varcount: int) -> Tuple[Term, int]:
             if len(path) == 1:
@@ -98,7 +99,7 @@ class ProofNet:
                 return pos_to_lambda(tgt, idx, varcount)
             else:
                 body, varcount_after = neg_to_lambda(path[1:], varcount + 1)
-                return AbsTerm(Constant.make(varcount, False), body, path[0]), varcount_after
+                return Abstraction(Atom.make(varcount, False), body, path[0]), varcount_after
 
         def cross(neg: int) -> Tuple[Tuple[Path, Paths], Optional[int]]:
             pos = neg_to_pos[neg]

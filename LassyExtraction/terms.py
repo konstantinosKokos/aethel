@@ -8,27 +8,27 @@ class Term(ABC):
     pass
 
 
-class AppTerm(Term):
+class Application(Term):
     def __init__(self, functor: Term, argument: Term, decoration: str):
         self.functor = functor
         self.argument = argument
         self.decoration = decoration
 
     @staticmethod
-    def from_arglist(functor: Term, args: List[Term], decorations: List[str]) -> 'AppTerm':
-        def from_pair(t: Term, s: Tuple[Term, str]) -> 'AppTerm':
-            return AppTerm(t, *s)
+    def from_arglist(functor: Term, args: List[Term], decorations: List[str]) -> 'Application':
+        def from_pair(t: Term, s: Tuple[Term, str]) -> 'Application':
+            return Application(t, *s)
         return reduce(from_pair, zip(args, decorations), functor)
 
 
-class AbsTerm(Term):
-    def __init__(self, abstraction: 'Constant', body: Term, decoration: str):
+class Abstraction(Term):
+    def __init__(self, abstraction: 'Atom', body: Term, decoration: str):
         self.abstraction = abstraction
         self.body = body
         self.decoration = decoration
 
 
-class Constant(Term):
+class Atom(Term):
     def __init__(self, idx: int):
         self.idx = idx
 
@@ -43,16 +43,16 @@ class Constant(Term):
         pass
 
     @staticmethod
-    def make(idx: int, lex: bool) -> 'Constant':
+    def make(idx: int, lex: bool) -> 'Atom':
         return Lex(idx) if lex else Var(idx)
 
 
-class Var(Constant):
+class Var(Atom):
     def __init__(self, idx: int):
         super(Var, self).__init__(idx)
 
 
-class Lex(Constant):
+class Lex(Atom):
     def __init__(self, idx: int):
         super(Lex, self).__init__(idx)
 
@@ -61,14 +61,14 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     def pt(_term: Term) -> str:
         return print_term(_term, show_decorations, word_printer)
 
-    if isinstance(term, Constant):
+    if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
-    elif isinstance(term, AbsTerm):
+    elif isinstance(term, Abstraction):
         if not show_decorations or term.decoration == '→':
             return f'λ{pt(term.abstraction)}.({pt(term.body)})'
         else:
             return f'λ{pt(term.abstraction)}{superscript(term.decoration)}.({pt(term.body)})'
-    elif isinstance(term, AppTerm):
+    elif isinstance(term, Application):
         if show_decorations and term.decoration != '→' and not isinstance(term.argument, Var):
             if term.decoration in ModDeps or term.decoration in HeadDeps:
                 return f'({pt(term.functor)}{superscript(term.decoration)} {pt(term.argument)})'

@@ -225,16 +225,17 @@ def type_heads_step(dag: DAG, head_deps: FrozenSet[str], mod_deps: FrozenSet[str
     def make_hd_functor(result: WordType, argcs: Tuple[WordTypes, strings]) -> WordType:
         return rebinarize(list(zip(*argcs)), result) if argcs else result
 
-    heads_nodes: List[Tuple[Edge, List[str]]] \
-        = list(map(lambda edge: (edge,
-                                 order_nodes(dag, list(set(map(lambda edge: edge.target,
-                                                               filter(lambda edge: edge.dep in head_deps,
-                                                                      dag.outgoing(edge.source))))))),
-                   filter(lambda edge: edge.dep in head_deps.difference({'crd'})
-                                       and 'type' in dag.attribs[edge.source].keys()
-                                       and 'type' not in dag.attribs[edge.target].keys()
-                                       and not is_gap(dag, edge.target, head_deps),
-                          dag.edges)))
+    _heading_edges: List[Edge] = list(filter(lambda edge:
+                                             edge.dep in head_deps
+                                             and 'type' in dag.attribs[edge.source].keys()
+                                             and 'type' not in dag.attribs[edge.target].keys()
+                                             and not is_gap(dag, edge.target, head_deps),
+                                             dag.edges))
+    heads_nodes = list(map(lambda edge:
+                           (edge, order_nodes(dag, list(set(map(lambda e2: e2.target,
+                                                                filter(lambda e1: e1.dep in head_deps,
+                                                                       dag.outgoing(edge.source))))))),
+                           _heading_edges))
 
     double_heads = list(map(lambda edge: edge.target,
                             map(fst, filter(lambda pair: fst(pair).target != fst(snd(pair)), heads_nodes))))

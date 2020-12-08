@@ -25,7 +25,7 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ### Using with æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
 [æthel](https://github.com/konstantinosKokos/aethel) with Python.
-You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/WtcjKP7renMHTjU).
+You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/xCnHPZR2ahkR4dK).
 Begin by cloning the project locally and placing the data file in the outermost directory.
 You can then access the data by running:
 ```

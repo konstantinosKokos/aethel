@@ -65,23 +65,14 @@ def make_links(dag: DAG[str, str]) -> AxiomLinks:
     idx, conclusion = polarize_and_index(root_type.depolarize(), False, idx)
     core_proof = match(core_proof, root_type, conclusion)
     proof = merge_proofs([core_proof, crd_proof, gap_proof])
-    correctness_check(proof, dag, idx)
+    correctness_check(proof, idx)
     return proof
 
 
-def correctness_check(proof: AxiomLinks, dag: DAG, idx: int) -> None:
+def correctness_check(proof: AxiomLinks, idx: int) -> None:
     positives = set(map(fst, proof))
     negatives = set(map(snd, proof))
-    immaterial = set(map(lambda type_:
-                         type_.index,
-                         filter(lambda type_:
-                                isinstance(type_, EmptyType),
-                                map(lambda leaf:
-                                    dag.attribs[leaf]['type'],
-                                    filter(lambda node:
-                                           dag.is_leaf(node),
-                                           dag.nodes)))))
-    if set.union(positives, negatives, immaterial) != set(range(idx)):
+    if set.union(positives, negatives) != set(range(idx)):
         raise ProofError('Unmatched types.')
 
 
@@ -448,7 +439,7 @@ def get_simple_branches(dag: DAG[Node, Any]) -> List[Node]:
 
 def get_annotated_nodes(dag: DAG[Node, Any]) -> Nodes:
     return set(filter(lambda node:
-                      is_indexed(dag.attribs[node]['type']),
+                      is_indexed(dag.attribs[node]['type']) or isinstance(dag.attribs[node]['type'], EmptyType),
                       dag.nodes))
 
 

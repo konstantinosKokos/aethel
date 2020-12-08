@@ -3,7 +3,7 @@ import graphviz as gv  # type: ignore
 from .graphutils import *
 
 
-class ToGraphViz(object):
+class ToGraphViz:
     def __init__(self, properties: FrozenSet[str] = frozenset(['id', 'word', 'pos', 'cat', 'index', 'type', 'pt'])) \
             -> None:
         self.properties = properties
