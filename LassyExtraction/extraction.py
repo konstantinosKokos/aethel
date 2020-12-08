@@ -477,7 +477,7 @@ def untype_dag(dag: DAG) -> None:
             del dag.attribs[k]['_gap_typed']
 
 
-class Extraction(object):
+class Extraction:
     def __init__(self, cat_dict: Dict[str, AtomicType], pos_dict: Dict[str, AtomicType], pos_set: str,
                  head_deps: FrozenSet[str], mod_deps: FrozenSet[str],
                  ):

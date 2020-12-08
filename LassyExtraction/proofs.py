@@ -633,7 +633,7 @@ class ProofError(AssertionError):
         super().__init__(message)
 
 
-class Prove(object):
+class Prove:
     def __init__(self):
         pass
 
