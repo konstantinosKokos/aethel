@@ -67,14 +67,14 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
         if not show_decorations or term.decoration is None:
             return f'λ{pt(term.abstraction)}.{pt(term.body)}'
         elif term.decoration.modality == 'box':
-            return f'(λ{pt(term.abstraction)}.{pt(term.body)}){superscript(term.decoration.name)}'
+            return f'(λ{pt(term.abstraction)}.{pt(term.body)}{superscript(term.decoration.name)})'
         else:
             return f'λ{pt(term.abstraction)}{superscript(term.decoration.name)}.{pt(term.body)}'
     elif isinstance(term, Application):
         if show_decorations and term.decoration is not None:
-            if term.decoration.modality == 'box' and not isinstance(term.functor, Var):
+            if term.decoration.modality == 'box':
                 return f'({pt(term.functor)}{superscript(term.decoration.name)} {pt(term.argument)})'
-            if term.decoration.modality == 'diamond' and not isinstance(term.argument, Var):
+            if term.decoration.modality == 'diamond':
                 return f'({pt(term.functor)} {pt(term.argument)}{superscript(term.decoration.name)})'
         return f'({pt(term.functor)} {pt(term.argument)})'
     else:
