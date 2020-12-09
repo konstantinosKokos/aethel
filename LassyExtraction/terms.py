@@ -1,7 +1,7 @@
 from abc import ABC
-from typing import List, overload, Any, Callable, Tuple, Literal
+from typing import List, overload, Any, Callable, Tuple, Literal, Optional
 from functools import reduce
-from .extraction import HeadDeps, ModDeps
+from .milltypes import Decoration
 
 
 class Term(ABC):
@@ -9,20 +9,20 @@ class Term(ABC):
 
 
 class Application(Term):
-    def __init__(self, functor: Term, argument: Term, decoration: str):
+    def __init__(self, functor: Term, argument: Term, decoration: Optional[Decoration]):
         self.functor = functor
         self.argument = argument
         self.decoration = decoration
 
     @staticmethod
-    def from_arglist(functor: Term, args: List[Term], decorations: List[str]) -> 'Application':
-        def from_pair(t: Term, s: Tuple[Term, str]) -> 'Application':
+    def from_arglist(functor: Term, args: List[Term], decorations: List[Optional[Decoration]]) -> 'Application':
+        def from_pair(t: Term, s: Tuple[Term, Optional[Decoration]]) -> 'Application':
             return Application(t, *s)
         return reduce(from_pair, zip(args, decorations), functor)
 
 
 class Abstraction(Term):
-    def __init__(self, abstraction: 'Atom', body: Term, decoration: str):
+    def __init__(self, abstraction: 'Atom', body: Term, decoration: Optional[Decoration]):
         self.abstraction = abstraction
         self.body = body
         self.decoration = decoration
@@ -64,18 +64,19 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
     elif isinstance(term, Abstraction):
-        if not show_decorations or term.decoration == '→':
-            return f'λ{pt(term.abstraction)}.({pt(term.body)})'
+        if not show_decorations or term.decoration is None:
+            return f'λ{pt(term.abstraction)}.{pt(term.body)}'
+        elif term.decoration.modality == 'box':
+            return f'(λ{pt(term.abstraction)}.{pt(term.body)}){superscript(term.decoration.name)}'
         else:
-            return f'λ{pt(term.abstraction)}{superscript(term.decoration)}.({pt(term.body)})'
+            return f'λ{pt(term.abstraction)}{superscript(term.decoration.name)}.{pt(term.body)}'
     elif isinstance(term, Application):
-        if show_decorations and term.decoration != '→' and not isinstance(term.argument, Var):
-            if term.decoration in ModDeps or term.decoration in HeadDeps:
-                return f'({pt(term.functor)}{superscript(term.decoration)} {pt(term.argument)})'
-            else:
-                return f'({pt(term.functor)} {pt(term.argument)}{superscript(term.decoration)})'
-        else:
-            return f'({pt(term.functor)} {pt(term.argument)})'
+        if show_decorations and term.decoration is not None:
+            if term.decoration.modality == 'box' and not isinstance(term.functor, Var):
+                return f'({pt(term.functor)}{superscript(term.decoration.name)} {pt(term.argument)})'
+            if term.decoration.modality == 'diamond' and not isinstance(term.argument, Var):
+                return f'({pt(term.functor)} {pt(term.argument)}{superscript(term.decoration.name)})'
+        return f'({pt(term.functor)} {pt(term.argument)})'
     else:
         raise TypeError(f'Unexpected argument of type {type(term)}')
 

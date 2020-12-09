@@ -2,7 +2,8 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, Generic, Literal, TypeVar, Mapping, Union
+from typing import Set, Sequence, Tuple, List, overload, Generic, Literal, TypeVar, Mapping, Union, Optional
+from dataclasses import dataclass
 
 
 class WordType(ABC):
@@ -418,13 +419,25 @@ def get_type_indices(wordtype: WordType) -> List[int]:
     return sorted(reduce(add, map(lambda x: [x[1]], pos), []) + reduce(add, map(lambda x: [x[1]], neg), []))
 
 
-def get_deco(wordtype: FunctorType) -> str:
-    return wordtype.diamond if isinstance(wordtype, DiamondType) \
-        else wordtype.box if isinstance(wordtype, BoxType) \
-        else '→'
+@dataclass
+class Decoration:
+    modality: str
+    name: str
 
 
-Path = List[Union[int, str]]
+def get_deco(wordtype: FunctorType) -> Optional[Decoration]:
+    if isinstance(wordtype, ModalFunctor):
+        if isinstance(wordtype, DiamondType):
+            return Decoration(wordtype.modality, wordtype.diamond)
+        elif isinstance(wordtype, BoxType):
+            return Decoration(wordtype.modality, wordtype.box)
+        else:
+            raise TypeError(f'Unexpected argument of type {type(wordtype)}')
+    else:
+        return None
+
+
+Path = List[Union[int, Optional[Decoration]]]
 Paths = List[Path]
 
 
@@ -453,4 +466,4 @@ def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[Path,
     elif isinstance(wordtype, PolarizedType):
         return hist + [wordtype.index], []
     else:
-        raise TypeError
+        raise TypeError(f'Unexpected argument of type {type(wordtype)}')

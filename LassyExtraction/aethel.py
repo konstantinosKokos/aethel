@@ -59,11 +59,9 @@ class ProofFrame:
         assert sum(rem.values()) == 1
         conclusion = list(rem.keys())[0]
         conclusion_id = max((x[1] for x in sum(atoms[0]+atoms[1], []))) + 1
-        return ProofFrame(premises=premises,
-                          conclusion=PolarizedType(wordtype=conclusion.type, polarity=False, index=conclusion_id))
+        return ProofFrame(premises, PolarizedType(wordtype=conclusion.type, polarity=False, index=conclusion_id))
 
 
-@dataclass
 class ProofNet:
     """
         Class representing a judgement together with its proof.
