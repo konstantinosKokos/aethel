@@ -92,12 +92,13 @@ class ProofNet:
             return Application.from_arglist(Atom.make(*app), bodies, pos_path[::-1]), varcount
 
         def neg_to_lambda(path: Path, varcount: int) -> Tuple[Term, int]:
-            if len(path) == 1:
-                tgt, idx = cross(path[0])
-                return pos_to_lambda(tgt, idx, varcount)
-            else:
-                body, varcount_after = neg_to_lambda(path[1:], varcount + 1)
-                return Abstraction(Atom.make(varcount, False), body, path[0]), varcount_after
+            # todo: sanitize a bit
+            tgt, idx = cross(path[-1])
+            body, varcount_after = pos_to_lambda(tgt, idx, varcount + len(path) - 1)
+            for p in path[::-1][1:]:
+                body = Abstraction(Atom.make(varcount, False), body, p)
+                varcount += 1
+            return body, varcount_after
 
         def cross(neg: int) -> Tuple[Tuple[Path, Paths], Optional[int]]:
             pos = neg_to_pos[neg]
