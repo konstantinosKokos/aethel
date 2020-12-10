@@ -61,22 +61,30 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     def pt(_term: Term) -> str:
         return print_term(_term, show_decorations, word_printer)
 
+    def cap(x: Any) -> str:
+        # reflects intr -- box abstraction, diamond application
+        return f'ˆ{superscript(x)}'
+
+    def cup(x: Any) -> str:
+        # reflects elim -- box application, diamond abstraction
+        return f'˅{superscript(x)}'
+
     if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
     elif isinstance(term, Abstraction):
         if not show_decorations or term.decoration is None:
             return f'λ{pt(term.abstraction)}.{pt(term.body)}'
-        elif term.decoration.modality == 'box':
-            return f'(λ{pt(term.abstraction)}.{pt(term.body)}{superscript(term.decoration.name)})'
+        if term.decoration.modality == 'box':
+            return f'{cap(term.decoration.name)}(λ{pt(term.abstraction)}.{pt(term.body)})'
         else:
-            return f'λ{pt(term.abstraction)}{superscript(term.decoration.name)}.{pt(term.body)}'
+            return f'{cup(term.decoration.name)}(λ{pt(term.abstraction)}.{pt(term.body)})'
     elif isinstance(term, Application):
-        if show_decorations and term.decoration is not None:
-            if term.decoration.modality == 'box':
-                return f'({pt(term.functor)}{superscript(term.decoration.name)} {pt(term.argument)})'
-            if term.decoration.modality == 'diamond':
-                return f'({pt(term.functor)} {pt(term.argument)}{superscript(term.decoration.name)})'
-        return f'({pt(term.functor)} {pt(term.argument)})'
+        if not show_decorations or term.decoration is None:
+            return f'({pt(term.functor)} {pt(term.argument)})'
+        if term.decoration.modality == 'box':
+            return f'({cup(term.decoration.name)}({pt(term.functor)}) {pt(term.argument)})'
+        if term.decoration.modality == 'diamond':
+            return f'({pt(term.functor)} {cap(term.decoration.name)}({pt(term.argument)}))'
     else:
         raise TypeError(f'Unexpected argument of type {type(term)}')
 
