@@ -1,6 +1,6 @@
 from .terms import Term, Application, Abstraction, Atom, subscript, smallcaps, print_term
 from .milltypes import (WordType, WordTypes, PolarizedType, EmptyType, get_polarities_and_indices, Path, Paths, paths,
-                        polarize_and_index_many)
+                        polarize_and_index_many, Decoration)
 from .proofs import AxiomLinks
 from functools import reduce
 from operator import add
@@ -92,13 +92,11 @@ class ProofNet:
             return Application.from_arglist(Atom.make(*app), bodies, pos_path[::-1]), varcount
 
         def neg_to_lambda(path: Path, varcount: int) -> Tuple[Term, int]:
-            # todo: sanitize a bit
+            def fn(t: Tuple[Term, int], s: Optional[Decoration]) -> Tuple[Term, int]:
+                return Abstraction(Atom.make(t[1], False), t[0], s), t[1] + 1
             tgt, idx = cross(path[-1])
             body, varcount_after = pos_to_lambda(tgt, idx, varcount + len(path) - 1)
-            for p in path[::-1][1:]:
-                body = Abstraction(Atom.make(varcount, False), body, p)
-                varcount += 1
-            return body, varcount_after
+            return reduce(fn, path[::-1][1:], (body, varcount))[0], varcount_after
 
         def cross(neg: int) -> Tuple[Tuple[Path, Paths], Optional[int]]:
             pos = neg_to_pos[neg]
