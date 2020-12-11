@@ -62,29 +62,39 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
         return print_term(_term, show_decorations, word_printer)
 
     def cap(x: Any) -> str:
-        # reflects intr -- box abstraction, diamond application
-        return f'ˆ{superscript(x)}'
+        # reflects box intro -- box abs
+        return f'▴{superscript(x)}'
 
     def cup(x: Any) -> str:
-        # reflects elim -- box application, diamond abstraction
-        return f'˅{superscript(x)}'
+        # reflects box elim -- box app
+        return f'▾{superscript(x)}'
+
+    def wedge(x: Any) -> str:
+        # reflects diamond intro -- diamond app
+        return f'▵{superscript(x)}'
+
+    def vee(x: Any) -> str:
+        # reflects diamond elim -- diamond abs
+        return f'▿{superscript(x)}'
 
     if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
     elif isinstance(term, Abstraction):
-        if not show_decorations or term.decoration is None:
+        if not show_decorations or term.decoration is None or term.decoration.modality == 'diamond':
             return f'λ{pt(term.abstraction)}.{pt(term.body)}'
         if term.decoration.modality == 'box':
             return f'{cap(term.decoration.name)}(λ{pt(term.abstraction)}.{pt(term.body)})'
-        else:
-            return f'{cup(term.decoration.name)}(λ{pt(term.abstraction)}.{pt(term.body)})'
     elif isinstance(term, Application):
         if not show_decorations or term.decoration is None:
             return f'({pt(term.functor)} {pt(term.argument)})'
         if term.decoration.modality == 'box':
             return f'({cup(term.decoration.name)}({pt(term.functor)}) {pt(term.argument)})'
         if term.decoration.modality == 'diamond':
-            return f'({pt(term.functor)} {cap(term.decoration.name)}({pt(term.argument)}))'
+            if isinstance(term.argument, Var):
+                return f'({pt(term.functor)} ' \
+                       f'{vee(term.decoration.name)}({wedge(term.decoration.name)}({pt(term.argument)})))'
+            else:
+                return f'({pt(term.functor)} {wedge(term.decoration.name)}({pt(term.argument)}))'
     else:
         raise TypeError(f'Unexpected argument of type {type(term)}')
 
