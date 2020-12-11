@@ -92,7 +92,7 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
         if term.decoration.modality == 'diamond':
             if isinstance(term.argument, Var):
                 return f'({pt(term.functor)} ' \
-                       f'{vee(term.decoration.name)}({wedge(term.decoration.name)}({pt(term.argument)})))'
+                       f'{wedge(term.decoration.name)}({vee(term.decoration.name)}({pt(term.argument)})))'
             else:
                 return f'({pt(term.functor)} {wedge(term.decoration.name)}({pt(term.argument)}))'
     else:
