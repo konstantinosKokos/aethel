@@ -390,7 +390,7 @@ def polish_to_type(symbols: strings, operators: Set[str],
     stack = list()
 
     if len(symbols) == 1:
-        return AtomicType(symbols[0])
+        return AtomicType(symbols[0]) if symbols[0] != '_' else EmptyType()
 
     for symbol in reversed(symbols):
         if symbol in operators:
