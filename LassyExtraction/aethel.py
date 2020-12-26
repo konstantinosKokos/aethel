@@ -73,7 +73,7 @@ class ProofNet:
     def print_frame(self, show_words: bool = True, show_types: bool = True) -> str:
         return self.proof_frame.print(show_words, show_types)
 
-    def print_term(self, show_words: bool = False, show_types: bool = False, show_decorations: bool = True):
+    def print_term(self, show_words: bool = False, show_types: bool = False, show_decorations: bool = True) -> str:
         return print_term(self.get_term(), show_decorations,
                           lambda idx: self.proof_frame.word_printer(idx, show_words, show_types))
 
