@@ -467,26 +467,3 @@ def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[Path,
         return hist + [wordtype.index], []
     else:
         raise TypeError(f'Unexpected argument of type {type(wordtype)}')
-
-
-TreeStr = Union[str, Tuple[str, Tuple['TreeStr', 'TreeStr']]]
-
-
-@overload
-def depth_first_traversal(x: AtomicType) -> str:
-    pass
-
-
-@overload
-def depth_first_traversal(x: FunctorType) -> TreeStr:
-    pass
-
-
-def depth_first_traversal(x: WordType) -> TreeStr:
-    if isinstance(x, AtomicType):
-        return x.type
-    elif isinstance(x, FunctorType):
-        dec = get_deco(x)
-        left = depth_first_traversal(x.argument)
-        right = depth_first_traversal(x.result)
-        return dec.name if dec is not None else '→', (left, right)
