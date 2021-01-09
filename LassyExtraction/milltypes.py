@@ -311,9 +311,9 @@ def get_colors(x):
 
 
 def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
+    if isinstance(wordtype, EmptyType):
+        return [], []
     if isinstance(wordtype, PolarizedType):
-        if isinstance(wordtype, EmptyType):
-            return [], []
         return [], [(wordtype.depolarize(), wordtype.index)]
     elif isinstance(wordtype, FunctorType):
         argpos, argneg = get_polarities_and_indices(wordtype.argument)
