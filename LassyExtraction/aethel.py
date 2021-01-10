@@ -62,6 +62,7 @@ class ProofFrame:
         return ProofFrame(premises, PolarizedType(wordtype=conclusion.type, polarity=False, index=conclusion_id))
 
 
+@dataclass
 class ProofNet:
     """
         Class representing a judgement together with its proof.
