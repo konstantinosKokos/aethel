@@ -1,13 +1,29 @@
 from functools import reduce
 from itertools import chain
 
-from .extraction import order_nodes, is_gap, is_copy, HeadDeps, ModDeps, make_functor
+from .extraction import order_nodes, is_gap, is_copy, HeadDeps, ModDeps, make_functor, get_argument
 from .graphutils import *
-from .milltypes import (polarize_and_index_many, polarize_and_index, WordType, EmptyType, DiamondType,
-                        PolarizedType, BoxType, WordTypes, FunctorType, depolarize)
+from .milltypes import (polarize_and_index_many, polarize_and_index, WordType, EmptyType, DiamondType, ModalType,
+                        PolarizedType, BoxType, FunctorType, depolarize)
 from .transformations import _cats_of_type
 
 AxiomLinks = Set[Tuple[int, int]]
+
+
+def unwrap(wordtype: WordType) -> WordType:
+    return wordtype.content if isinstance(wordtype, DiamondType) else wordtype
+
+
+def is_functor(wordtype: WordType) -> bool:
+    return isinstance(wordtype, FunctorType) or isinstance(wordtype, ModalType) and is_functor(wordtype.content)
+
+
+def get_result(wordtype: WordType) -> WordType:
+    if isinstance(wordtype, FunctorType):
+        return wordtype.result
+    if isinstance(wordtype, ModalType) and isinstance(wordtype.content, FunctorType):
+        return wordtype.content.result
+    raise ProofError(f'{wordtype} has no result')
 
 
 def match(links: AxiomLinks, positive: WordType, negative: WordType) -> AxiomLinks:
@@ -26,11 +42,11 @@ def match(links: AxiomLinks, positive: WordType, negative: WordType) -> AxiomLin
         if negative.index in set(map(snd, links)):
             raise ProofError(f'Negative formula already assigned.\t{positive}\t{negative}.')
         links = links.union({(positive.index, negative.index)})
-    elif isinstance(negative, FunctorType) and isinstance(positive, FunctorType):
-        links = match(links, negative.argument, positive.argument)
-        links = match(links, positive.result, negative.result)
+    elif is_functor(negative) and is_functor(positive):
+        links = match(links, unwrap(get_argument(negative)), unwrap(get_argument(positive)))
+        links = match(links, unwrap(get_result(positive)), unwrap(get_result(negative)))
     else:
-        raise ProofError(f'Unexpected types.')
+        raise ProofError(f'Unexpected types {positive} {negative}.')
     return links
 
 
@@ -99,7 +115,7 @@ def annotate_simple_branches(dag: DAG[str, str]) -> Optional[AxiomLinks]:
 
 
 def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks, WordType]:
-    def simplify_crd(crd_type: WordType, arg_types_: WordTypes) -> WordType:
+    def simplify_crd(crd_type: WordType, arg_types_: List[WordType]) -> WordType:
         xs = isolate_xs(crd_type)
         result = last_instance_of(crd_type)
 
@@ -109,11 +125,11 @@ def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks,
         if arg_types == xs:
             return crd_type
         else:
-            xs = list(map(lambda x: x.result, xs))
-            result = result.result
+            xs = list(map(get_result, xs))
+            result = get_result(result)
 
             crd_type = reduce(lambda res_, arg_:
-                              DiamondType(argument=arg_, result=res_, diamond='cnj'),
+                              FunctorType(DiamondType(arg_, 'cnj'), res_),
                               reversed(xs),
                               result)
             return simplify_crd(crd_type, arg_types_)
@@ -147,12 +163,10 @@ def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks,
     mods = order_nodes(dag, list(map(lambda edge: edge.target, modding_edges)))
     args = order_nodes(dag, list(map(lambda edge: edge.target, arg_edges)))
     arg_edges = sorted(arg_edges, key=lambda x: args.index(x.target))
-    arg_types = list(map(lambda edge:
-                         get_simple_argument(dag, edge.target),
-                         arg_edges))
-    arg_deps = list(map(lambda edge:
-                        edge.dep,
-                        arg_edges))
+
+    arg_types = list(map(lambda edge: get_simple_argument(dag, edge.target), arg_edges))
+    arg_deps = list(map(lambda edge: edge.dep, arg_edges))
+    mod_types = list(map(lambda n: get_simple_argument(dag, n), mods))
 
     if dag.attribs[parent]['cat'] == 'conj':
         branch_output = simplify_crd(dag.attribs[head.target]['type'], arg_types)
@@ -162,18 +176,20 @@ def annotate_simple_branch(dag: DAG[str, str], parent: str) -> Tuple[AxiomLinks,
     arg_proof, branch_output = align_args(branch_output,
                                           arg_types,
                                           arg_deps)
-    mod_proof, branch_output = align_mods(branch_output, list(map(lambda node: get_simple_argument(dag, node), mods)))
+
+    mod_proof, branch_output = align_mods(branch_output, mod_types)
     return merge_proof(arg_proof, mod_proof), branch_output
 
 
-def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple[AxiomLinks, WordType]:
+def align_args(functor: WordType, argtypes: List[WordType], deps: List[str]) -> Tuple[AxiomLinks, WordType]:
     def color_fold(functor_: WordType) -> List[Tuple[str, WordType]]:
         def step(x: WordType) -> Optional[Tuple[Tuple[str, WordType], WordType]]:
-            if isinstance(x, FunctorType):
-                if isinstance(x, DiamondType):
-                    return (x.diamond, x.argument), x.result
-                if isinstance(x, BoxType) and x.box == 'det':
-                    return ('np_hd', x.argument), x.result
+            if is_functor(x):
+                arg, res = get_argument(x), get_result(x)
+                if isinstance(arg, DiamondType):
+                    return (arg.modality, arg.content), res
+                if isinstance(x, BoxType) and x.modality == 'det':
+                    return ('np_hd', arg), res
             return None
         return list(unfoldr(step, functor_))
 
@@ -208,20 +224,19 @@ def align_args(functor: WordType, argtypes: WordTypes, deps: List[str]) -> Tuple
     return proof, functor
 
 
-def align_mods(mod_input: WordType, mods: WordTypes) -> Tuple[AxiomLinks, WordType]:
+def align_mods(mod_input: WordType, mods: List[WordType]) -> Tuple[AxiomLinks, WordType]:
     def match_modchain(proof_: AxiomLinks, modpair: Tuple[WordType, WordType]) -> AxiomLinks:
         prev = fst(modpair)
         curr = snd(modpair)
-        if isinstance(prev, FunctorType) and isinstance(curr, FunctorType):
-            return match(proof_, prev.result, curr.argument)
-        else:
-            raise ProofError(f'Modifiers {prev}, {curr} are not FunctorTypes.')
+        if is_functor(prev) and is_functor(curr):
+            return match(proof_, get_result(prev), get_argument(curr))
+        raise ProofError(f'Modifiers {prev}, {curr} are not FunctorTypes.')
 
     proof: Set[Tuple[int, int]] = set()
 
     if mods:
-        mod_output = last(mods).result
-        proof = match(proof, mod_input, fst(mods).argument)
+        mod_output = get_result(last(mods))
+        proof = match(proof, mod_input, get_argument(fst(mods)))
         zipped_mods = list(zip(mods, mods[1:]))
         proof = reduce(match_modchain, zipped_mods, proof)
         return proof, mod_output
@@ -239,7 +254,7 @@ def match_copies_with_crds(dag: DAG[Node, Any]) -> AxiomLinks:
                          dag.nodes))
 
     copy_colors = list(map(lambda copy: get_copy_color(copy), copies))
-    copy_types: WordTypes = list(map(lambda copy: dag.attribs[copy]['type'], copies))
+    copy_types: List[WordType] = list(map(lambda copy: dag.attribs[copy]['type'], copies))
 
     conjunction_hierarchies: List[List[Tuple[Node, List[Optional[Node]]]]]
     conjunction_hierarchies = list(map(lambda node:
@@ -332,7 +347,7 @@ def participating_conjunctions(dag: DAG[Node, str], node: Node, exclude_heads: b
 def intra_crd_match(dag: DAG[Node, str], hierarchy: List[Tuple[Node, List[Optional[Node]]]],
                     copy_type: WordType, copy_color: str) -> AxiomLinks:
 
-    isolated: List[Tuple[WordTypes, List[Optional[Node]]]]
+    isolated: List[Tuple[List[WordType], List[Optional[Node]]]]
     isolated = list(map(lambda pair:
                         (isolate_xs(get_crd_type(dag, fst(pair))), snd(pair)),
                         hierarchy))
@@ -361,28 +376,30 @@ def intra_crd_match(dag: DAG[Node, str], hierarchy: List[Tuple[Node, List[Option
 
 def match_copied_gaps_with_crds(dag: DAG[str, str]) -> AxiomLinks:
     def extract_color(type_: WordType) -> str:
-        if isinstance(type_, FunctorType):
-            if isinstance(type_.argument, DiamondType):
-                return type_.argument.diamond
-            if isinstance(type_.argument, BoxType):
-                return type_.argument.box
+        if is_functor(type_):
+            arg = get_argument(type_)
+            if is_functor(arg):
+                if isinstance(arg, BoxType):
+                    return arg.modality
+                arg_of_arg = get_argument(arg)
+                if isinstance(arg_of_arg, DiamondType):
+                    return arg_of_arg.modality
         raise ProofError(f'Expected {type_} to be a higher order functor.')
 
-    def extract_arg(type_: WordType) -> WordType:
-        if isinstance(type_, FunctorType):
-            if isinstance(type_.argument, DiamondType):
-                return type_.argument.argument
-            if isinstance(type_.argument, BoxType):
-                return type_.argument.argument
+    def extract_nested_argument(type_: WordType) -> WordType:
+        if is_functor(type_):
+            arg = get_argument(type_)
+            if is_functor(arg):
+                return unwrap(get_argument(arg))
         raise ProofError(f'Expected {type_} to be a higher order functor.')
 
     gaps = list(filter(lambda node:
                        is_copy(dag, node) and is_gap(dag, node, HeadDeps),
                        dag.nodes))
-    gap_types: WordTypes = list(map(lambda node: dag.attribs[node]['type'], gaps))
+    gap_types: List[WordType] = list(map(lambda node: dag.attribs[node]['type'], gaps))
 
     gap_colors = list(map(lambda gaptype: extract_color(gaptype), gap_types))
-    gap_args = list(map(lambda gaptype: extract_arg(gaptype), gap_types))
+    gap_args = list(map(lambda gaptype: extract_nested_argument(gaptype), gap_types))
 
     conj_hierarchies = list(map(lambda node:
                                 participating_conjunctions(dag, node, exclude_heads=True),
@@ -399,7 +416,6 @@ def match_copied_gaps_with_crds(dag: DAG[str, str]) -> AxiomLinks:
                     conj_hierarchies))
 
     results = list(map(lambda crd: last_instance_of(crd), crds))
-
     matches = list(map(lambda res, ga, gc:
                        identify_missing(res, ga, gc),
                        results,
@@ -419,11 +435,11 @@ def get_functor_result(functor: WordType) -> WordType:
 def split_functor(functor: WordType) -> Tuple[Optional[WordType], WordType]:
     result = functor
     body = None
-    while isinstance(result, FunctorType):
-        if isinstance(result, BoxType) and result.box in ModDeps:
+    while is_functor(result):
+        if isinstance(result, BoxType) and result.modality in ModDeps:
             break
-        body = result.argument
-        result = result.result
+        body = get_argument(result)
+        result = get_result(result)
     return body, result
 
 
@@ -444,7 +460,7 @@ def get_annotated_nodes(dag: DAG[Node, Any]) -> Nodes:
 
 
 def is_indexed(type_: WordType) -> bool:
-    return all(list(map(lambda subtype: isinstance(subtype, PolarizedType), type_.get_atomic())))
+    return all(list(map(lambda subtype: isinstance(subtype, PolarizedType), type_.atoms())))
 
 
 def add_edge(dag: DAG[str, Any], edge: Edge[str, Any], type_: Optional[WordType]) -> None:
@@ -483,23 +499,22 @@ def find_first_conjunction_above(dag: DAG[Node, Any], source: Node) -> Optional[
 def get_simple_argument(dag: DAG[Node, Any], node: Node) -> WordType:
     type_: WordType = dag.attribs[node]['type']
     if is_gap(dag, node, HeadDeps):
-        if isinstance(type_, DiamondType):
-            if isinstance(type_.argument, FunctorType):
-                return type_.argument.argument
-            else:
-                raise ProofError(f'Gap argument {type_.argument} is not a FunctorType')
-        else:
-            raise ProofError(f'Gap type {type_} is not a DiamondType')
+        if is_functor(type_):
+            arg = get_argument(type_)
+            if isinstance(arg, DiamondType) and is_functor(arg):
+                return unwrap(get_argument(arg))
+        raise ProofError(f'Gap type {type_} is not a higher order type.')
     return type_
 
 
 def get_simple_functor(dag: DAG[Node, Any], node: Node) -> WordType:
     type_: WordType = dag.attribs[node]['type']
     if is_gap(dag, node, HeadDeps):
-        if isinstance(type_, DiamondType):
-            return DiamondType(argument=type_.argument.result, diamond=type_.diamond, result=type_.result)
-        else:
-            raise ProofError(f'Gap type {type_} is not a DiamondType')
+        if is_functor(type_):
+            arg = get_argument(type_)
+            if isinstance(arg, DiamondType) and is_functor(arg):
+                return FunctorType(DiamondType(get_result(arg), arg.modality), get_result(type_))
+        raise ProofError(f'Gap type {type_} is not a higher order type.')
     return type_
 
 
@@ -521,34 +536,38 @@ def get_conjunction_daughters(dag: DAG[Node, Any], conjunction: Node) -> List[No
     return order_nodes(dag, daughter_nodes)
 
 
-def isolate_xs(coordinator: WordType) -> WordTypes:
+def isolate_xs(coordinator: WordType) -> List[WordType]:
     def step_cnj(coordinator_: WordType) -> Optional[Tuple[WordType, WordType]]:
-        if isinstance(coordinator_, DiamondType) and coordinator_.diamond == 'cnj':
-            return coordinator_.argument, coordinator_.result
+        if is_functor(coordinator_):
+            arg = get_argument(coordinator_)
+            if isinstance(arg, DiamondType) and arg.modality == 'cnj':
+                return arg.content, get_result(coordinator_)
         return None
     return list(unfoldr(step_cnj, coordinator))
 
 
 def last_instance_of(coordinator: WordType) -> WordType:
     def step_cnj(coordinator_: WordType) -> Optional[Tuple[WordType, WordType]]:
-        if isinstance(coordinator_, DiamondType) and coordinator_.diamond == 'cnj':
-            return coordinator_.result, coordinator_.result
+        if is_functor(coordinator_):
+            arg = get_argument(coordinator_)
+            if isinstance(arg, DiamondType) and arg.modality == 'cnj':
+                return get_result(coordinator_), get_result(coordinator_)
         return None
     return last(list(unfoldr(step_cnj, coordinator)))
 
 
 def identify_missing(poly_x: WordType, missing: WordType, dep: str) -> WordType:
     while True:
-        if isinstance(poly_x, DiamondType):
-            if poly_x.diamond == dep and poly_x.argument == missing:
+        if is_functor(poly_x):
+            arg = get_argument(poly_x)
+            if isinstance(arg, DiamondType) and arg.modality == dep and arg.content == missing:
                 break
-        elif isinstance(poly_x, BoxType):
-            if poly_x.box == dep and poly_x.argument == missing:
+            if isinstance(poly_x, BoxType) and poly_x.modality == dep and arg == missing:
                 break
-        elif isinstance(poly_x, FunctorType) and poly_x.argument == missing and dep in HeadDeps.union({'np_hd'}):
-            break
-        poly_x = poly_x.result
-    return poly_x.argument
+            if isinstance(poly_x, FunctorType) and poly_x.argument == missing and dep in HeadDeps.union({'np_hd'}):
+                break
+        poly_x = get_result(poly_x)
+    return unwrap(get_argument(poly_x))
 
 
 def get_copy_annotation(dag: DAG, edge: Edge) -> WordType:
@@ -599,7 +618,7 @@ def delete_ghost_nodes(dag: DAG[str, Any]) -> None:
     dag.edges = set(filter(lambda edge: edge.source in dag.nodes and edge.target in dag.nodes, dag.edges))
 
 
-def update_types(dag: DAG[Node, str], leaves: List[Node], types: WordTypes) -> None:
+def update_types(dag: DAG[Node, str], leaves: List[Node], types: List[WordType]) -> None:
     for leaf, _type in zip(leaves, types):
         dag.attribs[leaf]['type'] = _type
 
@@ -607,7 +626,7 @@ def update_types(dag: DAG[Node, str], leaves: List[Node], types: WordTypes) -> N
 def annotate_leaves(dag: DAG[str, str]) -> int:
     leaf_set = list(dag.get_leaves())
     leaves_sorted = order_nodes(dag, leaf_set)
-    leaf_types: WordTypes = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves_sorted))
+    leaf_types: List[WordType] = list(map(lambda leaf: dag.attribs[leaf]['type'], leaves_sorted))
     idx, leaf_types = polarize_and_index_many(leaf_types)
     update_types(dag, leaves_sorted, leaf_types)
     return idx
@@ -634,6 +653,8 @@ class Prove:
             return dag, pn
         except ProofError as e:
             if raise_errors:
+                from LassyExtraction.viz import ToGraphViz
+                ToGraphViz()(dag)
                 raise e
             else:
                 return None

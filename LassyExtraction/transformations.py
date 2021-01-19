@@ -6,12 +6,15 @@ from .graphutils import *
 DAGS = List[DAG]
 
 
+body_replacements = {'cmp': 'cmpbody', 'rhd': 'relcl', 'whd': 'whbody'}
+
+
 def sort_dags(dags: DAGS) -> DAGS:
     def dag_to_key(dag: DAG) -> List[Tuple[int, ...]]:
         leaves = order_nodes(dag, dag.get_leaves())
         return list(map(lambda leaf: tuple(map(int, (dag.attribs[leaf]['begin'],
-                                                      dag.attribs[leaf]['end'],
-                                                      dag.attribs[leaf]['id']))),
+                                                     dag.attribs[leaf]['end'],
+                                                     dag.attribs[leaf]['id']))),
                         leaves))
 
     return sorted(dags, key=lambda dag: dag_to_key(dag))
@@ -158,7 +161,7 @@ def refine_body(dag: DAG) -> DAG:
         common_source = dag.outgoing(body.source)
         matches = list(filter(lambda edge: edge.dep in ('cmp', 'rhd', 'whd'), common_source))
         match = fst(matches)
-        new_dep = match.dep + '_body'
+        new_dep = body_replacements[match.dep]
         to_add.add(Edge(source=body.source, target=body.target, dep=new_dep))
         to_remove.add(body)
     return DAG(nodes=dag.nodes, edges=dag.edges.difference(to_remove).union(to_add), attribs=dag.attribs, meta=dag.meta)

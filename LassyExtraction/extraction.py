@@ -2,9 +2,11 @@ from collections import defaultdict
 from itertools import chain
 
 from .graphutils import *
-from .milltypes import (AtomicType, WordType, FunctorType, WordTypes, DiamondType, BoxType, EmptyType, strings,
-                        invariance_check, reduce)
-from .transformations import majority_vote, _cats_of_type, order_nodes
+from .milltypes import (WordType, T_co, AtomicType, FunctorType, DiamondType, BoxType, EmptyType, ModalType,
+                        invariance_check)
+from functools import reduce
+from .transformations import majority_vote, _cats_of_type, order_nodes, body_replacements
+
 
 # # # Extraction variables # # #
 # Mapping from phrasal categories and POS tags to Atomic Types
@@ -12,15 +14,9 @@ _CatDict = {'advp': 'ADV', 'ahi': 'AHI', 'ap': 'AP', 'cp': 'CP', 'detp': 'DETP',
             'oti': 'OTI', 'pp': 'PP', 'ppart': 'PPART', 'ppres': 'PPRES', 'rel': 'REL', 'smain': 'SMAIN',
             'ssub': 'SSUB', 'sv1': 'SV1', 'svan': 'SVAN', 'ti': 'TI', 'whq': 'WHQ', 'whrel': 'WHREL',
             'whsub': 'WHSUB'}
-_PosDict = {'adj': 'ADJ', 'adv': 'ADV', 'comp': 'COMP', 'comparative': 'COMPARATIVE', 'det': 'DET',
-            'fixed': 'FIXED', 'name': 'NAME', 'noun': 'N', 'num': 'NUM', 'part': 'PART',
-            'prefix': 'PREFIX', 'prep': 'PREP', 'pron': 'PRON', 'punct': 'PUNCT', 'tag': 'TAG',
-            'verb': 'VERB', 'vg': 'VG'}
-_PtDict = {'adj': 'ADJ', 'bw': 'BW', 'let': 'LET', 'lid': 'LID', 'n': 'N', 'spec': 'SPEC', 'tsw': 'TSW',
-           'tw': 'TW', 'vg': 'VG', 'vnw': 'VNW', 'vz': 'VZ', 'ww': 'WW'}
+_PtDict = {x: x.upper() for x in {'adj', 'bw', 'let', 'lid', 'n', 'spec', 'tsw', 'tw', 'vg', 'vnw', 'vz', 'ww'}}
 
 CatDict = {k: AtomicType(v) for k, v in _CatDict.items()}
-PosDict = {k: AtomicType(v) for k, v in _PosDict.items()}
 PtDict = {k: AtomicType(v) for k, v in _PtDict.items()}
 
 # Head and modifier dependencies
@@ -30,7 +26,7 @@ ModDeps = frozenset(['mod', 'predm', 'app'])
 # Obliqueness Hierarchy
 ObliquenessOrder = (
     ('mod', 'app', 'predm'),                # modifiers
-    ('body', 'rhd_body', 'whd_body'),       # clause bodies
+    ('body', 'relcl', 'whbody', 'cmpbody'),       # clause bodies
     ('sup',),  # preliminary subject
     ('su',),  # primary subject
     ('pobj',),  # preliminary object
@@ -43,7 +39,7 @@ ObliquenessOrder = (
 )
 
 
-ArgSeq = List[Tuple[WordType, Optional[str]]]
+ArgSeq = List[Tuple[T_co, Optional[str]]]
 
 
 # Callable version
@@ -62,6 +58,7 @@ _obliqueness_sort = ObliquenessSort(ObliquenessOrder)
 class ExtractionError(AssertionError):
     def __init__(self, message: str, meta: Any = None):
         super().__init__(message)
+        self.message = message
         self.meta = meta
 
 
@@ -87,45 +84,50 @@ def get_type_plain(dag: DAG, node: Node, type_dict: Dict[str, AtomicType], pos_s
             return type_dict[cat]
 
 
-def make_functor(argument: WordType, result: WordType, dep: Optional[str]) -> FunctorType:
+def make_functor(argument: WordType, result: WordType, dep: Optional[str]) -> Union[FunctorType, ModalType]:
     if dep is None:
         return FunctorType(argument=argument, result=result)
-    else:
-        if dep in ModDeps:
-            return BoxType(argument, result, dep)
-        if dep == 'np_hd':
-            return BoxType(argument, result, 'det')
-        else:
-            return DiamondType(argument, result, dep)
+    if dep in ModDeps:
+        return BoxType(FunctorType(argument=argument, result=result), dep)
+    if dep == 'np_hd':
+        return BoxType(FunctorType(argument=argument, result=result), 'det')
+    return FunctorType(DiamondType(argument, dep), result)
 
 
 def make_ho_functor(argument: WordType, result: WordType, dep: Optional[str]) -> FunctorType:
     if dep is None or dep in HeadDeps or dep == 'np_hd':
-        return FunctorType(argument, result)
-    else:
-        return make_functor(argument, result, dep)
+        return make_functor(argument, result, None)
+    return make_functor(argument, result, dep)
 
 
-def modifier_of(modified: WordType, dep: str) -> BoxType:
-    return BoxType(argument=modified, result=modified, box=dep)
+def modifier_of(modified: T_co, dep: str) -> BoxType:
+    return BoxType(FunctorType(modified, modified), dep)
 
 
-def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
-             sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
+def get_argument(wordtype: WordType) -> WordType:
+    if isinstance(wordtype, FunctorType):
+        return wordtype.argument
+    if isinstance(wordtype, ModalType) and isinstance(wordtype.content, FunctorType):
+        return wordtype.content.argument
+    raise TypeError(f'Cannot extract argument from {wordtype} of type {type(wordtype)}')
+
+
+def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
+             sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> Union[FunctorType, ModalType]:
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
-def binarize_hots(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
+def binarize_hots(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
                   sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_ho_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
-def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
-               sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
+def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
+               sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> Union[ModalType, FunctorType]:
     if not argcolors:
         return result
 
@@ -172,9 +174,10 @@ def type_bot_step(dag: DAG[Node, str], fringe: Nodes, type_dict: Dict[str, Atomi
         is_fn = len(set(filter(lambda edge: edge.dep in mod_deps.union({'cnj'}), dag.incoming(_node))))
         in_fringe = _node in fringe
         is_leaf = dag.is_leaf(_node)
-        has_no_daughters = all(list(map(lambda out: out.dep in mod_deps
-                                                    or out.target in fringe
-                                                    or dag.attribs[out.source]['cat'] == 'conj',
+        has_no_daughters = all(list(map(lambda out:
+                                        out.dep in mod_deps
+                                        or out.target in fringe
+                                        or dag.attribs[out.source]['cat'] == 'conj',
                                         dag.outgoing(_node))))
         return not is_fn and (is_leaf or has_no_daughters) and not in_fringe
 
@@ -213,16 +216,18 @@ def type_mods(dag: DAG, mod_deps: FrozenSet[str] = ModDeps) -> bool:
 
 def type_mods_step(dag: DAG[Node, str], mod_deps: FrozenSet[str]) -> Dict[Node, Dict]:
     typed_nodes = set(filter(lambda node: 'type' in dag.attribs[node].keys(), dag.nodes))
-    modding_edges = list(filter(lambda edge: edge.source in typed_nodes
-                                             and edge.dep in mod_deps
-                                             and edge.target not in typed_nodes,
+    modding_edges = list(filter(lambda edge:
+                                edge.source in typed_nodes
+                                and edge.dep in mod_deps
+                                and edge.target not in typed_nodes,
                                 dag.edges))
     mod_types = [(edge.target, modifier_of(dag.attribs[edge.source]['type'], edge.dep)) for edge in modding_edges]
     return {node: {**dag.attribs[node], **{'type': _type}} for node, _type in mod_types}
 
 
 def type_heads_step(dag: DAG, head_deps: FrozenSet[str], mod_deps: FrozenSet[str]) -> Optional[Dict[str, Dict]]:
-    def make_hd_functor(result: WordType, argcs: Tuple[WordTypes, strings]) -> WordType:
+    def make_hd_functor(result: WordType, argcs: Tuple[List[WordType], List[str]]) -> Union[FunctorType, ModalType]:
+        # noinspection PyTypeChecker
         return rebinarize(list(zip(*argcs)), result) if argcs else result
 
     _heading_edges: List[Edge] = list(filter(lambda edge:
@@ -245,22 +250,24 @@ def type_heads_step(dag: DAG, head_deps: FrozenSet[str], mod_deps: FrozenSet[str
         = list(filter(lambda pair: all(list(map(lambda out: 'type' in dag.attribs[out.target].keys(),
                                                 snd(pair)))),
                       map(lambda pair: (fst(pair),
-                                        list(filter(lambda edge: edge.dep not in mod_deps
-                                                                 and edge != fst(pair)
-                                                                 and edge.target not in double_heads,
+                                        list(filter(lambda edge:
+                                                    edge.dep not in mod_deps
+                                                    and edge != fst(pair)
+                                                    and edge.target not in double_heads,
                                                     snd(pair)))),
                           map(lambda edge: (edge, dag.outgoing(edge.source)), single_heads))))
 
-    targets: strings = list(map(lambda pair: fst(pair).target, heading_edges))
-    types: WordTypes = list(map(lambda pair: dag.attribs[fst(pair).source]['type'], heading_edges))
+    targets: List[str] = list(map(lambda pair: fst(pair).target, heading_edges))
+    types: List[WordType] = list(map(lambda pair: dag.attribs[fst(pair).source]['type'], heading_edges))
 
-    def extract_argcs(edges: List[Edge]) -> Tuple[WordTypes, strings]:
+    def extract_argcs(edges: List[Edge]) -> Tuple[List[WordType], List[str]]:
         args = list(map(lambda edge: dag.attribs[edge.target]['type'], edges))
         cs = list(map(lambda edge: edge.dep, edges))
         return args, cs
 
-    argcolors: List[Tuple[WordTypes, strings]] = list(map(lambda pair: extract_argcs(snd(pair)),
-                                                          heading_edges))
+    argcolors: List[Tuple[List[WordType], List[str]]] = list(map(lambda pair:
+                                                                 extract_argcs(snd(pair)),
+                                                                 heading_edges))
 
     head_types = [(node, make_hd_functor(res, argcs)) for node, res, argcs in zip(targets, types, argcolors)] + \
                  [(node, EmptyType()) for node in double_heads]
@@ -294,11 +301,9 @@ def type_core(dag: DAG, type_dict: Dict[str, AtomicType], pos_set: str, head_dep
 
 def type_gaps(dag: DAG, head_deps: FrozenSet[str] = HeadDeps):
     def make_gap_functor(emb_type: WordType, interm: Tuple[WordType, str], top: Tuple[WordType, str]) -> FunctorType:
-        # if isinstance(emb_type, FunctorType):
-        #     # argument = FunctorType(argument=emb_type, result=fst(interm))
-        # else:
-        argument = DiamondType(argument=emb_type, result=fst(interm), diamond=snd(interm))
-        return DiamondType(argument=argument, result=fst(top), diamond=snd(top)+'_body')
+        argument = FunctorType(argument=DiamondType(emb_type, modality=snd(interm)), result=fst(interm))
+        outer_dep = body_replacements[snd(top)] if snd(top) != 'hd' else 'hd'
+        return FunctorType(argument=DiamondType(argument, modality=outer_dep), result=fst(top))
 
     def get_interm_top(gap: Node) -> Tuple[Tuple[WordType, str], Tuple[WordType, str]]:
         incoming = dag.incoming(gap)
@@ -352,7 +357,8 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
                 return fst(tc), fst(list(snd(tc)))
             elif len(snd(tc)) == 2:
                 color = fst(list(filter(lambda c: c not in head_deps, snd(tc))))
-                return fst(tc).argument.argument, color if color not in mod_deps else None
+                return get_argument(get_argument(fst(tc))).content, color if color not in mod_deps else None
+                # return fst(tc).content.argument.content.argument, color if color not in mod_deps else None
             else:
                 raise ExtractionError('Multi-colored copy.', meta=dag.meta)
         return list(map(normalize_gap_copy, typecolors))
@@ -365,7 +371,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     def make_crd_type(poly_x: WordType, repeats: int) -> WordType:
         ret = poly_x
         while repeats:
-            ret = DiamondType(argument=poly_x, result=ret, diamond='cnj')
+            ret = FunctorType(DiamondType(poly_x, 'cnj'), ret)
             repeats -= 1
         return ret
 
@@ -408,7 +414,7 @@ def type_copies(dag: DAG[Node, str], head_deps: FrozenSet[str] = HeadDeps, mod_d
     if any(list(map(lambda conj_group: len(conj_group) != 1, initial_typegroups))):
         raise ExtractionError('Non-polymorphic conjunction.', meta={'dag': dag.meta})
 
-    initial_types: WordTypes = list(map(lambda conj_group: fst(list(conj_group)), initial_typegroups))
+    initial_types: List[WordType] = list(map(lambda conj_group: fst(list(conj_group)), initial_typegroups))
     downsets: List[List[Nodes]] \
         = list(map(lambda group_targets:
                    list(map(lambda daughter: dag.points_to(daughter).union({daughter}),
@@ -490,9 +496,9 @@ class Extraction:
     def __call__(self, dag: DAG, raise_errors: bool = False) -> Optional[DAG]:
         try:
             return type_dag(dag, self.type_dict, self.pos_set, self.head_deps, self.mod_deps)
-        except ExtractionError as e:
+        except ExtractionError as error:
             if raise_errors:
-                raise e
+                raise error
             else:
                 return None
 

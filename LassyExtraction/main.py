@@ -5,21 +5,16 @@ from .lassy import Lassy
 from .proofs import prover, AxiomLinks
 from .transformations import transformer
 from .graphutils import DAG
-from .viz import ToGraphViz
 
-from typing import Optional, Union, Tuple, List
-
+from typing import Union, Tuple, Iterable
 
 _lassy = Lassy()
-_viz = ToGraphViz()
 
 
-def compose(sample: Union[int, str]) -> List[Optional[Tuple[AxiomLinks, DAG]]]:
+def compose(sample: Union[int, str]) -> Iterable[Tuple[AxiomLinks, DAG]]:
     dags = transformer(_lassy[sample][2], meta={'src': _lassy[sample][1]})
-    extracted = list(filter(lambda e: e is not None, list(map(extractor, dags))))
-    proven = list(map(lambda e: prover(e, raise_errors=False), extracted))
-    return proven
+    return filter(lambda e: e is not None, map(prover, filter(lambda e: e is not None, map(extractor, dags))))
 
 
-def exhaust():
-    return list(chain.from_iterable(map(lambda i: compose(i), range(len(_lassy)))))
+def exhaust() -> Iterable[Tuple[AxiomLinks, DAG]]:
+    return chain.from_iterable(map(lambda i: compose(i), range(len(_lassy))))
