@@ -65,6 +65,12 @@ class BoxIntro(Term):
     def free(self) -> Set['Term']:
         return self.body.free()
 
+    @staticmethod
+    def preemptive(box: str) -> Callable[[Term], 'BoxIntro']:
+        def make(body: Term):
+            return BoxIntro(body, box)
+        return make
+
 
 class DiamondElim(Term):
     def __init__(self, body: Term):
@@ -91,6 +97,12 @@ class DiamondIntro(Term):
     def free(self) -> Set['Term']:
         return self.body.free()
 
+    @staticmethod
+    def preemptive(diamond: str) -> Callable[[Term], 'DiamondIntro']:
+        def make(body: Term):
+            return DiamondIntro(body, diamond)
+        return make
+
 
 class Application(Term):
     def __init__(self, functor: Term, argument: Term):
@@ -104,23 +116,6 @@ class Application(Term):
 
     def free(self) -> Set['Term']:
         return self.functor.free().union(self.argument.free())
-
-    @staticmethod
-    def decorated(functor: Term, argument: Term, decoration: Optional[Connective]) -> 'Application':
-        if decoration.type == 'diamond':
-            return Application(functor, DiamondIntro(argument, decoration.name))
-        if decoration.type == 'box':
-            return Application(BoxElim(functor), argument)
-        return Application(functor, argument)
-
-    @staticmethod
-    def from_list(functor: Term, args: List[Term], decorations: List[Optional[Connective]]) -> 'Term':
-        def from_pair(t: Term, s: Tuple[Term, Optional[Connective]]) -> 'Application':
-            if s[1] is None:
-                return Application(t, s[0])
-            else:
-                return Application.decorated(t, s[0], s[1])
-        return reduce(from_pair, zip(args, decorations), functor)
 
 
 class Abstraction(Term):
@@ -136,6 +131,12 @@ class Abstraction(Term):
 
     def free(self) -> Set['Term']:
         return self.body.free().difference({self.abstraction})
+
+    @staticmethod
+    def preemptive(abstraction: int) -> Callable[[Term], 'Abstraction']:
+        def make(body: Term) -> Abstraction:
+            return Abstraction(body, abstraction)
+        return make
 
 
 def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int], str]) -> str:
@@ -153,7 +154,7 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     if isinstance(term, BoxElim):
         return f'{cup(term.box)}({pt(term.body)})'
     if isinstance(term, DiamondElim):
-        return f'{vee(term.diamond)}({pt(term.body)}'
+        return f'{vee(term.diamond)}({pt(term.body)})'
     if isinstance(term, Abstraction):
         return f'λ{pt(term.abstraction)}.{pt(term.body)}'
     raise TypeError(f'Unexpected term of type {type(term)}')

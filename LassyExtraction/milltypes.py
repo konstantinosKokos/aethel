@@ -3,7 +3,7 @@ from .utils.printing import *
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, TypeVar, Mapping, Union, Optional
+from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union
 from dataclasses import dataclass
 
 
@@ -336,31 +336,38 @@ Path = List[Union[PolarizedType, Connective]]
 Paths = List[Path]
 
 
-def paths(wordtype: WordType) -> List[Tuple[Path, Paths]]:
+def paths(wordtype: WordType) -> List[Tuple[WordType, Path, Paths]]:
     if isinstance(wordtype, EmptyType):
         return []
-    return [(p, ps) for p, ps in traverse_pos(wordtype, [])]
+    return [(t, p, ps) for (t, p, ps) in traverse_pos(wordtype, [])]
 
 
-def traverse_pos(wordtype: WordType, history: Path) -> List[Tuple[Path, Paths]]:
+def traverse_pos(wordtype: WordType, history: Path) -> List[Tuple[WordType, Path, Paths]]:
     if isinstance(wordtype, PolarizedType):
-        return [(history + [wordtype], [])]
+        return [(wordtype, history + [wordtype], [])]
     if isinstance(wordtype, FunctorType):
+        first: Tuple[WordType, Path, Paths]
+        pcont: List[Tuple[WordType, Path, Paths]]
+        neg: Path
+        rest: List[Tuple[WordType, Path, Paths]]
         pcont = traverse_pos(wordtype.result, history + [Tensor()])
         neg, rest = traverse_neg(wordtype.argument, [])
-        pc = pcont[0]
-        return [(pc[0], [neg] + pc[1])] + pcont[1:] + rest
+        _, pos_path, neg_paths = pcont[0]
+        return [(wordtype, pos_path, [neg] + neg_paths)] + pcont[1:] + rest
     if isinstance(wordtype, DiamondType):
-        return traverse_pos(wordtype.content, history + [Diamond(wordtype.modality)])
+        ret = traverse_pos(wordtype.content, history + [Diamond(wordtype.modality)])
+        return [(wordtype, ret[0][1], ret[0][2])] + ret[1:]
     if isinstance(wordtype, BoxType):
-        return traverse_pos(wordtype.content, history + [Box(wordtype.modality)])
-    raise TypeError(f'Cannot traverse {wordtype} of type {type(wordtype)}')
+        ret = traverse_pos(wordtype.content, history + [Box(wordtype.modality)])
+        return [(wordtype, ret[0][1], ret[0][2])] + ret[1:]
 
 
-def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[Path, Paths]]]:
+def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[WordType, Path, Paths]]]:
     if isinstance(wordtype, PolarizedType):
         return hist + [wordtype], []
     if isinstance(wordtype, FunctorType):
+        ncont: Path
+        rest: List[Tuple[WordType, Path, Paths]]
         ncont, rest = traverse_neg(wordtype.result, hist + [Cotensor()])
         return ncont, traverse_pos(wordtype.argument, []) + rest
     if isinstance(wordtype, DiamondType):
