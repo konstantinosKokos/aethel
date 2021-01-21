@@ -78,59 +78,54 @@ class ProofNet:
                           lambda idx: self.proof_frame.word_printer(idx, show_words, show_types))
 
     def get_term(self) -> 'Term':
-        def pt(term):
-            return print_term(term, True, lambda idx: self.proof_frame.word_printer(idx, True, True))
+        vargen = iter(range(999))
 
-        def pos_to_lambda(path_pair: Tuple[Path, Paths], idx: Optional[int], varcount: int) -> Tuple[Term, int]:
-            pos_path, neg_paths = path_pair
-            bodies = []
-            for neg_path in neg_paths:
-                body, varcount = neg_to_lambda(neg_path, varcount)
-                bodies.append(body)
+        def pos_to_lambda(tree_path: Tuple[WordType, Path, Paths], idx: Optional[int]) -> Term:
+            wordtype, pos_path, neg_paths = tree_path
+
+            bodies = map(neg_to_lambda, neg_paths)
+
             if idx is None:
-                varcount -= 1
-                hypothesis = pos_path[-1].depolarize()
-                for p in pos_path[:-1]:
-                    if isinstance(p, Diamond):
-                        hypothesis = DiamondType(hypothesis, p.name)
-                term = Var(hypothesis, varcount)
+                term = Var(wordtype.depolarize(), pos_path[0].idx)
             else:
-                term = Lex(self.proof_frame.premises[idx].type.depolarize(), idx)
-            body_iter = iter(bodies)
+                term = Lex(wordtype.depolarize(), idx)
+
             for p in pos_path[:-1]:
+                if isinstance(p, Cotensor):
+                    continue
                 if isinstance(p, Tensor):
-                    body = next(body_iter)
+                    body = next(bodies)
                     term = Application(term, body)
                 if isinstance(p, Diamond):
                     term = DiamondElim(term)
                 if isinstance(p, Box):
                     term = BoxElim(term)
-            return term, varcount
+            return term
 
-        def neg_to_lambda(path: Path, varcount: int) -> Tuple[Term, int]:
+        def neg_to_lambda(path: Path) -> Term:
             tgt, idx = cross(path[-1])
-            body, varcount_after = pos_to_lambda(tgt, idx, varcount + len([p for p in path if isinstance(p, Cotensor)]))
-            for p in path[::-1][1:]:
+            fn = lambda x: x
+            for p in path[:-1]:
                 if isinstance(p, Cotensor):
-                    body = Abstraction(body, varcount)
-                    varcount += 1
+                    p.idx = next(vargen)
+                    fn = compose(fn, Abstraction.preemptive(p.idx))
                 if isinstance(p, Diamond):
-                    body = DiamondIntro(body, p.name)
+                    fn = compose(fn, DiamondIntro.preemptive(p.name))
                 if isinstance(p, Box):
-                    body = BoxIntro(body, p.name)
-            return body, varcount_after
+                    fn = compose(fn, BoxIntro.preemptive(p.name))
+            return fn(pos_to_lambda(tgt, idx))
 
-        def cross(neg: PolarizedType) -> Tuple[Tuple[Path, Paths], Optional[int]]:
+        def cross(neg: PolarizedType) -> Tuple[Tuple[WordType, Path, Paths], Optional[int]]:
             pos_idx = neg_to_pos[neg.index]
             for i, pps in enumerate(all_paths):
-                for j, (p, ps) in enumerate(pps):
+                for j, (wt, p, ps) in enumerate(pps):
                     p_atoms = list(filter(lambda atom: isinstance(atom, PolarizedType), p))
                     if pos_idx in (atom.index for atom in p_atoms):
-                        return (p, ps), i if j == 0 else None
+                        return (wt, p, ps), i if j == 0 else None
 
-        all_paths = [paths(premise.type) for i, premise in enumerate(self.proof_frame.premises)]
+        all_paths = [paths(premise.type) for premise in self.proof_frame.premises]
         neg_to_pos = {v: k for k, v in self.axiom_links}
-        return neg_to_lambda([self.proof_frame.conclusion], 0)[0]
+        return neg_to_lambda([self.proof_frame.conclusion])
 
     @staticmethod
     def from_data(words: List[str], types: List[WordType], links: AxiomLinks, name: Optional[str] = None) -> 'ProofNet':

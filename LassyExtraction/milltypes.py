@@ -3,7 +3,7 @@ from .utils.printing import *
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union
+from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union, Optional
 from dataclasses import dataclass
 
 
@@ -339,17 +339,13 @@ Paths = List[Path]
 def paths(wordtype: WordType) -> List[Tuple[WordType, Path, Paths]]:
     if isinstance(wordtype, EmptyType):
         return []
-    return [(t, p, ps) for (t, p, ps) in traverse_pos(wordtype, [])]
+    return traverse_pos(wordtype, [])
 
 
 def traverse_pos(wordtype: WordType, history: Path) -> List[Tuple[WordType, Path, Paths]]:
     if isinstance(wordtype, PolarizedType):
         return [(wordtype, history + [wordtype], [])]
     if isinstance(wordtype, FunctorType):
-        first: Tuple[WordType, Path, Paths]
-        pcont: List[Tuple[WordType, Path, Paths]]
-        neg: Path
-        rest: List[Tuple[WordType, Path, Paths]]
         pcont = traverse_pos(wordtype.result, history + [Tensor()])
         neg, rest = traverse_neg(wordtype.argument, [])
         _, pos_path, neg_paths = pcont[0]
@@ -366,10 +362,9 @@ def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[WordT
     if isinstance(wordtype, PolarizedType):
         return hist + [wordtype], []
     if isinstance(wordtype, FunctorType):
-        ncont: Path
-        rest: List[Tuple[WordType, Path, Paths]]
-        ncont, rest = traverse_neg(wordtype.result, hist + [Cotensor()])
-        return ncont, traverse_pos(wordtype.argument, []) + rest
+        cot = Cotensor()
+        ncont, rest = traverse_neg(wordtype.result, hist + [cot])
+        return ncont, traverse_pos(wordtype.argument, [cot]) + rest
     if isinstance(wordtype, DiamondType):
         return traverse_neg(wordtype.content, hist + [Diamond(wordtype.modality)])
     if isinstance(wordtype, BoxType):

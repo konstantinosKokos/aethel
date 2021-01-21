@@ -123,7 +123,8 @@ class Abstraction(Term):
         self.body = body
         free = self.body.free()
         bound = [f for f in free if f.idx == abstraction]
-        assert len(bound) == 1
+        if len(bound) != 1:
+            raise AssertionError(f'{len(bound)}')
         self.abstraction = bound[0]
 
     def type(self) -> FunctorType:
@@ -160,31 +161,7 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     raise TypeError(f'Unexpected term of type {type(term)}')
 
 
-# def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int], str]):
-#     def pt(_term: Term) -> str:
-#         return print_term(_term, show_decorations, word_printer)
-#
-
-#
-#     if isinstance(term, Atom):
-#         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
-#     elif isinstance(term, Abstraction):
-#         if not show_decorations or term.decoration is None or term.decoration.modality == 'diamond':
-#             return f'λ{pt(term.abstraction)}.{pt(term.body)}'
-#         if term.decoration.modality == 'box':
-#             return f'{cap(term.decoration.name)}(λ{pt(term.abstraction)}.{pt(term.body)})'
-#     elif isinstance(term, Application):
-#         if not show_decorations or term.decoration is None:
-#             return f'({pt(term.functor)} {pt(term.argument)})'
-#         if term.decoration.modality == 'box':
-#             return f'({cup(term.decoration.name)}({pt(term.functor)}) {pt(term.argument)})'
-#         if term.decoration.modality == 'diamond':
-#             if isinstance(term.argument, Var):
-#                 return f'({pt(term.functor)} ' \
-#                        f'{wedge(term.decoration.name)}({vee(term.decoration.name)}({pt(term.argument)})))'
-#             else:
-#                 return f'({pt(term.functor)} {wedge(term.decoration.name)}({pt(term.argument)}))'
-#     else:
-#         raise TypeError(f'Unexpected argument of type {type(term)}')
-#
-#
+def compose(f: Callable[[Term], Term], g: Callable[[Term], Term]) -> Callable[[Term], Term]:
+    def h(x: Term) -> Term:
+        return f(g(x))
+    return h
