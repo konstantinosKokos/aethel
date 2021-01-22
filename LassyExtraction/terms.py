@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
-from .milltypes import WordType, DiamondType, BoxType, FunctorType, Connective
+from .milltypes import WordType, DiamondType, BoxType, FunctorType
 from .utils.printing import cap, cup, wedge, vee, subscript
-from typing import Callable, List, Optional, Tuple, Set
-from functools import reduce
+from typing import Callable, Set
 
 
 class Term(ABC):
