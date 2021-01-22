@@ -14,6 +14,7 @@ Read more about the process in our LREC [paper](http://www.lrec-conf.org/proceed
 * `LassyExtraction.proofs` implements the conversion from typed graphs to atomic type bijections (proofnet axiom links).
 * `LassyExtraction.aethel` implements high-level classes intended for front-end use.
 * `LassyExtraction.viz` contains utility classes for graph visualization.
+* `LassyExtraction.utils.printing` contains pretty-printing functions for types and terms.
 
 ---
 ### Requirements
@@ -25,29 +26,30 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ### Using with æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
 [æthel](https://github.com/konstantinosKokos/aethel) with Python.
-You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/xCnHPZR2ahkR4dK).
+You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/zHEgwDJQ7jxnpCI) 
+(current version is *0.4.dev0*).
 Begin by cloning the project locally and placing the data file in the outermost directory.
 You can then access the data by running:
 ```
 >>> import pickle
->>> with open('./train_dev_test.p', 'rb') as f: 
->>>     train, dev, test = pickle.load(f)
+>>> with open('./data/train_dev_test_0.4.dev0.p', 'rb') as f:
+...    train, dev, test = pickle.load(f) 
 ```
-where `train`, `dev` and `test` are lists of the [ProofNet](https://github.com/konstantinosKokos/lassy-tlg-extraction/blob/79ded342d3057c967d4f68b400fee41bab43670d/LassyExtraction/aethel.py#L66) class.
+where `train`, `dev` and `test` are lists of the [ProofNet](https://github.com/konstantinosKokos/lassy-tlg-extraction/blob/40b9223e9b13f35909e34c776b9aedcb4b1f3627/LassyExtraction/aethel.py#L65) class.
 
 Example usage:
 ```
 >>> sample = train[1312]
->>> sample.proof_frame
-op:<ɴᴘ> obj1 → [ɪɴғ → ɪɴғ] mod, de:[ɴ → ɴᴘ] det, verjaardag:ɴ, laat:<ɪɴғ> vc → <ɴᴘ> obj1 → <ɴ> su → sᴍᴀɪɴ, Laslo:ɴ, de:[ɴ → ɴᴘ] det, wens:ɴ, van:<ɴᴘ> obj1 → [ɴᴘ → ɴᴘ] mod, zijn:[ɴ → ɴᴘ] det, moeder:ɴ, in vervulling:ɴᴘ, gaan:<ɴᴘ> svp → ɪɴғ ⊢ SMAIN
+sample.proof_frame
+Alle:□ᵈᵉᵗ(ɴ → ɴᴘ), films:ɴ, zijn:◊ᵛᶜᴘᴘᴀʀᴛ → ◊ˢᵘɴᴘ → sᴍᴀɪɴ, heel:□ᵐᵒᵈ(ᴀᴘ → ᴀᴘ), barok:ᴀᴘ, versierd:◊ᵖʳᵉᵈᶜᴀᴘ → ᴘᴘᴀʀᴛ ⊢ sᴍᴀɪɴ
 >>> sample.proof_frame.get_words()
-['op', 'de', 'verjaardag', 'laat', 'Laslo', 'de', 'wens', 'van', 'zijn', 'moeder', 'in vervulling', 'gaan']
+['Alle', 'films', 'zijn', 'heel', 'barok', 'versierd']
 >>> sample.proof_frame.get_types()
-'[<NP(-,0)> obj1 → [INF(-,1) → INF(+,2)] mod, [N(-,3) → NP(+,4)] det, N(+,5), <INF(-,6)> vc → <NP(-,7)> obj1 → <N(-,8)> su → SMAIN(+,9), N(+,10), [N(-,11) → NP(+,12)] det, N(+,13), <NP(-,14)> obj1 → [NP(-,15) → NP(+,16)] mod, [N(-,17) → NP(+,18)] det, N(+,19), NP(+,20), <NP(-,21)> svp → INF(+,22)]'
+[□ᵈᵉᵗ(ɴ(-,0) → ɴᴘ(+,1)), ɴ(+,2), ◊ᵛᶜᴘᴘᴀʀᴛ(-,3) → ◊ˢᵘɴᴘ(-,4) → sᴍᴀɪɴ(+,5), □ᵐᵒᵈ(ᴀᴘ(-,6) → ᴀᴘ(+,7)), ᴀᴘ(+,8), ◊ᵖʳᵉᵈᶜᴀᴘ(-,9) → ᴘᴘᴀʀᴛ(+,10)]
 >>> sample.axiom_links
-{(16, 7), (9, 23), (4, 0), (10, 8), (19, 17), (22, 1), (20, 21), (2, 6), (12, 15), (5, 3), (13, 11), (18, 14)}
+{(5, 11), (2, 0), (1, 4), (7, 9), (8, 6), (10, 3)}
 >>> sample.print_term(show_words=True, show_types=False, show_decorations=True)
-'(((laat ((op (deᵈᵉᵗ verjaardag)ᵒᵇʲ¹)ᵐᵒᵈ (gaan in vervullingˢᵛᵖ))ᵛᶜ) ((van (zijnᵈᵉᵗ moeder)ᵒᵇʲ¹)ᵐᵒᵈ (deᵈᵉᵗ wens))ᵒᵇʲ¹) Lasloˢᵘ)'
+'zijn ▵ᵛᶜ(versierd ▵ᵖʳᵉᵈᶜ(▾ᵐᵒᵈ(heel) barok)) ▵ˢᵘ(▾ᵈᵉᵗ(Alle) films)'
 ``` 
 ---
 If you need access to the processed Lassy trees, encounter issues using the code or just need help getting started, 
