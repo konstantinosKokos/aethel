@@ -3,7 +3,7 @@ from .utils.printing import *
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union, Optional
+from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union, Mapping
 from dataclasses import dataclass
 
 
@@ -23,7 +23,7 @@ class WordType(ABC):
         return hash(str(self))
 
     @abstractmethod
-    def polish(self) -> str:
+    def polish(self) -> List[str]:
         pass
 
     @abstractmethod
@@ -62,8 +62,8 @@ class AtomicType(WordType):
     def __hash__(self):
         return hash(str(self))
 
-    def polish(self) -> str:
-        return str(self)
+    def polish(self) -> List[str]:
+        return [str(self)]
 
     def order(self) -> int:
         return 0
@@ -94,8 +94,8 @@ class FunctorType(WordType):
     def __hash__(self):
         return hash(str(self))
 
-    def polish(self) -> str:
-        return f'→ {self.argument.polish()} {self.result.polish()}'
+    def polish(self) -> List[str]:
+        return ['→'] + self.argument.polish() + self.result.polish()
 
     def order(self) -> int:
         return max(self.argument.order() + 1, self.result.order())
@@ -141,8 +141,8 @@ class BoxType(ModalType):
     def __hash__(self):
         return hash(str(self))
 
-    def polish(self) -> str:
-        return f'{print_box(self.modality)} {self.content.polish()}'
+    def polish(self) -> List[str]:
+        return [print_box(self.modality)] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, BoxType) and self.modality == other.modality and self.content == other.content
@@ -155,8 +155,8 @@ class DiamondType(ModalType):
     def __hash__(self):
         return hash(str(self))
 
-    def polish(self) -> str:
-        return f'{print_box(self.modality)} {self.content.polish()}'
+    def polish(self) -> List[str]:
+        return [print_diamond(self.modality)] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DiamondType) and self.modality == other.modality and self.content == other.content
@@ -372,58 +372,51 @@ def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[WordT
     raise TypeError(f'Cannot traverse {wordtype} of type {type(wordtype)}')
 
 
-
-# def polish_to_type(symbols: strings, operators: Set[str],
-#                    operator_classes: Mapping[str, type]) -> WordType:
-#     stack = list()
-#
-#     if len(symbols) == 1:
-#         return AtomicType(symbols[0]) if symbols[0] != '_' else EmptyType()
-#
-#     for symbol in reversed(symbols):
-#         if symbol in operators:
-#             _arg = stack.pop()
-#             _res = stack.pop()
-#             arg = _arg if isinstance(_arg, WordType) else AtomicType(_arg)
-#             res = _res if isinstance(_res, WordType) else AtomicType(_res)
-#             op_class = operator_classes[symbol]
-#             if op_class == BoxType or op_class == DiamondType:
-#                 if isinstance(arg, BoxType) and res != arg:  # case of embedded modifier
-#                     stack.append(DiamondType(arg, res, symbol))
-#                 else:
-#                     stack.append(op_class(arg, res, symbol))
-#             else:
-#                 stack.append(op_class(arg, res))
-#         else:
-#             stack.append(symbol)
-#     ret = stack.pop()
-#     assert not stack
-#     assert isinstance(ret, WordType)
-#     return ret
-#
-#
-
-#
-#
-
-#
-#
-#
-#
+def binarize_polish(symbols: List[str]) -> List[str]:
+    bigrams = zip(symbols, symbols[1:] + [''])
+    ret, skip = [], False
+    for s1, s2 in bigrams:
+        if skip:
+            skip = False
+            continue
+        if s1 == '→' and s2.startswith('◊'):
+            skip = True
+            ret.append(s2)
+        elif s1.startswith('□') and s2 == '→':
+            skip = True
+            ret.append(s1)
+        else:
+            ret.append(s1)
+    return ret
 
 
-SUB = str.maketrans('0123456789', '₀₁₂₃₄₅₆₇₈₉')
-SUP = str.maketrans('abcdefghijklmnoprstuvwxyz1', 'ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ¹')
-SC = str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ1→', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ1→')
+def unarize_polish(symbols: List[str]) -> List[str]:
+    ret = []
+    for s in symbols:
+        if s.startswith('◊'):
+            ret.extend(['→', s])
+        elif s.startswith('□'):
+            ret.extend([s, '→'])
+        else:
+            ret.append(s)
+    return ret
 
 
-def subscript(x: Any) -> str:
-    return str(x).translate(SUB)
-
-
-def superscript(x: Any) -> str:
-    return str(x).translate(SUP)
-
-
-def smallcaps(x: Any) -> str:
-    return str(x).translate(SC)
+def polish_to_type(symbols: List[str]) -> WordType:
+    stack = []
+    if len(symbols) == 1:
+        return AtomicType(symbols[0]) if symbols[0] != '_' else EmptyType()
+    for symbol in reversed(symbols):
+        if symbol == '→':
+            arg = stack.pop()
+            res = stack.pop()
+            stack.append(FunctorType(arg, res))
+        elif symbol.startswith('◊'):
+            arg = stack.pop()
+            stack.append(DiamondType(arg, symbol.lstrip('◊')))
+        elif symbol.startswith('□'):
+            arg = stack.pop()
+            stack.append(BoxType(arg, symbol.lstrip('□')))
+        else:
+            stack.append(AtomicType(symbol))
+    return stack.pop()
