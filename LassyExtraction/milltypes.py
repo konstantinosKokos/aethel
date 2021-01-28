@@ -174,6 +174,9 @@ class PolarizedType(AtomicType):
     def __hash__(self):
         return hash(str(self))
 
+    def polish(self) -> List[str]:
+        return [f'{self.type}({"+" if self.polarity else "-"},{str(self.index)})']
+
     def depolarize(self) -> 'AtomicType':
         return AtomicType(_type=self.type)
 
