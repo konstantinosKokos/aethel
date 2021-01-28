@@ -208,7 +208,7 @@ def polarize_and_index_many(wordtypes: Sequence[T_co], index: int = 0) -> Tuple[
 
 def get_polarities(wordtype, get_indices: bool = False):
     def f(x: PolarizedType):
-        return (x.depolarize(), x.index) if get_indices else x.depolarize()
+        return (x, x.index) if get_indices else x.depolarize()
 
     if isinstance(wordtype, EmptyType):
         return [], []
