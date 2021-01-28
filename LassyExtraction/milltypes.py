@@ -3,7 +3,7 @@ from .utils.printing import *
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union, Mapping
+from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union
 from dataclasses import dataclass
 
 
@@ -63,7 +63,7 @@ class AtomicType(WordType):
         return hash(str(self))
 
     def polish(self) -> List[str]:
-        return [str(self)]
+        return [self.type]
 
     def order(self) -> int:
         return 0
@@ -142,7 +142,7 @@ class BoxType(ModalType):
         return hash(str(self))
 
     def polish(self) -> List[str]:
-        return [print_box(self.modality)] + self.content.polish()
+        return [print_box('') + self.modality] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, BoxType) and self.modality == other.modality and self.content == other.content
@@ -156,7 +156,7 @@ class DiamondType(ModalType):
         return hash(str(self))
 
     def polish(self) -> List[str]:
-        return [print_diamond(self.modality)] + self.content.polish()
+        return [print_diamond('') + self.modality] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DiamondType) and self.modality == other.modality and self.content == other.content

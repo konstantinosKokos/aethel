@@ -2,7 +2,7 @@ from typing import Any
 
 SUB = str.maketrans('0123456789', '₀₁₂₃₄₅₆₇₈₉')
 SUP = str.maketrans('abcdefghijklmnoprstuvwxyz1', 'ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ¹')
-SC = str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ1→', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ1→')
+SC = str.maketrans('ABCDEFGHIJKLMNOPQRSTUVWXYZ1', 'ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ1')
 
 
 def subscript(x: Any) -> str:
