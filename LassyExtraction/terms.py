@@ -148,17 +148,16 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     if isinstance(term, Application):
         return f'{pt(term.functor)} {pt(term.argument)}'
     if isinstance(term, BoxIntro):
-        return f'{cap(term.box)}({pt(term.body)})'
+        return f'{cap(term.box)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, DiamondIntro):
-        return f'{wedge(term.diamond)}({pt(term.body)})'
+        return f'{wedge(term.diamond)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, BoxElim):
-        return f'{cup(term.box)}({pt(term.body)})'
+        return f'{cup(term.box)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, DiamondElim):
-        return f'{vee(term.diamond)}({pt(term.body)})'
+        return f'{vee(term.diamond)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, Abstraction):
         return f'λ{pt(term.abstraction)}.{pt(term.body)}'
     raise TypeError(f'Unexpected term of type {type(term)}')
-
 
 def compose(f: Callable[[Term], Term], g: Callable[[Term], Term]) -> Callable[[Term], Term]:
     def h(x: Term) -> Term:
