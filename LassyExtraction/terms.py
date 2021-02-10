@@ -146,7 +146,7 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
     if isinstance(term, Application):
-        return f'{pt(term.functor)} {pt(term.argument)}'
+        return f'({pt(term.functor)} {pt(term.argument)})'
     if isinstance(term, BoxIntro):
         return f'{cap(term.box)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, DiamondIntro):
@@ -158,6 +158,7 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     if isinstance(term, Abstraction):
         return f'λ{pt(term.abstraction)}.{pt(term.body)}'
     raise TypeError(f'Unexpected term of type {type(term)}')
+
 
 def compose(f: Callable[[Term], Term], g: Callable[[Term], Term]) -> Callable[[Term], Term]:
     def h(x: Term) -> Term:
