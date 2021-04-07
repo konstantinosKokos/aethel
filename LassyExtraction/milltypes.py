@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from .utils.printing import *
+from .utils.printing import print_box, print_diamond, smallcaps
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, TypeVar, Union
+from typing import Set, Sequence, Tuple, List, overload, Union
 from dataclasses import dataclass
 
 
@@ -46,8 +46,9 @@ class WordType(ABC):
     def atoms(self) -> Set['AtomicType']:
         pass
 
-
-T_co = TypeVar('T_co', covariant=True, bound=WordType)
+    @abstractmethod
+    def colors(self) -> Set[str]:
+        pass
 
 
 class AtomicType(WordType):
@@ -79,6 +80,9 @@ class AtomicType(WordType):
 
     def atoms(self) -> Set['AtomicType']:
         return {self}
+
+    def colors(self) -> Set[str]:
+        return set()
 
 
 class FunctorType(WordType):
@@ -112,9 +116,12 @@ class FunctorType(WordType):
     def atoms(self) -> Set[AtomicType]:
         return self.argument.atoms().union(self.result.atoms())
 
+    def colors(self) -> Set[str]:
+        return self.argument.colors().union(self.result.colors())
+
 
 class ModalType(WordType, ABC):
-    def __init__(self, content: T_co, modality: str):
+    def __init__(self, content: WordType, modality: str):
         self.content = content
         self.modality = modality
 
@@ -133,6 +140,9 @@ class ModalType(WordType, ABC):
     def atoms(self) -> Set[AtomicType]:
         return self.content.atoms()
 
+    def colors(self) -> Set[str]:
+        return {self.modality}.union(self.content.colors())
+
 
 class BoxType(ModalType):
     def __str__(self):
@@ -142,7 +152,7 @@ class BoxType(ModalType):
         return hash(str(self))
 
     def polish(self) -> List[str]:
-        return [print_box('') + self.modality] + self.content.polish()
+        return [print_box() + self.modality] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, BoxType) and self.modality == other.modality and self.content == other.content
@@ -156,7 +166,7 @@ class DiamondType(ModalType):
         return hash(str(self))
 
     def polish(self) -> List[str]:
-        return [print_diamond('') + self.modality] + self.content.polish()
+        return [print_diamond() + self.modality] + self.content.polish()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, DiamondType) and self.modality == other.modality and self.content == other.content
@@ -186,7 +196,7 @@ class EmptyType(AtomicType):
         super(EmptyType, self).__init__('_')
 
 
-def polarize_and_index(wordtype: T_co, polarity: bool = True, index: int = 0) -> Tuple[int, T_co]:
+def polarize_and_index(wordtype: WordType, polarity: bool = True, index: int = 0) -> Tuple[int, WordType]:
     if isinstance(wordtype, EmptyType):
         return index, wordtype
     if isinstance(wordtype, AtomicType):
@@ -201,7 +211,7 @@ def polarize_and_index(wordtype: T_co, polarity: bool = True, index: int = 0) ->
     raise TypeError(f'Unexpected argument {wordtype} of type {type(wordtype)}')
 
 
-def polarize_and_index_many(wordtypes: Sequence[T_co], index: int = 0) -> Tuple[int, List[T_co]]:
+def polarize_and_index_many(wordtypes: Sequence[WordType], index: int = 0) -> Tuple[int, List[WordType]]:
     ret = []
     for w in wordtypes:
         index, x = polarize_and_index(w, True, index)
@@ -229,17 +239,17 @@ def get_polarities(wordtype, get_indices: bool = False):
         raise TypeError(f'Unexpected argument {wordtype} of type {type(wordtype)}')
 
 
-def get_polarities_and_indices(wordtype: T_co) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
+def get_polarities_and_indices(wordtype: WordType) -> Tuple[List[Tuple[AtomicType, int]], List[Tuple[AtomicType, int]]]:
     return get_polarities(wordtype, True)
 
 
 @overload
-def decolor(x: T_co) -> T_co:
+def decolor(x: WordType) -> WordType:
     pass
 
 
 @overload
-def decolor(x: List[T_co]) -> List[T_co]:
+def decolor(x: List[WordType]) -> List[WordType]:
     pass
 
 
@@ -251,12 +261,12 @@ def decolor(x):
 
 
 @overload
-def depolarize(x: T_co) -> T_co:
+def depolarize(x: WordType) -> WordType:
     pass
 
 
 @overload
-def depolarize(x: List[T_co]) -> List[T_co]:
+def depolarize(x: List[WordType]) -> List[WordType]:
     pass
 
 
@@ -267,25 +277,26 @@ def depolarize(x):
         return list(map(depolarize, x))
 
 
-def literal_invariance(premises: Sequence[T_co]):
+def literal_invariance(premises: Sequence[WordType]):
     seqpos, seqneg = list(map(lambda x: reduce(add, x), tuple(zip(*map(get_polarities, premises)))))
     return Multiset(seqneg) - Multiset(seqpos)
 
 
-def operator_count(wordtype: T_co) -> int:
+def operator_count(wordtype: WordType) -> int:
     if isinstance(wordtype, AtomicType):
         return 0
     if isinstance(wordtype, FunctorType):
         return operator_count(wordtype.result) - operator_count(wordtype.argument) - 1
     if isinstance(wordtype, ModalType):
         return operator_count(wordtype.content)
+    raise TypeError(f'Cannot count operators for {wordtype} of type {type(wordtype)}')
 
 
-def operator_invariance(premises: Sequence[T_co]) -> int:
+def operator_invariance(premises: Sequence[WordType]) -> int:
     return reduce(add, map(operator_count, premises)) + len(premises) - 1
 
 
-def invariance_check(premises: Sequence[T_co], goal: WordType) -> bool:
+def invariance_check(premises: Sequence[WordType], goal: WordType) -> bool:
     premises = list(filter(lambda type_: not isinstance(type_, EmptyType), premises))
     inferred = literal_invariance(premises)
     if list(inferred.values()) != [1]:
@@ -359,6 +370,7 @@ def traverse_pos(wordtype: WordType, history: Path) -> List[Tuple[WordType, Path
     if isinstance(wordtype, BoxType):
         ret = traverse_pos(wordtype.content, history + [Box(wordtype.modality)])
         return [(wordtype, ret[0][1], ret[0][2])] + ret[1:]
+    raise TypeError(f'Cannot traverse {wordtype} of type {type(wordtype)}')
 
 
 def traverse_neg(wordtype: WordType, hist: Path) -> Tuple[Path, List[Tuple[WordType, Path, Paths]]]:
@@ -406,7 +418,7 @@ def unarize_polish(symbols: List[str]) -> List[str]:
 
 
 def polish_to_type(symbols: List[str]) -> WordType:
-    stack = []
+    stack: List[WordType] = []
     if len(symbols) == 1:
         return AtomicType(symbols[0]) if symbols[0] != '_' else EmptyType()
     for symbol in reversed(symbols):

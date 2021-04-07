@@ -2,7 +2,7 @@ from collections import defaultdict
 from itertools import chain
 
 from .graphutils import *
-from .milltypes import (WordType, T_co, AtomicType, FunctorType, DiamondType, BoxType, EmptyType, ModalType,
+from .milltypes import (WordType, WordType, AtomicType, FunctorType, DiamondType, BoxType, EmptyType, ModalType,
                         invariance_check)
 from functools import reduce
 from .transformations import majority_vote, _cats_of_type, order_nodes, body_replacements
@@ -39,7 +39,7 @@ ObliquenessOrder = (
 )
 
 
-ArgSeq = List[Tuple[T_co, Optional[str]]]
+ArgSeq = List[Tuple[WordType, Optional[str]]]
 
 
 # Callable version
@@ -100,7 +100,7 @@ def make_ho_functor(argument: WordType, result: WordType, dep: Optional[str]) ->
     return make_functor(argument, result, dep)
 
 
-def modifier_of(modified: T_co, dep: str) -> BoxType:
+def modifier_of(modified: WordType, dep: str) -> BoxType:
     return BoxType(FunctorType(modified, modified), dep)
 
 
@@ -112,21 +112,21 @@ def get_argument(wordtype: WordType) -> WordType:
     raise TypeError(f'Cannot extract argument from {wordtype} of type {type(wordtype)}')
 
 
-def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
+def binarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
              sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> Union[FunctorType, ModalType]:
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
-def binarize_hots(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
+def binarize_hots(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
                   sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> WordType:
     argcolors = sorting_fn(argcolors)
     return reduce(lambda x, y:
                   make_ho_functor(argument=y[0], result=x, dep=y[1]), argcolors, result)
 
 
-def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: T_co,
+def rebinarize(argcolors: List[Tuple[WordType, Optional[str]]], result: WordType,
                sorting_fn: Callable[[ArgSeq], ArgSeq] = _obliqueness_sort) -> Union[ModalType, FunctorType]:
     if not argcolors:
         return result
