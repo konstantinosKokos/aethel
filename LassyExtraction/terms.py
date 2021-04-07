@@ -7,11 +7,11 @@ from typing import Callable, Set
 class Term(ABC):
     @property
     @abstractmethod
-    def type(self) -> WordType:
+    def t(self) -> WordType:
         pass
 
     @abstractmethod
-    def free(self) -> Set['Atom']:
+    def free(self) -> Set['Var']:
         pass
 
 
@@ -20,14 +20,14 @@ class Atom(Term):
         self._type = _type
         self.idx = idx
 
-    def type(self) -> WordType:
+    def t(self) -> WordType:
         return self._type
 
     @staticmethod
     def make(idx: int, _type: WordType, lex: bool) -> 'Atom':
         return (Lex if lex else Var)(_type, idx)
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set['Var']:
         return {self} if isinstance(self, Var) else set()
 
 
@@ -41,15 +41,15 @@ class Lex(Atom):
 
 class BoxElim(Term):
     def __init__(self, body: Term):
-        if not isinstance(body.type(), BoxType):
-            raise TypeError(f'No box to eliminate in {body.type()}')
+        if not isinstance(body.t(), BoxType):
+            raise TypeError(f'No box to eliminate in {body.t()}')
         self.body = body
-        self.box = body.type().modality
+        self.box = body.t().modality
 
-    def type(self) -> WordType:
-        return self.body.type().content
+    def t(self) -> WordType:
+        return self.body.t().content
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.body.free()
 
 
@@ -58,10 +58,10 @@ class BoxIntro(Term):
         self.body = body
         self.box = box
 
-    def type(self) -> BoxType:
-        return BoxType(self.body.type(), modality=self.box)
+    def t(self) -> BoxType:
+        return BoxType(self.body.t(), modality=self.box)
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.body.free()
 
     @staticmethod
@@ -73,15 +73,15 @@ class BoxIntro(Term):
 
 class DiamondElim(Term):
     def __init__(self, body: Term):
-        if not isinstance(body.type(), DiamondType):
-            raise TypeError(f'No diamond to eliminate in {body.type()}')
+        if not isinstance(body.t(), DiamondType):
+            raise TypeError(f'No diamond to eliminate in {body.t()}')
         self.body = body
-        self.diamond = body.type().modality
+        self.diamond = body.t().modality
 
-    def type(self) -> WordType:
-        return self.body.type().content
+    def t(self) -> WordType:
+        return self.body.t().content
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.body.free()
 
 
@@ -90,10 +90,10 @@ class DiamondIntro(Term):
         self.body = body
         self.diamond = diamond
 
-    def type(self) -> DiamondType:
-        return DiamondType(self.body.type(), modality=self.diamond)
+    def t(self) -> DiamondType:
+        return DiamondType(self.body.t(), modality=self.diamond)
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.body.free()
 
     @staticmethod
@@ -105,15 +105,15 @@ class DiamondIntro(Term):
 
 class Application(Term):
     def __init__(self, functor: Term, argument: Term):
-        if not isinstance(functor.type(), FunctorType) or functor.type().argument != argument.type():
-            raise TypeError(f'Argument of type {argument.type()} is not valid for a functor of type {functor.type()}')
+        if not isinstance(functor.t(), FunctorType) or functor.t().argument != argument.t():
+            raise TypeError(f'Argument of type {argument.t()} is not valid for a functor of type {functor.t()}')
         self.functor = functor
         self.argument = argument
 
-    def type(self) -> WordType:
-        return self.functor.type().result
+    def t(self) -> WordType:
+        return self.functor.t().result
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.functor.free().union(self.argument.free())
 
 
@@ -124,12 +124,12 @@ class Abstraction(Term):
         bound = [f for f in free if f.idx == abstraction]
         if len(bound) != 1:
             raise AssertionError(f'{len(bound)}')
-        self.abstraction = bound[0]
+        self.abstraction: Var = bound[0]
 
-    def type(self) -> FunctorType:
-        return FunctorType(argument=self.abstraction.type(), result=self.body.type())
+    def t(self) -> FunctorType:
+        return FunctorType(argument=self.abstraction.t(), result=self.body.t())
 
-    def free(self) -> Set['Term']:
+    def free(self) -> Set[Var]:
         return self.body.free().difference({self.abstraction})
 
     @staticmethod
