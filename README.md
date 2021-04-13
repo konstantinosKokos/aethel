@@ -23,12 +23,17 @@ Python3.8
 If you intend to use the visualization utilities you will also need GraphViz.
 
 ---
-### Using with æthel
+### Installing & Using with æthel
 The code in this repository is necessary to open and edit the binarized dumps of 
 [æthel](https://github.com/konstantinosKokos/aethel) with Python.
 You can download the most recent binarized dump [here](https://surfdrive.surf.nl/files/index.php/s/zHEgwDJQ7jxnpCI) 
 (current version is *0.4.dev0*).
-Begin by cloning the project locally and placing the data file in the outermost directory.
+* If you want to install the **current development branch**: clone the project locally and placing the data file in the outermost directory.
+* If you want to install a **specific version**, run
+    ```pip install git+git://github.com/konstantinosKokos/lassy-tlg-extraction@XXX#egg=LassyExtraction```
+  where `XXX` the version you want to install. For a list of versions, check this repository's branches.
+  The latest version is `0.4.dev3`.
+
 You can then access the data by running:
 ```
 >>> import pickle
