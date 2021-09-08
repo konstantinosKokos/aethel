@@ -40,9 +40,12 @@ class ProofFrame:
     def __len__(self) -> int:
         return len(self.get_words())
 
-    def word_printer(self, idx: int, show_word: bool = True, show_type: bool = True) -> str:
+    def word_printer(self, idx: int, show_word: bool, show_type: bool, show_deco: bool = True) -> str:
         ret = self.premises[idx].word if show_word else f'w{subscript(idx)}'
-        return ret + (f':{self.premises[idx].type.depolarize()}' if show_type else '')
+        return ret + (f':{self.type_printer(idx, show_deco)}' if show_type else '')
+
+    def type_printer(self, idx: int, show_deco: bool) -> WordType:
+        return self.premises[idx].type.depolarize() if show_deco else self.premises[idx].type.depolarize().decolor()
 
     def print(self, show_words: bool = True, show_types: bool = True) -> str:
         ret = ', '.join(map(lambda idx: self.word_printer(idx, show_words, show_types), range(len(self.premises))))
@@ -81,7 +84,7 @@ class ProofNet:
 
     def print_term(self, show_words: bool = False, show_types: bool = False, show_decorations: bool = True) -> str:
         return print_term(self.get_term(), show_decorations,
-                          lambda idx: self.proof_frame.word_printer(idx, show_words, show_types))
+                          lambda idx: self.proof_frame.word_printer(idx, show_words, show_types, show_decorations))
 
     def get_term(self) -> 'Term':
         vargen = iter(range(999))
