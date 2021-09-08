@@ -31,11 +31,14 @@ class ProofFrame:
     def get_types(self) -> List[WordType]:
         return [p.type for p in self.premises]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.print()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self)
+
+    def __len__(self) -> int:
+        return len(self.get_words())
 
     def word_printer(self, idx: int, show_word: bool = True, show_type: bool = True) -> str:
         ret = self.premises[idx].word if show_word else f'w{subscript(idx)}'
@@ -69,6 +72,9 @@ class ProofNet:
     proof_frame: ProofFrame
     axiom_links: AxiomLinks
     name: Optional[str]
+
+    def __len__(self) -> int:
+        return len(self.proof_frame)
 
     def print_frame(self, show_words: bool = True, show_types: bool = True) -> str:
         return self.proof_frame.print(show_words, show_types)

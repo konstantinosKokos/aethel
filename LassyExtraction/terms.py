@@ -143,10 +143,17 @@ def print_term(term: Term, show_decorations: bool, word_printer: Callable[[int],
     def pt(_term: Term) -> str:
         return print_term(_term, show_decorations, word_printer)
 
+    def needs_par(_term: Term) -> bool:
+        if show_decorations:
+            return not isinstance(_term, (BoxIntro, DiamondIntro, BoxElim, DiamondElim, Atom))
+        return not isinstance(_term, Atom)
+
     if isinstance(term, Atom):
         return word_printer(term.idx) if isinstance(term, Lex) else f'x{subscript(term.idx)}'
     if isinstance(term, Application):
-        return f'({pt(term.functor)} {pt(term.argument)})'
+        if needs_par(term.argument):
+            return f'({pt(term.functor)} {pt(term.argument)})'
+        return f'{pt(term.functor)} {pt(term.argument)}'
     if isinstance(term, BoxIntro):
         return f'{cap(term.box)}({pt(term.body)})' if show_decorations else pt(term.body)
     if isinstance(term, DiamondIntro):
