@@ -32,11 +32,13 @@ class Atom(Term):
 
 
 class Var(Atom):
-    pass
+    def t(self) -> WordType:
+        return self._type
 
 
 class Lex(Atom):
-    pass
+    def t(self) -> WordType:
+        return self._type
 
 
 class BoxElim(Term):
