@@ -3,7 +3,7 @@ from .utils.printing import print_box, print_diamond, smallcaps
 from collections import Counter as Multiset
 from functools import reduce
 from operator import add
-from typing import Set, Sequence, Tuple, List, overload, Union
+from typing import Set, Sequence, Tuple, List, overload, Union, Iterator
 from dataclasses import dataclass
 
 
@@ -50,6 +50,10 @@ class WordType(ABC):
     def colors(self) -> Set[str]:
         pass
 
+    @abstractmethod
+    def __iter__(self) -> Iterator['AtomicType']:
+        pass
+
 
 class AtomicType(WordType):
     def __init__(self, _type: str) -> None:
@@ -83,6 +87,9 @@ class AtomicType(WordType):
 
     def colors(self) -> Set[str]:
         return set()
+
+    def __iter__(self) -> Iterator['AtomicType']:
+        yield self
 
 
 class FunctorType(WordType):
@@ -119,6 +126,10 @@ class FunctorType(WordType):
     def colors(self) -> Set[str]:
         return self.argument.colors().union(self.result.colors())
 
+    def __iter__(self) -> Iterator['AtomicType']:
+        yield from self.argument
+        yield from self.result
+
 
 class ModalType(WordType, ABC):
     def __init__(self, content: WordType, modality: str):
@@ -142,6 +153,9 @@ class ModalType(WordType, ABC):
 
     def colors(self) -> Set[str]:
         return {self.modality}.union(self.content.colors())
+
+    def __iter__(self) -> Iterator[AtomicType]:
+        yield from self.content
 
 
 class BoxType(ModalType):
