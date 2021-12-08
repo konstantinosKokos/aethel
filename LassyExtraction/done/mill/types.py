@@ -291,15 +291,15 @@ class Proof:
 
     @staticmethod
     def diamond(diamond: str, body: Proof | Type) -> Proof | Type:
-        return TypeInference.diamond_intro(diamond, type(body))(body, rule=Proof.Rule.dI)
+        return TypeInference.diamond_intro(diamond, type(body))(diamond, body, rule=Proof.Rule.dI)
 
     @staticmethod
     def unbox(box: str, body: Proof | Type) -> Proof | Type:
-        return TypeInference.box_elim(body, box)(body, rule=Proof.Rule.bE)
+        return TypeInference.box_elim(type(body), box)(box, body, rule=Proof.Rule.bE)
 
     @staticmethod
     def undiamond(diamond: str, body: Proof | Type) -> Proof | Type:
-        return TypeInference.diamond_elim(body, diamond)(body, rule=Proof.Rule.dE)
+        return TypeInference.diamond_elim(type(body), diamond)(diamond, body, rule=Proof.Rule.dE)
 
     def __repr__(self) -> str: return show_term(self)
 
