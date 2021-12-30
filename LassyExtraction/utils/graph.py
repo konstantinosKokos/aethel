@@ -25,7 +25,7 @@ class Edge(Generic[Node]):
     def __eq__(self, other: Any) -> bool:
         return tuple(self) == tuple(other)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(tuple(self))
 
 
@@ -196,17 +196,8 @@ class DAG(Generic[Node]):
     def is_subgraph_of(self, other: 'DAG[Node]') -> bool:
         return self.nodes < other.nodes and self.edges < other.edges
 
-    def __lt__(self, other):
-        return self.is_subgraph_of(other)
-
-    def __le__(self, other):
-        return self.is_subgraph_of(other) or self == other
-
-    def __eq__(self, other):
-        return self.nodes == other.nodes and self.edges == other.edges
-
-    def __ne__(self, other):
-        return not self == other
-
-    def __gt__(self, other):
-        return not self <= other
+    def __lt__(self, other) -> bool: return self.is_subgraph_of(other)
+    def __le__(self, other) -> bool: return self.is_subgraph_of(other) or self == other
+    def __eq__(self, other) -> bool: return self.nodes == other.nodes and self.edges == other.edges
+    def __ne__(self, other) -> bool: return not self == other
+    def __gt__(self, other) -> bool:return not self <= other
