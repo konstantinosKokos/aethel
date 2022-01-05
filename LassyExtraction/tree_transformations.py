@@ -119,9 +119,13 @@ def add_ghost_of(dag: DAG[str], node: str) -> str:
     return fresh_node
 
 
-def print_dag(dag: DAG[str], root: str | None = None) -> str:
+def get_words(dag: DAG[str], root: str | None = None) -> list[str]:
     nodes = sort_nodes(dag) if root is None else sort_nodes(dag, set(dag.successors(root)) | {root})
-    return ' '.join([word for n in nodes if (word := dag.get(n, 'word')) is not None])
+    return [word for node in nodes if (word := dag.get(node, 'word')) is not None]
+
+
+def print_dag(dag: DAG[str], root: str | None = None) -> str:
+    return ' '.join(get_words(dag, root))
 
 
 def node_to_key(dag: DAG[str], node: str) -> tuple[int, int, int]:

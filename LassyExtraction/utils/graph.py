@@ -35,7 +35,7 @@ Paths = set[Path]
 
 
 class DAG(Generic[Node]):
-    def __init__(self, nodes: Nodes, edges: Edges, attribs: dict[Node, dict[str, str]], meta: Any):
+    def __init__(self, nodes: Nodes, edges: Edges, attribs: dict[Node, dict[str, Any]], meta: Any):
         self.nodes = nodes
         self.edges = edges
         self.attribs = attribs
@@ -45,9 +45,9 @@ class DAG(Generic[Node]):
         return len(self.nodes)
 
     @overload
-    def get(self, node: Node, attr: str) -> str | None: ...
+    def get(self, node: Node, attr: str) -> Any: ...
     @overload
-    def get(self, node: Node) -> dict[str, str]: ...
+    def get(self, node: Node) -> dict[str, Any]: ...
 
     def get(self, node, attr=None):
         if attr is None:
@@ -55,9 +55,9 @@ class DAG(Generic[Node]):
         return self.attribs[node][attr] if attr in self.attribs[node] else None
 
     @overload
-    def set(self, node: Node, attr: dict[str, str]) -> None: ...
+    def set(self, node: Node, attr: dict[str, Any]) -> None: ...
     @overload
-    def set(self, node: Node, attr: str, value: str) -> None: ...
+    def set(self, node: Node, attr: str, value: Any) -> None: ...
 
     def set(self, node, attr, value=None):
         if value is None:

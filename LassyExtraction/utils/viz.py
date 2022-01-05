@@ -1,5 +1,5 @@
 import graphviz as gv
-from .graphutils2 import DAG
+from .graph import DAG
 
 
 def render(dag: DAG[str], **kwargs) -> None:
