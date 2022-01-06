@@ -72,31 +72,29 @@ def flip_polarity(tree: Tree) -> Tree:
             return Binary(not polarity, flip_polarity(left), flip_polarity(right))
 
 
-def proof_to_axiom_links(
-        proof: T, lexical_assignments: list[T], hypotheses: list[T]) -> tuple[dict[Leaf, Leaf], dict[int, Tree]]:
+def term_to_links(proof: T) -> tuple[dict[Leaf, Leaf], dict[int, Tree], dict[int, Tree]]:
+    hypotheses, constants = proof.vars(), proof.constants()
     conclusion, index = type_to_tree(type(proof), False)
-    assignment_trees: dict[int, Tree] = {}
-    for assignment in lexical_assignments:
-        formula_tree, index = type_to_tree(type(assignment), True, index, 1)
-        assignment_trees[assignment.constant] = formula_tree
+    lex_trees, ax_trees = {}, {}
+    for term in constants:
+        formula_tree, index = type_to_tree(type(term), True, index, 1)
+        lex_trees[term.constant] = formula_tree
     index = -1
-    for hypothesis in hypotheses:
-        formula_tree, index = type_to_tree(type(hypothesis), True, index, -1)
-        assignment_trees[hypothesis.variable] = formula_tree
+    for term in hypotheses:
+        formula_tree, index = type_to_tree(type(term), True, index, -1)
+        ax_trees[term.variable] = formula_tree
 
     def f(_proof: Proof) -> tuple[dict[Leaf, Leaf], Tree]:
         match _proof.rule:
-            case Proof.Rule.Lexicon:
-                return {}, assignment_trees[_proof.constant]
-            case Proof.Rule.Axiom:
-                return {}, assignment_trees[_proof.variable]
+            case Proof.Rule.Lexicon: return {}, lex_trees[_proof.constant]
+            case Proof.Rule.Axiom: return {}, ax_trees[_proof.variable]
             case Proof.Rule.ArrowElimination:
                 left_links, (_, left_match, rem) = f(_proof.function)
                 right_links, right_match = f(_proof.argument)
                 return left_links | right_links | match_trees(left_match, right_match), rem
             case Proof.Rule.ArrowIntroduction:
                 (body_links, tree), variable = f(_proof.body), _proof.abstraction.variable
-                return body_links, Binary(tree.polarity, flip_polarity(assignment_trees[variable]), tree)
+                return body_links, Binary(tree.polarity, flip_polarity(ax_trees[variable]), tree)
             case Proof.Rule.BoxElimination | Proof.Rule.DiamondElimination:
                 internal_links, tree = f(_proof.body)
                 return internal_links, tree.content
@@ -112,12 +110,12 @@ def proof_to_axiom_links(
 
     def beta_norm(_links: dict[Leaf, Leaf]) -> dict[Leaf, Leaf]:
         detours = {(x, y) for x in _links.items() for y in _links.items()
-                   if x[0].index == y[1].index and x[1].index > 0 and y[0].index > 0}
+                   if x[0].index == y[1].index and x[1].index > 0}
         beta_long_links = {x for x, _ in detours} | {y for _, y in detours}
         beta_norm_links = {y[0]: x[1] for x, y in detours}
         return (beta_norm({x: y for x, y in _links.items() if (x, y) not in beta_long_links} | beta_norm_links)
                 if beta_long_links else _links)
-    return beta_norm(links), assignment_trees
+    return beta_norm(links), lex_trees, ax_trees
 
 
 def reachable_positives(tree: Tree) -> set[int]:
@@ -126,6 +124,7 @@ def reachable_positives(tree: Tree) -> set[int]:
         case Unary(_, _, _, content): return reachable_positives(content)
         case Binary(True, _, right): return reachable_positives(right)
         case Binary(False, _, _): return set()
+        case _: raise ValueError(f'{tree} must be a formula Tree')
 
 
 def par_trees(tree: Tree, par: bool = False) -> list[Tree]:
@@ -134,6 +133,7 @@ def par_trees(tree: Tree, par: bool = False) -> list[Tree]:
         case Unary(_, _, _, content): return ([tree] if par else []) + par_trees(content, False)
         case Binary(polarity, left, right):
             return ([tree] if par else []) + par_trees(left, not polarity) + par_trees(right, False)
+        case _: raise ValueError(f'{tree} must be a formula Tree')
 
 
 def tree_to_type(tree: Tree) -> T:
@@ -142,6 +142,7 @@ def tree_to_type(tree: Tree) -> T:
         case Unary(_, '□', decoration, content): return Box(decoration, tree_to_type(content))
         case Unary(_, '◇', decoration, content): return Diamond(decoration, tree_to_type(content))
         case Binary(_, left, right): return Functor(tree_to_type(left), tree_to_type(right))
+        case _: raise ValueError(f'{tree} must be a formula Tree')
 
 
 def rooting_branch(container: Tree, subtree: Tree) -> Tree | None:
@@ -153,9 +154,11 @@ def rooting_branch(container: Tree, subtree: Tree) -> Tree | None:
                     else rooting_branch(left, subtree) or rooting_branch(right, subtree))
 
 
-def links_to_term(links: dict[Leaf, Leaf], formula_assignments: dict[int, Tree]) -> T:
-    i = 1
-    hypotheses = {(i := i-1): par for key in sorted(formula_assignments) for par in par_trees(formula_assignments[key])}
+def links_to_term(
+        links: dict[Leaf, Leaf], formula_assignments: dict[int, Tree]) -> T:
+    i = -1
+    hypotheses = {(i := i-1): par for key in sorted(formula_assignments)
+                  for par in par_trees(formula_assignments[key])}
     atom_to_word = {atom_idx: w_idx for w_idx, tree in formula_assignments.items()
                     for atom_idx in reachable_positives(tree)}
     atom_to_var = {atom_idx: var_idx for var_idx, tree in hypotheses.items()
@@ -190,9 +193,7 @@ def links_to_term(links: dict[Leaf, Leaf], formula_assignments: dict[int, Tree])
             case Unary(_, '□', _, _):
                 return Proof.unbox(positive_traversal(rooted_in, grounding))
             case Unary(_, '◇', _, _):
-                # ???
-                pdb.set_trace()
-                raise NotImplementedError
+                return Proof.undiamond(positive_traversal(rooted_in, grounding))
             case Binary(True, left, _):
                 return Proof.apply(positive_traversal(rooted_in, grounding), negative_traversal(left))
             case Binary(False, _, right):

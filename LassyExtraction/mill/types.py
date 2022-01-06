@@ -422,8 +422,18 @@ class Proof:
             case Proof.Rule.Lexicon: return set()
             case Proof.Rule.Axiom: return {self}
             case Proof.Rule.ArrowElimination: return self.function.vars() | self.argument.vars()
-            case Proof.Rule.ArrowIntroduction | Proof.Rule.BoxIntroduction: return self.body.vars()
-            case Proof.Rule.BoxElimination | Proof.rule.BoxIntroduction: return self.body.vars()
+            case Proof.Rule.ArrowIntroduction: return self.abstraction.vars() | self.body.vars()
+            case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.vars()
+            case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.vars()
+
+    def constants(self: T) -> set[T]:
+        match self.rule:
+            case Proof.Rule.Lexicon: return {self}
+            case Proof.Rule.Axiom: return set()
+            case Proof.Rule.ArrowElimination: return self.function.constants() | self.argument.constants()
+            case Proof.Rule.ArrowIntroduction: return self.body.constants()
+            case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.constants()
+            case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.constants()
 
     def translate_lex(self: T, trans: dict[int, int]) -> T:
         f = lambda x: x.translate_lex(trans)
@@ -448,7 +458,8 @@ class Proof:
                     arg, trans = translate(x.argument, trans)
                     return type(x).apply(fn, arg), trans
                 case Proof.Rule.ArrowIntroduction:
-                    trans |= {x.abstraction.variable: (var := next(k for k in range(999) if k not in trans))}
+                    trans |= {x.abstraction.variable:
+                                  (var := next(k for k in range(999) if k not in trans.keys() | trans.values()))}
                     body, trans = translate(x.body, trans)
                     return type(x).abstract(type(x.abstraction).var(var), body), trans
                 case Proof.Rule.BoxIntroduction:
