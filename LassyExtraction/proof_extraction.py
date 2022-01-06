@@ -1,5 +1,3 @@
-# todo: reindex vars and words when not in the context of a dag
-
 import pdb
 from .mill.types import Type, Atom, Functor, Diamond, Box, Proof, T, TypeInference
 from .tree_transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, sort_nodes, get_words
@@ -83,12 +81,12 @@ def make_functor(result: T, arguments: list[Type]) -> T:
     return reduce(lambda x, y: Functor(y, x), arguments, result)
 
 
-def unbox_and_apply(original: T, boxes: Iterable[T]) -> T:
-    return reduce(lambda x, y: Proof.apply(Proof.unbox(y), x), boxes, original)
+def unbox_and_apply(original: T, boxes: list[T]) -> T:
+    return reduce(lambda x, y: Proof.apply(Proof.unbox(y), x), reversed(boxes), original)
 
 
-def apply(functor: T, arguments: Iterable[T]) -> T:
-    return reduce(Proof.apply, arguments, functor)
+def apply(functor: T, arguments: list[T]) -> T:
+    return reduce(Proof.apply, reversed(arguments), functor)
 
 
 def endo_of(_type: T) -> T:
@@ -179,14 +177,14 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
                 for _, det in dets]
             adj_terms = make_adj(adjuncts, top_type)
             assert len(det_terms) <= 1
-            return unbox_and_apply(apply(unbox_and_apply(np_term, det_terms), reversed(arg_terms)), adj_terms)
+            return unbox_and_apply(apply(unbox_and_apply(np_term, det_terms), arg_terms), adj_terms)
         case [], [], [(_, head)], adjuncts, arguments, []:
             # print(f'{root} case 2 ')
             # simple or relative clause
             arg_terms = make_args(arguments, coindexed_with({head}))
             adj_terms = make_adj(adjuncts, top_type)
             head_term = extract(dag, head, None, make_functor(top_type, [type(a) for a in arg_terms]))
-            return unbox_and_apply(apply(head_term, reversed(arg_terms)), adj_terms)
+            return unbox_and_apply(apply(head_term, arg_terms), adj_terms)
         # todo: consider complex arguments that share material deeper in the tree, both in case 3 and 4
         case conjuncts, [], [('crd', crd), *heads], adjuncts, arguments, correlatives:
             # print(f'{root} case 3 ')
@@ -201,7 +199,7 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             all_args = shared_adj_terms + arg_terms + hd_terms + cnj_terms + cor_terms
             crd_type = make_functor(top_type, [type(a) for a in all_args])
             crd_term = extract(dag, crd, None, crd_type)
-            return unbox_and_apply(apply(crd_term, reversed(all_args)), dist_adj_terms)
+            return unbox_and_apply(apply(crd_term, all_args), dist_adj_terms)
         case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
             # print(f'{root} case 4 ')
             # conjunction of noun phrases sharing their determiner (and possibly adjuncts)
@@ -215,7 +213,7 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             all_args = shared_adj_terms + arg_terms + [det_term] + cnj_terms + cor_terms
             crd_type = make_functor(top_type, [type(a) for a in all_args])
             crd_term = extract(dag, crd, None, crd_type)
-            return unbox_and_apply(apply(crd_term, reversed(all_args)), dist_adj_terms)
+            return unbox_and_apply(apply(crd_term, all_args), dist_adj_terms)
         case [*cs], _, [*heads], _, _, _:
             raise ExtractionError('Headless conjunction')
         case _:
