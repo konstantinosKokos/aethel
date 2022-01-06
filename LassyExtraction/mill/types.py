@@ -175,10 +175,6 @@ def parse_prefix(string: str) -> Type:
     return stack.pop()
 
 
-def deserialize_type(kind: TYPE, *args):
-    return kind.deserialize(*args)
-
-
 def type_hash(type_: Type) -> int:
     match type_:
         case Atom(sign): return hash((sign,))
@@ -429,6 +425,18 @@ class Proof:
             case Proof.Rule.ArrowIntroduction | Proof.Rule.BoxIntroduction: return self.body.vars()
             case Proof.Rule.BoxElimination | Proof.rule.BoxIntroduction: return self.body.vars()
 
+    def translate_lex(self: T, trans: dict[int, int]) -> T:
+        f = lambda x: x.translate_lex(trans)
+        match self.rule:
+            case Proof.Rule.Lexicon: return type(self).con(trans[c]) if (c := self.constant) in trans.keys() else self
+            case Proof.Rule.Axiom: return self
+            case Proof.Rule.ArrowElimination: return Proof.apply(f(self.function), f(self.argument))
+            case Proof.Rule.ArrowIntroduction: return Proof.abstract(f(self.abstraction), f(self.body))
+            case Proof.Rule.BoxElimination: return Proof.unbox(f(self.body))
+            case Proof.Rule.BoxIntroduction: return Proof.box(self.decoration, f(self.body))
+            case Proof.Rule.DiamondElimination: return Proof.undiamond(f(self.body))
+            case Proof.Rule.DiamondIntroduction: return Proof.diamond(self.decoration, f(self.body))
+
     def canonicalize_var_names(self: T) -> set[T]:
         def translate(x: T, trans: dict[int, int]) -> tuple[T, dict[int, int]]:
             match x.rule:
@@ -527,8 +535,9 @@ def show_term(
         show_decorations: bool = True,
         show_types: bool = True,
         word_printer: Callable[[int], str] = str) -> str:
-    def f(_proof: Proof) -> str: return show_term(_proof, show_decorations, show_types)
+    def f(_proof: Proof) -> str: return show_term(_proof, show_decorations, show_types, word_printer)
     def v(_proof: Proof) -> str: return show_term(_proof, show_decorations, False)
+    wp = word_printer
 
     def needs_par(_proof: Proof) -> bool:
         match _proof.rule:
@@ -539,7 +548,7 @@ def show_term(
 
     match proof.rule:
         case Proof.Rule.Lexicon:
-            return f'{word_printer(proof.constant)}' if not show_types else f'{proof.constant}::{type(proof)}'
+            return f'{wp(proof.constant)}' if not show_types else f'{wp(proof.constant)}::{type(proof)}'
         case Proof.Rule.Axiom:
             return f'x{proof.variable}' if not show_types else f'x{proof.variable}::{type(proof)}'
         case Proof.Rule.ArrowElimination:

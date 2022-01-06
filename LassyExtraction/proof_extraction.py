@@ -248,6 +248,9 @@ def get_hypotheses(dag: DAG[str]) -> list[Proof]:
     return [dag.get(node, 'proof') for node in sort_nodes(dag, dag.get_leaves()) if is_ghost(dag, node)]
 
 
-# def make_canonical(dag: DAG[str], term: T) -> T:
-#     lexical_assignments = {lex.constant: i for i, lex in enumerate(get_type_assignments(dag))}
-#     formula_assignments =
+def make_canonical(dag: DAG[str], term: T) -> T:
+    term = term.canonicalize_var_names()
+    lexical_assignments = {lex.constant: i for i, lex in enumerate(get_type_assignments(dag))}
+    term = term.translate_lex(lexical_assignments)
+    return term
+
