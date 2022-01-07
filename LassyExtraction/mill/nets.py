@@ -72,40 +72,38 @@ def flip_polarity(tree: Tree) -> Tree:
             return Binary(not polarity, flip_polarity(left), flip_polarity(right))
 
 
-def term_to_links(proof: T) -> tuple[dict[Leaf, Leaf], dict[int, Tree], dict[int, Tree]]:
-    hypotheses, constants = proof.vars(), proof.constants()
-    conclusion, index = type_to_tree(type(proof), False)
-    lex_trees, ax_trees = {}, {}
+def term_to_links(proof: T) -> tuple[dict[Leaf, Leaf], dict[int, Tree]]:
+    constants, (conclusion, index), lex_trees = proof.constants(), type_to_tree(type(proof), False), {}
     for term in constants:
         formula_tree, index = type_to_tree(type(term), True, index, 1)
         lex_trees[term.constant] = formula_tree
-    index = -1
-    for term in hypotheses:
-        formula_tree, index = type_to_tree(type(term), True, index, -1)
-        ax_trees[term.variable] = formula_tree
 
-    def f(_proof: Proof) -> tuple[dict[Leaf, Leaf], Tree]:
+    def f(_proof: Proof, _index: int, _vars: dict[int, Tree]) -> tuple[dict[Leaf, Leaf], Tree, int, dict[int, Tree]]:
         match _proof.rule:
-            case Proof.Rule.Lexicon: return {}, lex_trees[_proof.constant]
-            case Proof.Rule.Axiom: return {}, ax_trees[_proof.variable]
+            case Proof.Rule.Lexicon:
+                return {}, lex_trees[_proof.constant], _index, _vars
+            case Proof.Rule.Axiom:
+                return {}, _vars.pop(_proof.variable), _index, _vars
             case Proof.Rule.ArrowElimination:
-                left_links, (_, left_match, rem) = f(_proof.function)
-                right_links, right_match = f(_proof.argument)
-                return left_links | right_links | match_trees(left_match, right_match), rem
+                left_links, (_, left_match, rem), _index, _vars = f(_proof.function, _index, _vars)
+                right_links, right_match, _index, _vars = f(_proof.argument, _index, _vars)
+                return left_links | right_links | match_trees(left_match, right_match), rem, _index, _vars
             case Proof.Rule.ArrowIntroduction:
-                (body_links, tree), variable = f(_proof.body), _proof.abstraction.variable
-                return body_links, Binary(tree.polarity, flip_polarity(ax_trees[variable]), tree)
+                var_tree, _index = type_to_tree(type(_proof.abstraction), True, _index, -1)           # type: ignore
+                _vars[_proof.abstraction.variable] = var_tree
+                _links, tree, _index, _vars = f(_proof.body, _index, _vars)
+                return _links, Binary(tree.polarity, flip_polarity(var_tree), tree), _index, _vars
             case Proof.Rule.BoxElimination | Proof.Rule.DiamondElimination:
-                internal_links, tree = f(_proof.body)
-                return internal_links, tree.content
+                _links, tree, _index, _vars = f(_proof.body, _index, _vars)
+                return _links, tree.content, _index, _vars
             case Proof.Rule.BoxIntroduction:
-                (internal_links, tree), decoration = f(_proof.body), _proof.decoration
-                return internal_links, Unary(tree.polarity, '□', decoration, tree)
+                _links, tree, _index, _vars = f(_proof.body, _index, _vars)
+                return _links, Unary(tree.polarity, '□', _proof.decoration, tree), _index, _vars
             case Proof.Rule.DiamondIntroduction:
-                (internal_links, tree), decoration = f(_proof.body), _proof.decoration
-                return internal_links, Unary(tree.polarity, '◇', decoration, tree)
+                _links, tree, _index, _vars = f(_proof.body, _index, _vars)
+                return _links, Unary(tree.polarity, '◇', _proof.decoration, tree), _index, _vars
 
-    links, output_tree = f(proof)
+    links, output_tree, _, _ = f(proof, -1, {})
     links |= match_trees(output_tree, conclusion)
 
     def beta_norm(_links: dict[Leaf, Leaf]) -> dict[Leaf, Leaf]:
@@ -115,7 +113,7 @@ def term_to_links(proof: T) -> tuple[dict[Leaf, Leaf], dict[int, Tree], dict[int
         beta_norm_links = {y[0]: x[1] for x, y in detours}
         return (beta_norm({x: y for x, y in _links.items() if (x, y) not in beta_long_links} | beta_norm_links)
                 if beta_long_links else _links)
-    return beta_norm(links), lex_trees, ax_trees
+    return beta_norm(links), lex_trees
 
 
 def reachable_positives(tree: Tree) -> set[int]:
