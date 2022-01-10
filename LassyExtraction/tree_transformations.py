@@ -162,7 +162,10 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
         return distances[_node] == min(distances.values())
 
     def candidate(edge: Edge[str]) -> bool: return edge.label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
-    def infinitival(node: str) -> bool: return dag.get(node, 'cat') in {'inf', 'ppart', 'np'}
+
+    def infinitival(node: str) -> bool:
+        return (cat := dag.get(node, 'cat') in {'inf', 'ppart', 'np', 'ssub'}) or \
+               (cat == 'conj' and any(map(infinitival, dag.parents(node))))
 
     def cond(e: Edge[str]) -> bool:
         return is_ghost(dag, e.target) and candidate(e) and infinitival(e.source) and \
@@ -405,6 +408,21 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
                           Edge('32', detp2, 'det'), Edge(detp2, '33', 'mod'), Edge(detp2, '34', 'hd')}
             dag.set(detp1, {'cat': 'detp', 'begin': dag.get('13', 'begin'), 'end': dag.get('14', 'end')})
             dag.set(detp2, {'cat': 'detp', 'begin': dag.get('33', 'begin'), 'end': dag.get('34', 'end')})
+        case 'dpc-qty-000931-nl-sen.p.25.s.1.xml':
+            copula = add_fresh_node(dag)
+            predcs = add_fresh_node(dag)
+            dag.edges -= {Edge('10', '15', 'predc'), Edge('10', '11', 'su'), Edge('10', '14', 'hd'),
+                          Edge('15', '16', 'cnj'), Edge('15', '28', 'cnj'), Edge('15', '23', 'cnj')}
+            dag.edges |= {Edge(copula, '14', 'hd'), Edge(copula, '11', 'su'), Edge(copula, predcs, 'predc'),
+                          Edge(predcs, '16', 'cnj'), Edge(predcs, '28', 'cnj'), Edge(predcs, '23', 'cnj'),
+                          Edge('15', copula, 'cnj'), Edge('0', '15', '--')}
+            dag.remove_nodes({'9', '10'})
+            dag.set(copula, {'cat': 'smain', 'begin': dag.get('11', 'begin'), 'end': dag.get('28', 'end')})
+            dag.set(predcs, {'cat': 'conj', 'begin': dag.get('16', 'begin'), 'end': dag.get('28', 'end')})
+            # convert last comma to crd to avoid losing the sample
+            dag.edges -= {Edge('0', '6', '--')}
+            dag.edges |= {Edge(predcs, '6', 'crd')}
+            dag.set('6', {'word': 'en', 'pos': 'vg', 'pt': 'vg', })
         # case 'WR-P-P-C-0000000055.txt-251.xml':
         #     # convert punct to crd to avoid losing the sample
         #     dag.edges -= {Edge('2', '1', 'punct')}
