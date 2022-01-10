@@ -149,7 +149,7 @@ def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
 def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
     def has_sentential_parent(node: str) -> bool:
         def is_sentential(_node: str) -> bool:
-            return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi'} or
+            return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart'} or
                     (cat == 'conj' and has_sentential_parent(_node)))
         return any(map(is_sentential, dag.parents(node)))
 
