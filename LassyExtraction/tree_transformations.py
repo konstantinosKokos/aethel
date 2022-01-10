@@ -124,13 +124,13 @@ def add_ghost_of(dag: DAG[str], node: str) -> str:
     return fresh_node
 
 
-def get_words(dag: DAG[str], root: str | None = None) -> list[str]:
+def get_lex_nodes(dag: DAG[str], root: str | None = None) -> list[str]:
     nodes = sort_nodes(dag) if root is None else sort_nodes(dag, set(dag.successors(root)) | {root})
-    return [word for node in nodes if (word := dag.get(node, 'word')) is not None]
+    return [node for node in nodes if dag.get(node, 'word') is not None]
 
 
 def print_dag(dag: DAG[str], root: str | None = None) -> str:
-    return ' '.join(get_words(dag, root))
+    return ' '.join([dag.get(node, 'word') for node in get_lex_nodes(dag, root)])
 
 
 def node_to_key(dag: DAG[str], node: str) -> tuple[int, int, int]:
@@ -229,12 +229,13 @@ def majority_vote(xs: list[str]) -> str | None:
 
 
 def collapse_mwu(dag: DAG[str]) -> DAG[str]:
-    def propagate_mwu_info(nodes: list[str]) -> dict[str, str]:
+    def propagate_mwu_info(nodes: list[str]) -> dict[str, str | list[str]]:
         return {'begin': str(min(int(dag.get(n, 'begin')) for n in nodes)),
-                'end': str(max(max(dag.get(n, 'end')) for n in nodes)),
+                'end': str(max(int(dag.get(n, 'end')) for n in nodes)),
                 'word': ' '.join(word for n in nodes if (word := dag.get(n, 'word')) is not None),
                 'pos': majority_vote([pos for node in nodes if (pos := dag.get(node, 'pos')) is not None]),
-                'pt': majority_vote([pt for node in nodes if (pt := dag.get(node, 'pt')) is not None])}
+                'pt': majority_vote([pt for node in nodes if (pt := dag.get(node, 'pt')) is not None]),
+                'lemma': ' '.join(lemma for node in nodes if (lemma := dag.get(node, 'lemma')) is not None)}
 
     successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if dag.get(n, 'cat') == 'mwu'}
     for mwu in successors.keys():

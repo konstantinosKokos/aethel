@@ -1,6 +1,7 @@
 import pdb
 from .mill.types import Type, Atom, Functor, Diamond, Box, Proof, T, TypeInference
-from .tree_transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, sort_nodes, get_words
+from .tree_transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, get_lex_nodes
+from .aethel import Sample
 from .utils.viz import render
 from functools import reduce
 from typing import Iterable, Callable
@@ -71,7 +72,7 @@ def dep_to_key(dep: str) -> int:
 
 def assign_proof(
         fn: [[], T]) -> Callable[[DAG[str], str, str | None, T | None], T]:
-    def f(dag: DAG[str], root: str, label: str | None = None, hint: T | None = None) -> T:
+    def f(dag: DAG[str], root: str | None, label: str | None = None, hint: T | None = None) -> T:
         dag.attribs[root]['proof'] = (proof := fn(dag, root, label, hint))
         return proof
     return f
@@ -103,14 +104,14 @@ def abstract(term: T, abstraction_condition: Callable[[T], bool]) -> T:
 
 
 @assign_proof
-def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
+def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
     # utilities
     def coindexed_with(nodes: set[str]) -> Callable[[T], bool]:
         indices = {index for node in nodes if (index := dag.get(node, 'index')) is not None}
         return lambda proof: dag.get(str(proof.variable), 'index') in indices
 
     def make_adj(_adjuncts: list[tuple[str, str]], _top_type: T) -> list[T]:
-        return [extract(dag, _child, _label, Box(_label, endo_of(_top_type))) for _label, _child in _adjuncts]
+        return [_prove(dag, _child, _label, Box(_label, endo_of(_top_type))) for _label, _child in _adjuncts]
 
     def make_args(
             _dependents: list[tuple[str, str]],
@@ -119,7 +120,7 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
         return [Proof.diamond(_label, abstract(_term, abstract_if))
                 if _term.rule != Proof.Rule.Axiom else abstract(_term, abstract_if)
                 for _label, _term in
-                [(_label, extract(dag, _child, _label, forced_type)) for _label, _child in _dependents]
+                [(_label, _prove(dag, _child, _label, forced_type)) for _label, _child in _dependents]
                 if _label != 'punct']
 
     def shared_and_distributed(_roots: list[tuple[str, str]],
@@ -135,13 +136,10 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
         # if len(set(map(len, per_conjunct))) != 1:
         #     pdb.set_trace()
         abstraction_types = [type(dag.get(var, 'proof')) for c in per_conjunct for var in c]
-        # todo: assertion about polymorphism
+        # todo: assertion about polymorphism, or choice of most general abstraction type
         # if len(set(abstraction_types)) != 1:
         #     print([(print_dag(dag, next(iter(pc))), abst) for pc, abst in zip(per_conjunct, abstraction_types)])
-        try:
-            return next(iter(abstraction_types))
-        except:
-            pdb.set_trace()
+        return next(iter(abstraction_types))
 
     # terminal case
     if dag.is_leaf(root):
@@ -170,10 +168,10 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             # print(f'{root} case 1 ')
             # noun phrase [possibly with determiner, adjuncts and arguments]
             # todo: when do I actually have arguments in a determiner phrase?
-            np_term = extract(dag, head, None, None)
+            np_term = _prove(dag, head, None, None)
             arg_terms = make_args(arguments)
             det_terms = [
-                extract(dag, det, None, Box('det', make_functor(top_type, [type(a) for a in arg_terms + [np_term]])))
+                _prove(dag, det, None, Box('det', make_functor(top_type, [type(a) for a in arg_terms + [np_term]])))
                 for _, det in dets]
             adj_terms = make_adj(adjuncts, top_type)
             assert len(det_terms) <= 1
@@ -183,7 +181,7 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             # simple or relative clause
             arg_terms = make_args(arguments, coindexed_with({head}))
             adj_terms = make_adj(adjuncts, top_type)
-            head_term = extract(dag, head, None, make_functor(top_type, [type(a) for a in arg_terms]))
+            head_term = _prove(dag, head, None, make_functor(top_type, [type(a) for a in arg_terms]))
             return unbox_and_apply(apply(head_term, arg_terms), adj_terms)
         # todo: consider complex arguments that share material deeper in the tree, both in case 3 and 4
         case conjuncts, [], [('crd', crd), *heads], adjuncts, arguments, correlatives:
@@ -192,13 +190,13 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_nodes = {node for _, node in heads + shared_adjuncts + arguments}
             cnj_terms = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
-            hd_terms = [extract(dag, head, None, get_type_of(head, [cnj for _, cnj in conjuncts])) for _, head in heads]
+            hd_terms = [_prove(dag, head, None, get_type_of(head, [cnj for _, cnj in conjuncts])) for _, head in heads]
             shared_adj_terms = make_adj(shared_adjuncts, top_type)
             dist_adj_terms = make_adj(distributed_adjuncts, top_type)
             cor_terms, arg_terms = make_args(correlatives),  make_args(arguments)
             all_args = shared_adj_terms + arg_terms + hd_terms + cnj_terms + cor_terms
             crd_type = make_functor(top_type, [type(a) for a in all_args])
-            crd_term = extract(dag, crd, None, crd_type)
+            crd_term = _prove(dag, crd, None, crd_type)
             return unbox_and_apply(apply(crd_term, all_args), dist_adj_terms)
         case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
             # print(f'{root} case 4 ')
@@ -206,15 +204,16 @@ def extract(dag: DAG, root: str, label: str | None, hint: T,) -> T:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_nodes = {node for _, node in shared_adjuncts + arguments} | {det}
             cnj_terms = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
-            det_term = extract(dag, det, None, get_type_of(det, [cnj for _, cnj in conjuncts]))
+            det_term = _prove(dag, det, None, get_type_of(det, [cnj for _, cnj in conjuncts]))
             shared_adj_terms = make_adj(shared_adjuncts, top_type)
             dist_adj_terms = make_adj(distributed_adjuncts, top_type)
             cor_terms, arg_terms = make_args(correlatives),  make_args(arguments)
             all_args = shared_adj_terms + arg_terms + [det_term] + cnj_terms + cor_terms
             crd_type = make_functor(top_type, [type(a) for a in all_args])
-            crd_term = extract(dag, crd, None, crd_type)
+            crd_term = _prove(dag, crd, None, crd_type)
             return unbox_and_apply(apply(crd_term, all_args), dist_adj_terms)
         case [*cs], _, [*heads], _, _, _:
+            pdb.set_trace()
             raise ExtractionError('Headless conjunction')
         case _:
             pdb.set_trace()
@@ -238,17 +237,17 @@ def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...
     return nodesort(conjuncts), nodesort(dets), depsort(heads), nodesort(adjuncts), depsort(dependents), nodesort(cors)
 
 
-def get_type_assignments(dag: DAG[str]) -> list[Proof]:
-    return [dag.get(node, 'proof') for node in sort_nodes(dag, dag.get_leaves()) if not is_ghost(dag, node)]
+def prove(dag: DAG[str]) -> T:
+    if len(roots := dag.get_roots()) > 1:
+        raise ValueError('Multiple roots')
+    return _prove(dag, next(iter(roots)), None, None)
 
 
-def get_hypotheses(dag: DAG[str]) -> list[Proof]:
-    return [dag.get(node, 'proof') for node in sort_nodes(dag, dag.get_leaves()) if is_ghost(dag, node)]
+def get_premises(dag: DAG[str]) -> list[tuple[str, str, str, str, Type]]:
+    lex_nodes = get_lex_nodes(dag)
+    return [(dag.get(node, 'word'), dag.get(node, 'pos'), dag.get(node, 'pt'),
+             dag.get(node, 'lemma'), type(dag.get(node, 'proof'))) for node in lex_nodes]
 
 
-def make_canonical(dag: DAG[str], term: T) -> T:
-    term = term.canonicalize_var_names()
-    lexical_assignments = {lex.constant: i for i, lex in enumerate(get_type_assignments(dag))}
-    term = term.translate_lex(lexical_assignments)
-    return term
-
+def make_sample(dag: DAG[str]) -> Sample:
+    return Sample(get_premises(dag), prove(dag), dag.meta['name'], )

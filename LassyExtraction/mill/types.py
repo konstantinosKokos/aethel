@@ -4,9 +4,9 @@
 # todo: Modal is itself ABC -- await pr @ https://github.com/python/cpython/pull/27648
 # todo: beta-reduction
 
+
 from __future__ import annotations
 
-import pdb
 from abc import ABCMeta
 from typing import TypeVar, Callable
 from typing import Type as TYPE
@@ -18,9 +18,10 @@ from enum import Enum
 ########################################################################################################################
 
 T = TypeVar('T', bound='Type')
-_SerializedType = tuple[TYPE, str, tuple[str, ...]] | \
-                  tuple[TYPE, '_SerializedType', '_SerializedType'] | \
-                  tuple[TYPE, str, '_SerializedType']
+SerializedType = tuple[TYPE, str, tuple[str, ...]] | \
+                 tuple[TYPE, '_SerializedType', '_SerializedType'] | \
+                 tuple[TYPE, str, '_SerializedType']
+SerializedProof = tuple[str, str, SerializedType | tuple[SerializedType, SerializedType], tuple[str, SerializedType]]
 
 
 class Type(ABCMeta):
@@ -30,7 +31,7 @@ class Type(ABCMeta):
     def __eq__(cls, other) -> bool: return type_eq(cls, other)
     def __hash__(cls) -> int: return type_hash(cls)
     def prefix(cls) -> str: return type_prefix(cls)
-    def serialize_type(cls) -> _SerializedType: return serialize_type(cls)
+    def serialize_type(cls) -> SerializedType: return serialize_type(cls)
 
     @classmethod
     def __init_subclass__(mcs, **kwargs):
@@ -184,7 +185,7 @@ def type_hash(type_: Type) -> int:
         case _: raise ValueError(f'Unknown type: {type_}')
 
 
-def serialize_type(type_: Type) -> _SerializedType:
+def serialize_type(type_: Type) -> SerializedType:
     match type_:
         case Atom(sign): return Atom, sign, tuple(str(base) for base in type_.__bases__ if isinstance(base, Type))
         case Functor(argument, result): return Functor, serialize_type(argument), serialize_type(result)
@@ -193,7 +194,7 @@ def serialize_type(type_: Type) -> _SerializedType:
         case _: raise ValueError(f'Unknown type: {type_}')
 
 
-def deserialize_type(serialized: _SerializedType) -> Type:
+def deserialize_type(serialized: SerializedType) -> Type:
     cls, *args = serialized
     if cls == Atom: return Atom(*args)
     if cls == Functor: return Functor(deserialize_type(args[0]), deserialize_type(args[1]))
@@ -417,12 +418,12 @@ class Proof:
             case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.free()
             case _: raise ValueError(f"Unrecognized rule: {self.rule}")
 
-    def vars(self: T) -> set[T]:
+    def vars(self: T) -> list[T]:
         match self.rule:
-            case Proof.Rule.Lexicon: return set()
-            case Proof.Rule.Axiom: return {self}
-            case Proof.Rule.ArrowElimination: return self.function.vars() | self.argument.vars()
-            case Proof.Rule.ArrowIntroduction: return self.abstraction.vars() | self.body.vars()
+            case Proof.Rule.Lexicon: return []
+            case Proof.Rule.Axiom: return [self]
+            case Proof.Rule.ArrowElimination: return self.function.vars() + self.argument.vars()
+            case Proof.Rule.ArrowIntroduction: return self.abstraction.vars() + self.body.vars()
             case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.vars()
             case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.vars()
 
@@ -459,7 +460,7 @@ class Proof:
                     return type(x).apply(fn, arg), trans
                 case Proof.Rule.ArrowIntroduction:
                     trans |= {x.abstraction.variable:
-                                  (var := next(k for k in range(999) if k not in trans.keys() | trans.values()))}
+                                  (var := next(k for k in range(999) if k not in trans.values()))}
                     body, trans = translate(x.body, trans)
                     return type(x).abstract(type(x.abstraction).var(var), body), trans
                 case Proof.Rule.BoxIntroduction:
@@ -476,27 +477,27 @@ class Proof:
                     return type(x).undiamond(wrapped), trans
         return translate(self, {})[0]
 
-    def eta_normalization(self: T) -> T:
+    def eta_norm(self: T) -> T:
         match self.rule:
             case Proof.Rule.Lexicon | Proof.Rule.Axiom: return self
             case Proof.Rule.ArrowElimination:
-                return Proof.apply(self.function.eta_normalization(), self.argument.eta_normalization())
+                return Proof.apply(self.function.eta_norm(), self.argument.eta_norm())
             case Proof.Rule.ArrowIntroduction:
-                body = self.body.eta_normalization()
+                body = self.body.eta_norm()
                 if body.rule == Proof.Rule.ArrowElimination and body.argument == self.abstraction:
                     return body.function
                 return Proof.abstract(self.abstraction, body)
             case Proof.Rule.BoxElimination:
-                return Proof.unbox(self.body.eta_normalization())
+                return Proof.unbox(self.body.eta_norm())
             case Proof.Rule.BoxIntroduction:
-                body = self.body.eta_normalization()
+                body = self.body.eta_norm()
                 if body.rule == Proof.Rule.BoxElimination and body.decoration == self.decoration:
                     return body.body
                 return Proof.box(self.decoration, body)
             case Proof.Rule.DiamondElimination:
-                return Proof.undiamond(self.body.eta_normalization())
+                return Proof.undiamond(self.body.eta_norm())
             case Proof.Rule.DiamondIntroduction:
-                body = self.body.eta_normalization()
+                body = self.body.eta_norm()
                 if body.rule == Proof.Rule.DiamondElimination and body.decoration == self.decoration:
                     return body.body
                 return Proof.diamond(self.decoration, body)
@@ -506,7 +507,7 @@ class Proof:
     def inplace_abstract(self: T, abstraction: T) -> T: return Proof.abstract(abstraction, self)
     def __sub__(self: T, other: T) -> T: return self.inplace_abstract(other)
 
-    def serialize(self: T) -> tuple[str, _SerializedType, ...]:
+    def serialize(self: T) -> tuple[str, SerializedType, ...]:
         name, st = self.rule.name, serialize_type(type(self))
         match self.rule:
             case Proof.Rule.Lexicon: return name, st, (self.constant,)
