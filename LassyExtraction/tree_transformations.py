@@ -423,6 +423,9 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
             dag.edges -= {Edge('0', '6', '--')}
             dag.edges |= {Edge(predcs, '6', 'crd')}
             dag.set('6', {'word': 'en', 'pos': 'vg', 'pt': 'vg', })
+        case 'dpc-ibm-001314-nl-sen.p.57.s.1.xml':
+            dag.edges |= {Edge('15', '48', 'cnj')}
+            dag.remove_nodes({'45', '46', '47'})
         # case 'WR-P-P-C-0000000055.txt-251.xml':
         #     # convert punct to crd to avoid losing the sample
         #     dag.edges -= {Edge('2', '1', 'punct')}
@@ -440,6 +443,7 @@ def assertions(dag: DAG[str]):
     # assert single root
     if len(rs := dag.get_roots()) != 1:
         # todo: 'WR-P-E-I-0000051928.p.1.s.4.xml
+        pdb.set_trace()
         print('many roots?')
     # assert tree structure
     assert all((len(dag.incoming_edges(n)) == 1 for n in dag.nodes if n not in rs))
