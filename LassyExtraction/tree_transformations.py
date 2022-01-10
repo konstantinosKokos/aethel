@@ -1,10 +1,15 @@
 import pdb
 from .utils.graph import DAG, Edge
 from xml.etree.cElementTree import ElementTree
+from typing import Iterator
 from .utils.viz import render
 
 
-def etree_to_dag(etree: ElementTree, name: str | None = None) -> list[DAG[str]]:
+def prepare_all(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[str]]:
+    return [subtree for etree in lassy for subtree in prepare_for_extraction(*etree)]
+
+
+def prepare_for_extraction(etree: ElementTree, name: str | None = None) -> list[DAG[str]]:
     def f(_dag: DAG[str]) -> DAG[str]:
         _dag = punct_to_crd(_dag)
         _dag = relabel_extra_crds(_dag)
@@ -147,30 +152,24 @@ def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
 
 
 def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
-    def has_sentential_parent(node: str) -> bool:
-        def is_sentential(_node: str) -> bool:
-            return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart'} or
-                    (cat == 'conj' and has_sentential_parent(_node)))
-        return any(map(is_sentential, dag.parents(node)))
+    def infinitival(_node: str) -> bool:
+        return ((cat := dag.get(_node, 'cat')) in {'inf', 'ti', 'ppart', 'ssub', } or
+                cat == 'conj' and any(infinitival(p) for p in dag.parents(_node)))
 
-    def top_rel_coindex(_node: str) -> bool:
-        nodes = find_coindexed(dag, dag.get(_node, 'index'))
-        if not {edge.label for node in nodes for edge in dag.incoming_edges(node)} & {'rhd', 'whd'}:
-            return False
-        common_ancestor = dag.first_common_predecessor(*nodes)
-        distances = {node: len(dag.shortest_path(common_ancestor, node)) for node in nodes if is_ghost(dag, node)}
-        return distances[_node] == min(distances.values())
+    def sentential(_node: str) -> bool:
+        return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart'} or
+                (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
 
-    def candidate(edge: Edge[str]) -> bool: return edge.label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
+    def candidate(label: str) -> bool:
+        return label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
 
-    def infinitival(node: str) -> bool:
-        return (cat := dag.get(node, 'cat') in {'inf', 'ppart', 'np', 'ssub'}) or \
-               (cat == 'conj' and any(map(infinitival, dag.parents(node))))
-
-    def cond(e: Edge[str]) -> bool:
-        return is_ghost(dag, e.target) and candidate(e) and infinitival(e.source) and \
-               has_sentential_parent(e.source) and not top_rel_coindex(e.target)
-    return dag.remove_edges(cond)
+    def is_understood(edge: Edge[str]) -> bool:
+        if is_ghost(dag, edge.target) and candidate(edge.label):
+            index = dag.get(edge.target, 'index')
+            return any(sentential(p) and any(dag.get(c, 'index') == index for c in dag.children(p))
+                       for p in dag.predecessors(edge.source))
+        return False
+    return dag.remove_edges(is_understood)
 
 
 def relabel_determiners(dag: DAG[str]) -> DAG[str]:
@@ -185,8 +184,8 @@ def relabel_determiners(dag: DAG[str]) -> DAG[str]:
         if 'cat' in attrs:
             dag.edges.add(Edge(edge.source, edge.target, 'mod'))
         else:
-            word, pos, pt = attrs['word'].lower(), attrs['pos'], attrs['pt']
-            if pt == 'lid' or word in determiners or word in possessives:
+            word, pos, pt = attrs['word'], attrs['pos'], attrs['pt']
+            if pt == 'lid' or (word.lower() in determiners and not word == word.upper()) or word.lower() in possessives:
                 dag.edges.add(Edge(edge.source, edge.target, 'det'))
             else:
                 dag.edges.add(Edge(edge.source, edge.target, 'mod'))
@@ -357,9 +356,8 @@ def factor_distributed_subgraphs(dag: DAG[str]) -> DAG[str]:
                 # simple relative clause over a conjunction
                 continue
             case _:
+                # ???
                 continue
-                # pdb.set_trace()
-                # raise NotImplementedError
     return dag
 
 
@@ -426,24 +424,24 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
         case 'dpc-ibm-001314-nl-sen.p.57.s.1.xml':
             dag.edges |= {Edge('15', '48', 'cnj')}
             dag.remove_nodes({'45', '46', '47'})
-        # case 'WR-P-P-C-0000000055.txt-251.xml':
-        #     # convert punct to crd to avoid losing the sample
-        #     dag.edges -= {Edge('2', '1', 'punct')}
-        #     dag.edges |= {Edge('23', '1', 'crd')}
-        #     dag.set('1', {'word': 'of', 'pos': 'vg', 'pt': 'vg'})
-        # case 'WR-P-P-C-0000000055.txt-140_141.xml':
-        #     # convert punct to crd to avoid losing the sample
-        #     dag.edges -= {Edge('0', '1', '--')}
-        #     dag.edges |= {Edge('4', '1', 'crd')}
-        #     dag.set('1', {'word': 'of', 'pos': 'vg', 'pt': 'vg'}
+        case 'WR-P-E-I-0000050381.p.1.s.338.xml':
+            # (het ene _ na het andere _) X case
+            dag.remove_nodes({'18', '21'})
+            dag.edges -= {Edge('18', '27', 'hd'), Edge('18', '19', 'det'), Edge('18', '20', 'mod'),
+                          Edge('18', '21', 'mod'), Edge('23', '26', 'hd')}
+            left, conj = add_fresh_nodes(dag, 2)
+            dag.edges |= {Edge('17', conj, 'su'), Edge(conj, '22', 'crd'), Edge(conj, left, 'cnj'),
+                          Edge(conj, '23', 'cnj'), Edge(left, '27', 'hd'), Edge(left, '19', 'det'),
+                          Edge(left, '20', 'mod'), Edge('23', '26', 'hd'), Edge('23', '24', 'det'),
+                          Edge('23', '25', 'mod')}
+            dag.set(conj, {'begin': dag.get('19', 'begin'), 'end': dag.get('26', 'end'), 'cat': 'conj'})
+            dag.set(left, {'begin': dag.get('19', 'begin'), 'end': dag.get('20', 'end'), 'cat': 'np'})
     return dag
 
 
 def assertions(dag: DAG[str]):
     # assert single root
     if len(rs := dag.get_roots()) != 1:
-        # todo: 'WR-P-E-I-0000051928.p.1.s.4.xml
-        pdb.set_trace()
-        print('many roots?')
+        raise ValueError('Too many roots!')
     # assert tree structure
     assert all((len(dag.incoming_edges(n)) == 1 for n in dag.nodes if n not in rs))
