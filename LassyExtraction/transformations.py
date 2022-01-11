@@ -1,3 +1,7 @@
+"""
+
+"""
+
 import pdb
 from .utils.graph import DAG, Edge
 from xml.etree.cElementTree import ElementTree
@@ -5,7 +9,7 @@ from typing import Iterator
 from .utils.viz import render
 
 
-def prepare_all(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[str]]:
+def prepare_many(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[str]]:
     return [subtree for etree in lassy for subtree in prepare_for_extraction(*etree)]
 
 

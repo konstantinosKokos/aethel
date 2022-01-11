@@ -18,10 +18,13 @@ from enum import Enum
 ########################################################################################################################
 
 T = TypeVar('T', bound='Type')
-SerializedType = tuple[TYPE, str, tuple[str, ...]] | \
-                 tuple[TYPE, '_SerializedType', '_SerializedType'] | \
-                 tuple[TYPE, str, '_SerializedType']
-SerializedProof = tuple[str, str, SerializedType | tuple[SerializedType, SerializedType], tuple[str, SerializedType]]
+SerializedType = tuple[TYPE, tuple[str]] | \
+                 tuple[TYPE, tuple['SerializedType', 'SerializedType']] | \
+                 tuple[TYPE, tuple[str, 'SerializedType']]
+SerializedProof = tuple[str, tuple[SerializedType, int]] | \
+                  tuple[str, tuple['SerializedProof', 'SerializedProof']] | \
+                  tuple[str, tuple[str, 'SerializedProof']] | \
+                  tuple[str, tuple['SerializedProof']]
 
 
 class Type(ABCMeta):
@@ -57,7 +60,7 @@ class Atom(Type):
     def __new__(mcs, sign: str, bases: tuple[Type, ...] = ()) -> Atom:
         return super(Atom, mcs).__new__(mcs, sign, bases)
 
-    def __init__(cls, sign: str, bases: tuple[Type, ...] = ()) -> None:
+    def __init__(cls, sign: str, _: tuple[Type, ...] = ()) -> None:
         super(Atom, cls).__init__(cls)
         cls.sign = sign
 
@@ -70,7 +73,7 @@ class Functor(Type):
     __match_args__ = ('argument', 'result')
 
     def __new__(mcs, argument: Type, result: Type) -> Functor:
-        return super(Functor, mcs).__new__(mcs, Functor.print(argument, result))
+        return super(Functor, mcs).__new__(mcs, Functor.repr(argument, result))
 
     def __init__(cls, argument: Type, result: Type) -> None:
         super(Functor, cls).__init__(cls)
@@ -78,7 +81,7 @@ class Functor(Type):
         cls.result = result
 
     @staticmethod
-    def print(argument: Type, result: Type) -> str:
+    def repr(argument: Type, result: Type) -> str:
         def par(x: Type) -> str: return f"({x})" if x.order() > 0 else f'{x}'
         return f'{par(argument)}⊸{result}'
 
@@ -134,7 +137,7 @@ def type_order(type_: Type) -> int:
 def type_repr(type_: Type) -> str:
     match type_:
         case Atom(sign): return sign
-        case Functor(argument, result): return Functor.print(argument, result)
+        case Functor(argument, result): return Functor.repr(argument, result)
         case Box(decoration, content): return f'□{decoration}({type_repr(content)})'
         case Diamond(decoration, content): return f'◇{decoration}({type_repr(content)})'
         case _: raise ValueError(f'Unknown type: {type_}')
@@ -187,20 +190,28 @@ def type_hash(type_: Type) -> int:
 
 def serialize_type(type_: Type) -> SerializedType:
     match type_:
-        case Atom(sign): return Atom, sign, tuple(str(base) for base in type_.__bases__ if isinstance(base, Type))
-        case Functor(argument, result): return Functor, serialize_type(argument), serialize_type(result)
-        case Box(decoration, content): return Box, decoration, serialize_type(content)
-        case Diamond(decoration, content): return Diamond, decoration, serialize_type(content)
+        case Atom(sign): return Atom, (sign,)
+        case Functor(argument, result): return Functor, (serialize_type(argument), serialize_type(result))
+        case Box(decoration, content): return Box, (decoration, serialize_type(content))
+        case Diamond(decoration, content): return Diamond, (decoration, serialize_type(content))
         case _: raise ValueError(f'Unknown type: {type_}')
 
 
 def deserialize_type(serialized: SerializedType) -> Type:
-    cls, *args = serialized
-    if cls == Atom: return Atom(*args)
-    if cls == Functor: return Functor(deserialize_type(args[0]), deserialize_type(args[1]))
-    if cls == Box: return Box(args[0], deserialize_type(args[1]))
-    if cls == Diamond: return Diamond(args[0], deserialize_type(args[1]))
-    raise ValueError(f'{cls} is not a type constructor.')
+    cls, args = serialized
+    if cls == Atom:
+        (sign,) = args
+        return Atom(sign)
+    if cls == Functor:
+        (left, right) = args
+        return Functor(deserialize_type(left), deserialize_type(right))
+    if cls == Box:
+        (decoration, content) = args
+        return Box(decoration, deserialize_type(content))
+    if cls == Diamond:
+        (decoration, content) = args
+        return Diamond(decoration, deserialize_type(content))
+    raise ValueError(f'Unknown type: {cls}')
 
 
 ########################################################################################################################
@@ -343,7 +354,7 @@ class Proof:
                 case Proof.Rule.DiamondElimination | self.rule.DiamondIntroduction:
                     return self.decoration == other.decoration and self.body == other.body
                 case _:
-                    raise ValueError(f"Unrecognized rule: {self.rule}")
+                    raise ValueError(f'Unrecognized rule: {self.rule}')
         return False
 
     def __hash__(self) -> int:
@@ -356,7 +367,7 @@ class Proof:
                 return hash((self.rule, type(self), self.decoration, self.body))
             case Proof.Rule.DiamondElimination | self.rule.DiamondIntroduction:
                 return hash((self.rule, type(self), self.decoration, self.body))
-            case _: raise ValueError(f"Unrecognized rule: {self.rule}")
+            case _: raise ValueError(f'Unrecognized rule: {self.rule}')
 
     @classmethod
     def con(cls: T, c: int) -> T:
@@ -416,7 +427,6 @@ class Proof:
             case Proof.Rule.ArrowIntroduction: return [f for f in self.body.free() if f != self.abstraction]
             case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.free()
             case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.free()
-            case _: raise ValueError(f"Unrecognized rule: {self.rule}")
 
     def vars(self: T) -> list[T]:
         match self.rule:
@@ -507,39 +517,38 @@ class Proof:
     def inplace_abstract(self: T, abstraction: T) -> T: return Proof.abstract(abstraction, self)
     def __sub__(self: T, other: T) -> T: return self.inplace_abstract(other)
 
-    def serialize(self: T) -> tuple[str, SerializedType, ...]:
-        name, st = self.rule.name, serialize_type(type(self))
+    def serialize(self: T) -> SerializedProof:
+        name = self.rule.name
         match self.rule:
-            case Proof.Rule.Lexicon: return name, st, (self.constant,)
-            case Proof.Rule.Axiom: return name, st, (self.variable,)
-            case Proof.Rule.ArrowElimination: return name, st, (self.function.serialize(), self.argument.serialize())
-            case Proof.Rule.ArrowIntroduction: return name, st, (self.abstraction.serialize(), self.body.serialize())
-            case Proof.Rule.BoxElimination: return name, st, (self.body.serialize(),)
-            case Proof.Rule.BoxIntroduction: return name, st, (self.decoration, self.body.serialize())
-            case Proof.Rule.DiamondElimination: return name, st, (self.body.serialize(),)
-            case Proof.Rule.DiamondIntroduction: return name, st, (self.decoration, self.body.serialize())
+            case Proof.Rule.Lexicon: return name, (serialize_type(type(self)), self.constant,)
+            case Proof.Rule.Axiom: return name, (serialize_type(type(self)), self.variable,)
+            case Proof.Rule.ArrowElimination: return name, (self.function.serialize(), self.argument.serialize())
+            case Proof.Rule.ArrowIntroduction: return name, (self.abstraction.serialize(), self.body.serialize())
+            case Proof.Rule.BoxElimination: return name, (self.body.serialize(),)
+            case Proof.Rule.BoxIntroduction: return name, (self.decoration, self.body.serialize())
+            case Proof.Rule.DiamondElimination: return name, (self.body.serialize(),)
+            case Proof.Rule.DiamondIntroduction: return name, (self.decoration, self.body.serialize())
 
     @classmethod
     def deserialize_proof(cls, *args):
         match args:
-            case Proof.Rule.Lexicon.name, wordtype, (idx,):
+            case Proof.Rule.Lexicon.name, (wordtype, idx):
                 return deserialize_type(wordtype).con(idx)
-            case Proof.Rule.Axiom.name, wordtype, (idx,):
+            case Proof.Rule.Axiom.name, (wordtype, idx):
                 return deserialize_type(wordtype).var(idx)
-            case Proof.Rule.ArrowElimination.name, wordtype, (left, right):
-                return deserialize_type(wordtype).apply(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
-            case Proof.Rule.ArrowIntroduction.name, wordtype, (left, right):
-                return deserialize_type(wordtype).abstract(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
-            case Proof.Rule.BoxElimination.name, wordtype, (body,):
-                return deserialize_type(wordtype).unbox(Proof.deserialize_proof(*body))
-            case Proof.Rule.BoxIntroduction.name, wordtype, (decoration, body,):
-                return deserialize_type(wordtype).box(decoration, Proof.deserialize_proof(*body))
-            case Proof.Rule.DiamondElimination.name, wordtype, (body,):
-                return deserialize_type(wordtype).undiamond(Proof.deserialize_proof(*body))
-            case Proof.Rule.DiamondIntroduction.name, wordtype, (decoration, body,):
-                return deserialize_type(wordtype).diamond(decoration, Proof.deserialize_proof(*body))
-            case _:
-                raise ValueError(f"Invalid proof: {args}")
+            case Proof.Rule.ArrowElimination.name, (left, right):
+                return Proof.apply(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
+            case Proof.Rule.ArrowIntroduction.name, (left, right):
+                return Proof.abstract(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
+            case Proof.Rule.BoxElimination.name, (body,):
+                return Proof.unbox(Proof.deserialize_proof(*body))
+            case Proof.Rule.BoxIntroduction.name, (decoration, body,):
+                return Proof.box(decoration, Proof.deserialize_proof(*body))
+            case Proof.Rule.DiamondElimination.name, (body,):
+                return Proof.undiamond(Proof.deserialize_proof(*body))
+            case Proof.Rule.DiamondIntroduction.name, (decoration, body,):
+                return Proof.diamond(decoration, Proof.deserialize_proof(*body))
+            case _: raise ValueError(f'Cannot deserialize {args}')
 
 
 def show_term(
@@ -577,5 +586,3 @@ def show_term(
             return f'▿{proof.decoration}({f(proof.body)})'
         case Proof.Rule.DiamondIntroduction:
             return f'▵{proof.decoration}({f(proof.body)})'
-        case _:
-            raise ValueError(f'Unrecognized rule: {proof.rule}')

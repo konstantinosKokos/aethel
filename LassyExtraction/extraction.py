@@ -1,7 +1,11 @@
+"""
+    Pipeline for assigning a proof to a transformed tree and its subtrees.
+"""
+
+
 import pdb
-from .mill.types import Type, Atom, Functor, Diamond, Box, Proof, T, TypeInference
-from .tree_transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, get_lex_nodes
-from .aethel import Sample
+from .mill.types import Type, Atom, Functor, Diamond, Box, Proof, T
+from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
 from .utils.viz import render
 from functools import reduce
 from typing import Iterable, Callable
@@ -136,9 +140,13 @@ def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
         # if len(set(map(len, per_conjunct))) != 1:
         #     pdb.set_trace()
         abstraction_types = [type(dag.get(var, 'proof')) for c in per_conjunct for var in c]
+        if not abstraction_types:
+            raise ExtractionError('No type found for {}'.format(_node_id))
+            # todo: see e.g. WR-P-E-I-0000027216.p.1.s.23.xml
         # todo: assertion about polymorphism, or choice of most general abstraction type
         # if len(set(abstraction_types)) != 1:
         #     print([(print_dag(dag, next(iter(pc))), abst) for pc, abst in zip(per_conjunct, abstraction_types)])
+
         return next(iter(abstraction_types))
 
     # terminal case
@@ -213,7 +221,6 @@ def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
             crd_term = _prove(dag, crd, None, crd_type)
             return unbox_and_apply(apply(crd_term, all_args), dist_adj_terms)
         case [*cs], _, [*heads], _, _, _:
-            pdb.set_trace()
             raise ExtractionError('Headless conjunction')
         case _:
             pdb.set_trace()
@@ -240,14 +247,7 @@ def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...
 def prove(dag: DAG[str]) -> T:
     if len(roots := dag.get_roots()) > 1:
         raise ValueError('Multiple roots')
-    return _prove(dag, next(iter(roots)), None, None)
-
-
-def get_premises(dag: DAG[str]) -> list[tuple[str, str, str, str, Type]]:
-    lex_nodes = get_lex_nodes(dag)
-    return [(dag.get(node, 'word'), dag.get(node, 'pos'), dag.get(node, 'pt'),
-             dag.get(node, 'lemma'), type(dag.get(node, 'proof'))) for node in lex_nodes]
-
-
-def make_sample(dag: DAG[str]) -> Sample:
-    return Sample(get_premises(dag), prove(dag), dag.meta['name'], )
+    proof = _prove(dag, next(iter(roots)), None, None)
+    if proof.free():
+        raise ExtractionError('Free variables unaccounted for')
+    return proof

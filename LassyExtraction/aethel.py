@@ -38,11 +38,6 @@ class Sample(NamedTuple):
         return Sample([Premise.load(*premise) for premise in premises], Proof.deserialize_proof(sproof), name, subset)
 
 
-def store_data(data: list[Sample], path: str) -> None:
-    with open(path, 'wb') as f:
-        pickle.dump([data.save() for data in data], f)
-
-
 def load_data(path: str) -> list[Sample]:
     with open(path, 'rb') as f:
         return [Sample.load(*data) for data in pickle.load(f)]
