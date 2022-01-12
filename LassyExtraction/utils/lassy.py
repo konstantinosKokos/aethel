@@ -1,3 +1,7 @@
+"""
+    A helper class to load and index Lassy analyses.
+"""
+
 from xml.etree.cElementTree import ElementTree, parse
 from os import path, walk
 from glob import glob

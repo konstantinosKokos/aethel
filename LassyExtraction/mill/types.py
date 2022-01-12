@@ -529,26 +529,27 @@ class Proof:
             case Proof.Rule.DiamondElimination: return name, (self.body.serialize(),)
             case Proof.Rule.DiamondIntroduction: return name, (self.decoration, self.body.serialize())
 
-    @classmethod
-    def deserialize_proof(cls, *args):
-        match args:
-            case Proof.Rule.Lexicon.name, (wordtype, idx):
-                return deserialize_type(wordtype).con(idx)
-            case Proof.Rule.Axiom.name, (wordtype, idx):
-                return deserialize_type(wordtype).var(idx)
-            case Proof.Rule.ArrowElimination.name, (left, right):
-                return Proof.apply(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
-            case Proof.Rule.ArrowIntroduction.name, (left, right):
-                return Proof.abstract(Proof.deserialize_proof(*left), Proof.deserialize_proof(*right))
-            case Proof.Rule.BoxElimination.name, (body,):
-                return Proof.unbox(Proof.deserialize_proof(*body))
-            case Proof.Rule.BoxIntroduction.name, (decoration, body,):
-                return Proof.box(decoration, Proof.deserialize_proof(*body))
-            case Proof.Rule.DiamondElimination.name, (body,):
-                return Proof.undiamond(Proof.deserialize_proof(*body))
-            case Proof.Rule.DiamondIntroduction.name, (decoration, body,):
-                return Proof.diamond(decoration, Proof.deserialize_proof(*body))
-            case _: raise ValueError(f'Cannot deserialize {args}')
+
+def deserialize_proof(args):
+    match args:
+        case Proof.Rule.Lexicon.name, (wordtype, idx):
+            return deserialize_type(wordtype).con(idx)
+        case Proof.Rule.Axiom.name, (wordtype, idx):
+            return deserialize_type(wordtype).var(idx)
+        case Proof.Rule.ArrowElimination.name, (left, right):
+            return Proof.apply(deserialize_proof(left), deserialize_proof(right))
+        case Proof.Rule.ArrowIntroduction.name, (left, right):
+            return Proof.abstract(deserialize_proof(left), deserialize_proof(right))
+        case Proof.Rule.BoxElimination.name, (body,):
+            return Proof.unbox(deserialize_proof(body))
+        case Proof.Rule.BoxIntroduction.name, (decoration, body,):
+            return Proof.box(decoration, deserialize_proof(body))
+        case Proof.Rule.DiamondElimination.name, (body,):
+            return Proof.undiamond(deserialize_proof(body))
+        case Proof.Rule.DiamondIntroduction.name, (decoration, body,):
+            return Proof.diamond(decoration, deserialize_proof(body))
+        case _:
+            raise ValueError(f'Cannot deserialize {args}')
 
 
 def show_term(

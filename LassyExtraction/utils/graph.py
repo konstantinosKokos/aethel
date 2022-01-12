@@ -1,3 +1,7 @@
+"""
+    Bunch of utilities and helper functions for graph representation and traversal.
+"""
+
 from typing import Generic, TypeVar, Any, Iterator, Callable, overload
 from functools import reduce
 
@@ -200,4 +204,4 @@ class DAG(Generic[Node]):
     def __le__(self, other) -> bool: return self.is_subgraph_of(other) or self == other
     def __eq__(self, other) -> bool: return self.nodes == other.nodes and self.edges == other.edges
     def __ne__(self, other) -> bool: return not self == other
-    def __gt__(self, other) -> bool:return not self <= other
+    def __gt__(self, other) -> bool: return not self <= other

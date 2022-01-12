@@ -1,4 +1,5 @@
-from LassyExtraction.mill.types import Proof, Type, show_term, deserialize_type, SerializedType, SerializedProof
+from LassyExtraction.mill.types import (Proof, Type, show_term, deserialize_type, SerializedType, SerializedProof,
+                                        deserialize_proof)
 from typing import NamedTuple
 import pickle
 
@@ -35,7 +36,7 @@ class Sample(NamedTuple):
              sproof: SerializedProof,
              name: str,
              subset: str) -> 'Sample':
-        return Sample([Premise.load(*premise) for premise in premises], Proof.deserialize_proof(sproof), name, subset)
+        return Sample([Premise.load(*premise) for premise in premises], deserialize_proof(sproof), name, subset)
 
 
 def load_data(path: str) -> list[Sample]:

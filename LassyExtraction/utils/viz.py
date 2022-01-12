@@ -1,3 +1,8 @@
+"""
+    A helper class for visualizing extracted/transformed graphs.
+"""
+
+
 import graphviz as gv
 from .graph import DAG
 
