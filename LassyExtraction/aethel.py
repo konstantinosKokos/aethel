@@ -38,6 +38,9 @@ class Sample(NamedTuple):
              subset: str) -> 'Sample':
         return Sample([Premise.load(*premise) for premise in premises], deserialize_proof(sproof), name, subset)
 
+    def show_sentence(self) -> str:
+        return ''.join([premise.word for premise in self.premises])
+
 
 def load_data(path: str) -> list[Sample]:
     with open(path, 'rb') as f:
