@@ -58,7 +58,7 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ### Installing & Using with æthel
 This repository is required to access and play around with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
-You will need to download the most recent binarized version of the corpus (a download link will appear soon). 
+You will need to download the most recent binarized version of the dataset (a download link will appear soon). 
 Begin by cloning the project locally and placing the dump file in `data/`.
 You can then load the dump by running:
 
