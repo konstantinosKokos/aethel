@@ -1,5 +1,5 @@
 """
-
+    Pipeline for making data graphs compatible with the proof extraction algorithm.
 """
 
 import pdb
