@@ -8,7 +8,7 @@ Lassy-style dependency graphs.
 ---
 
 **Cool things to look out for**:
-* an interface to Alpino outputs -- convert constituency graphs to λ-terms and annoy your informal linguist friends!
+* an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert constituency graphs to λ-terms and annoy your informal linguist friends!
 * a working implementation of a type system and term calculus using metaclasses -- show it to Haskell 
 programmers and watch them rage in disgust!
 
