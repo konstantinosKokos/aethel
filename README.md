@@ -30,7 +30,8 @@ Some previously problematic cases are now handled by duplicating the missing mat
 sentence into all of the independent generated samples, maintaining grammaticality and increasing average  
 sentence length.
 * **Compatibility**: this and following versions of the extraction will *no longer be compatible* with 
-older dataset releases (≤ 0.4.dev).  
+older dataset releases (≤ 0.4.dev). Train/dev/test segmentation is respected to the largest extent possible. 
+If looking for older versions, take a look at other branches of this repository.
 ---
 
 ### Project Structure
@@ -58,30 +59,32 @@ If you intend to use the visualization utilities you will also need GraphViz.
 ### Installing & Using with æthel
 This repository is required to access and play around with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
-You will need to download the most recent binarized version of the dataset (a download link will appear soon). 
-Begin by cloning the project locally and placing the dump file in `data/`.
+You will need to download the most recent binarized version of the dataset ([0.9.dev0](https://surfdrive.surf.nl/files/index.php/s/a3mySlereVtzDSF)). 
+Begin by cloning the project locally and placing the dump file in `data/` (remember to unzip).
 You can then load the dump by running:
 
 ```
-from LassyExtraction.aethel import load_data
-samples = load_data(PATH_TO_DUMP_FILE)
+from LassyExtraction.aethel import aethel
+dataset = aethel.load_data(PATH_TO_DUMP_FILE)
 ```
-samples are instances of the `Sample` class, which contains several attributes of interest. Note that loading might take 
-a short while, as proofs are reconstructed bottom up and type-checked along the way.
+where the dataset is a container of instances of the `Sample` class. 
+Note that loading might take a short while, as proofs are reconstructed bottom up and type-checked along the way.
 
 Example usage:
 ```
->>> sample = samples[1312]
->>> print(sample.show_sentence())
-De zonen van de verdreven sharif Hoessein kwamen in Transjordanië en Irak op de troon .
+>>> print(dataset)
+æthel dump version 0.9.dev0, containing 56858 training samples, 6095 dev samples, and 5766 test samples.
+>>> sample = dataset.train[1312]
 >>> print(sample)
-▾mod(in::◇obj1(NP)⊸□mod(SMAIN⊸SMAIN) ▵obj1(en::◇cnj(NP)⊸◇cnj(NP)⊸NP ▵cnj(Irak::NP) ▵cnj(Transjordanië::NP))) (kwamen::◇ld(PP)⊸◇su(NP)⊸SMAIN ▵ld(op::◇obj1(NP)⊸PP ▵obj1(▾det(de::□det(N⊸NP)) troon::N)) ▵su(▾mod(van::◇obj1(NP)⊸□mod(NP⊸NP) ▵obj1(▾mod(verdreven::□mod(NP⊸NP)) (▾app(Hoessein::□app(NP⊸NP)) (▾det(de::□det(N⊸NP)) sharif::N)))) (▾det(De::□det(N⊸NP)) zonen::N)))
->>> print(sample.premises[10])
-Premise(word='en', pos='vg', pt='vg', lemma='en', type=◇cnj(NP)⊸◇cnj(NP)⊸NP)
+WR-P-E-I-0000015007.p.1.s.120.xml(1)
+>>> print(sample.show_sentence())
+De toenemende spanning bereikte een voorlopig hoogtepunt met de Arabische opstand die begon in 1936 en in 1939 door bijzonder hardhandig ingrijpen van het Britse leger tot een einde kwam .
+>>> print(sample.show_proof())
+▾mod(met::◇obj1(NP)⊸□mod(SMAIN⊸SMAIN) ▵obj1(▾mod(Arabische::□mod(NP⊸NP)) (▾mod(die::(◇relcl(◇su(VNW)⊸◇su(VNW)⊸SSUB))⊸□mod(NP⊸NP) ▵relcl(λx0.(λx1.(en::◇cnj(SSUB)⊸◇cnj(SSUB)⊸SSUB ▵cnj(▾mod(in::◇obj1(TW)⊸□mod(SSUB⊸SSUB) ▵obj1(1939::TW)) (▾mod(door::◇obj1(NP)⊸□mod(SSUB⊸SSUB) ▵obj1(▾mod(▾mod(bijzonder::□mod((□mod(NP⊸NP))⊸□mod(NP⊸NP))) hardhandig::□mod(NP⊸NP)) (▾mod(van::◇obj1(NP)⊸□mod(NP⊸NP) ▵obj1(▾mod(Britse::□mod(NP⊸NP)) (▾det(het::□det(N⊸NP)) leger::N))) ingrijpen::NP))) (kwam::◇pc(PP)⊸◇su(VNW)⊸SSUB ▵pc(tot::◇obj1(NP)⊸PP ▵obj1(▾det(een::□det(N⊸NP)) einde::N)) x0::◇su(VNW)))) ▵cnj(▾mod(in::◇obj1(TW)⊸□mod(SSUB⊸SSUB) ▵obj1(1936::TW)) (begon::◇su(VNW)⊸SSUB x1::◇su(VNW))))))) (▾det(de::□det(N⊸NP)) opstand::N)))) (bereikte::◇obj1(NP)⊸◇su(NP)⊸SMAIN ▵obj1(▾mod(voorlopig::□mod(NP⊸NP)) (▾det(een::□det(N⊸NP)) hoogtepunt::N)) ▵su(▾mod(toenemende::□mod(NP⊸NP)) (▾det(De::□det(N⊸NP)) spanning::N)))
+>>> print(sample.premises[12])
+Premise(word='begon', pos='verb', pt='ww', lemma='beginnen', type=◇su(VNW)⊸SSUB)
 >>> print(sample.subset)
-train
->>> print(sample.name)
-WR-P-E-I-0000051928.p.1.s.138.xml(1)
+dev
 ```
 ---
 ### Citing

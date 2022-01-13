@@ -7,7 +7,7 @@ import os
 
 
 name_to_subset = {name: subset for name, subset in
-                  map(lambda x: x.split('\t'), open('../LassyExtraction/data/name_to_subset.tsv').read().splitlines())}
+                  map(lambda x: x.split('\t'), open('./data/name_to_subset.tsv').read().splitlines())}
 
 
 def get_premises(dag: DAG[str], attrs: tuple[str, ...]) -> list[tuple]:
@@ -28,9 +28,10 @@ def make_sample(dag: DAG[str]) -> Sample:
         subset=name_to_subset[name.split('(')[0]])
 
 
-def store_aethel(transform_path: str = '../LassyExtraction/data/transformed.pickle',
+def store_aethel(version: str,
+                 transform_path: str = './data/transformed.pickle',
                  save_intermediate: bool = False,
-                 output_path: str = '../LassyExtraction/data/aethel.pickle'):
+                 output_path: str = f'./data/aethel.pickle') -> None:
     import pickle
     if save_intermediate or not os.path.exists(transform_path):
         with open(transform_path, 'wb') as f:
@@ -47,19 +48,19 @@ def store_aethel(transform_path: str = '../LassyExtraction/data/transformed.pick
             print('Loaded.')
 
     print('Proving transformed trees...')
-    samples = []
+    train, dev, test = [], [], []
     for tree in transformed:
         try:
             sample = make_sample(tree)
         except ExtractionError:
             continue
-        samples.append(sample)
-    print(f'Proved {len(samples)} samples. (coverage: {len(samples) / len(transformed)})')
+        (train if sample.subset == 'train' else dev if sample.subset == 'dev' else test).append(sample)
+    print(f'Proved {(l:=sum(map(len, (train, dev, test))))} samples. (coverage: {l / len(transformed)})')
     print('Saving samples...')
     with open(output_path, 'wb') as f:
-        pickle.dump([sample.save() for sample in samples], f)
+        pickle.dump((version, [[sample.save() for sample in subset] for subset in (train, dev, test)]), f)
     print('Done.')
 
 
 if __name__ == '__main__':
-    store_aethel()
+    store_aethel('0.9.dev0')
