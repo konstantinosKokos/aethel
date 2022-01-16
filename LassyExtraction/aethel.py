@@ -8,27 +8,19 @@ import pickle
 @dataclass(frozen=True)
 class aethel:
     version: str
-    train: list[Sample]
-    dev: list[Sample]
-    test: list[Sample]
+    data: list[Sample]
 
-    def __repr__(self) -> str:
-        return f"æthel dump version {self.version}," \
-               f" containing {len(self.train)} training samples, " \
-               f"{len(self.dev)} dev samples, " \
-               f"and {len(self.test)} test samples."
-
-    def __post_init__(self):
-        print(f'Loaded {self}')
+    def __getitem__(self, item: int) -> Sample: return self.data[item]
+    def __len__(self) -> int: return len(self.data)
+    def find_by_name(self, name: str) -> list[Sample]: return [sample for sample in self.data if name in sample.name]
+    def __repr__(self) -> str: return f"æthel dump version {self.version} containing {len(self)} samples."
+    def __post_init__(self): print(f'Loaded {self}')
 
     @staticmethod
     def load_data(path: str) -> aethel:
         with open(path, 'rb') as f:
             version, (train, dev, test) = pickle.load(f)
-            return aethel(version=version,
-                          train=[Sample.load(*s) for s in train],
-                          dev=[Sample.load(*s) for s in dev],
-                          test=[Sample.load(*s) for s in test])
+            return aethel(version=version, data=[Sample.load(*x) for x in train+dev+test])
 
 
 @dataclass(frozen=True)
@@ -38,8 +30,7 @@ class Sample:
     name: str
     subset: 'str'
 
-    def __repr__(self):
-        return self.name
+    def __len__(self) -> int: return len(self.premises)
 
     def show_term(self, show_decorations: bool = True, show_types: bool = True, show_words: bool = True) -> str:
         return show_term(self.proof,

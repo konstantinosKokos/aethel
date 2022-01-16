@@ -34,10 +34,10 @@ def store_aethel(version: str,
                  output_path: str = f'./data/aethel.pickle') -> None:
     import pickle
     if save_intermediate or not os.path.exists(transform_path):
+        lassy = Lassy()
+        print('Transforming LASSY trees...')
+        transformed = prepare_many(lassy)
         with open(transform_path, 'wb') as f:
-            lassy = Lassy()
-            print('Transforming LASSY trees...')
-            transformed = prepare_many(lassy)
             print('Saving transformed trees...')
             pickle.dump(transformed, f)
             print('Done.')

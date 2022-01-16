@@ -133,7 +133,7 @@ def get_lex_nodes(dag: DAG[str], root: str | None = None) -> list[str]:
     return [node for node in nodes if dag.get(node, 'word') is not None]
 
 
-def print_dag(dag: DAG[str], root: str | None = None) -> str:
+def get_sentence(dag: DAG[str], root: str | None = None) -> str:
     return ' '.join([dag.get(node, 'word') for node in get_lex_nodes(dag, root)])
 
 
