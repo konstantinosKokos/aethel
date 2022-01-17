@@ -1,6 +1,6 @@
 import pdb
 
-from .types import Type, Atom, Functor, Box, Diamond, Proof, Modal, T
+from .types import Type, Atom, Functor, Box, Diamond, Proof, T
 from typing import NamedTuple
 
 
@@ -9,7 +9,7 @@ class Leaf(NamedTuple):
     polarity: bool
     index: int
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{self.atom}({"+" if self.polarity else "-"},{self.index})'
 
 
@@ -19,11 +19,17 @@ class Unary(NamedTuple):
     decoration: str
     content: 'Tree'
 
+    def __repr__(self) -> str:
+        return f'Unary({"+" if self.polarity else "-"}, {self.modality}{self.decoration}, {self.content})'
+
 
 class Binary(NamedTuple):
     polarity: bool
     left: 'Tree'
     right: 'Tree'
+
+    def __repr__(self) -> str:
+        return f'Binary({"+" if self.polarity else "-"}, {self.left}, {self.right})'
 
 
 Tree = Leaf | Unary | Binary
