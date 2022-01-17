@@ -5,7 +5,7 @@ with open('README.md', 'r', encoding='utf-8') as rm:
 
 setup(
     name='LassyExtraction',
-    version='0.9.dev0a',
+    version='0.9.dev0',
     author='Konstantinos Kogkalidis',
     author_email='k.kogkalidis@uu.nl',
     description='Tool suite for the representation of Modal Intuitionistic Linear Logic theorems and their extraction '
