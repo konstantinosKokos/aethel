@@ -362,7 +362,7 @@ class Proof:
             case Proof.Rule.Lexicon: return hash((self.rule, type(self), self.constant))
             case Proof.Rule.Axiom: return hash((self.rule, type(self), self.variable))
             case Proof.Rule.ArrowElimination: return hash((self.rule, type(self), self.function, self.argument))
-            case Proof.Rule.ArrowIntroduction: return hash((self.rule, type(self), self.variable, self.body))
+            case Proof.Rule.ArrowIntroduction: return hash((self.rule, type(self), self.abstraction, self.body))
             case Proof.Rule.BoxElimination | self.rule.BoxIntroduction:
                 return hash((self.rule, type(self), self.decoration, self.body))
             case Proof.Rule.DiamondElimination | self.rule.DiamondIntroduction:
