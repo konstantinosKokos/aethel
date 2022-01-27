@@ -580,10 +580,10 @@ def show_term(
             var, body = proof.abstraction, proof.body
             return f'λ{v(var)}.({f(body)})' if needs_par(body) else f'λ{v(var)}.({f(body)})'
         case Proof.Rule.BoxElimination:
-            return f'▾{proof.decoration}({f(proof.body)})'
+            return f'▾{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
         case Proof.Rule.BoxIntroduction:
-            return f'▴{proof.decoration}({f(proof.body)})'
+            return f'▴{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
         case Proof.Rule.DiamondElimination:
-            return f'▿{proof.decoration}({f(proof.body)})'
+            return f'▿{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
         case Proof.Rule.DiamondIntroduction:
-            return f'▵{proof.decoration}({f(proof.body)})'
+            return f'▵{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
