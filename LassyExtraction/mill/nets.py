@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 
 class Leaf(NamedTuple):
-    atom: Atom
+    atom: str
     polarity: bool
     index: int
 
@@ -37,8 +37,8 @@ Tree = Leaf | Unary | Binary
 
 def type_to_tree(_type: Type, polarity: bool = True, index: int = 0, step: int = 1) -> tuple[Tree, int]:
     match _type:
-        case Atom(_):
-            return Leaf(_type, polarity, index), index + step                                             # type: ignore
+        case Atom(a):
+            return Leaf(a, polarity, index), index + step                                             # type: ignore
         case Functor(argument, result):
             left_tree, index = type_to_tree(argument, not polarity, index, step)
             right_tree, index = type_to_tree(result, polarity, index, step)
@@ -142,7 +142,7 @@ def par_trees(tree: Tree, par: bool = False) -> list[Tree]:
 
 def tree_to_type(tree: Tree) -> T:
     match tree:
-        case Leaf(atom, _, _): return atom
+        case Leaf(atom, _, _): return Atom(atom)
         case Unary(_, '□', decoration, content): return Box(decoration, tree_to_type(content))
         case Unary(_, '◇', decoration, content): return Diamond(decoration, tree_to_type(content))
         case Binary(_, left, right): return Functor(tree_to_type(left), tree_to_type(right))
