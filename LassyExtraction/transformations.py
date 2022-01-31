@@ -6,7 +6,6 @@ import pdb
 from .utils.graph import DAG, Edge
 from xml.etree.cElementTree import ElementTree
 from typing import Iterator
-from .utils.viz import render
 
 
 def prepare_many(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[str]]:

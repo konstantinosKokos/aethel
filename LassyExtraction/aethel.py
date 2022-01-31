@@ -1,5 +1,5 @@
 from __future__ import annotations
-from LassyExtraction.mill.types import (Proof, Type, show_term, deserialize_type, SerializedType, SerializedProof,
+from LassyExtraction.mill.types import (T, Type, show_term, deserialize_type, SerializedType, SerializedProof,
                                         deserialize_proof)
 from dataclasses import dataclass
 import pickle
@@ -26,7 +26,7 @@ class aethel:
 @dataclass(frozen=True)
 class Sample:
     premises: list[Premise]
-    proof: Proof
+    proof: T
     name: str
     subset: 'str'
 

@@ -6,7 +6,6 @@
 import pdb
 from .mill.types import Type, Atom, Functor, Diamond, Box, Proof, T
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
-from .utils.viz import render
 from functools import reduce
 from typing import Iterable, Callable
 
