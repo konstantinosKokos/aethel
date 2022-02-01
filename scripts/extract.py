@@ -37,10 +37,11 @@ def store_aethel(version: str,
         lassy = Lassy()
         print('Transforming LASSY trees...')
         transformed = prepare_many(lassy)
-        with open(transform_path, 'wb') as f:
-            print('Saving transformed trees...')
-            pickle.dump(transformed, f)
-            print('Done.')
+        if save_intermediate:
+            with open(transform_path, 'wb') as f:
+                print('Saving transformed trees...')
+                pickle.dump(transformed, f)
+                print('Done.')
     else:
         with open(transform_path, 'rb') as f:
             print('Loading transformed trees...')
