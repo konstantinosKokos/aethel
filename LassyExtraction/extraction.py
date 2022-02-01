@@ -16,7 +16,7 @@ class ExtractionError(Exception):
 
 Atoms = {'adj':     (ADJ    := Atom('ADJ')),
          'bw':      (BW     := Atom('BW')),
-         'let':     (LET    := Atom('PUNCT')),
+         'punct':   (PUNCT  := Atom('PUNCT')),
          'lid':     (LID    := Atom('LID')),
          'n':       (N      := Atom('N')),
          'spec':    N,
