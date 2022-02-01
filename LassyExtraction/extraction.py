@@ -16,7 +16,7 @@ class ExtractionError(Exception):
 
 Atoms = {'adj':     (ADJ    := Atom('ADJ')),
          'bw':      (BW     := Atom('BW')),
-         'punct':   (PUNCT  := Atom('PUNCT')),
+         'let':     (PUNCT  := Atom('PUNCT')),
          'lid':     (LID    := Atom('LID')),
          'n':       (N      := Atom('N')),
          'spec':    N,
@@ -163,7 +163,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
                 node_type = Atoms[pt] if pt is not None else Atoms[cat]
                 if label in adjunct_labels:
                     node_type = Box(label, node_type)
-                elif label not in head_labels:
+                elif label is not None and label not in head_labels:
                     node_type = Diamond(label, node_type)
                 return node_type.var(node_id)
             case _: raise ValueError
