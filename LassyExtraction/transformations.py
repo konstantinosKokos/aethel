@@ -444,7 +444,6 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
         case 'dpc-ibm-001314-nl-sen.p.57.s.1.xml':
             dag.edges |= {Edge('15', '48', 'cnj')}
             dag.remove_nodes({'45', '46', '47'})
-            pdb.set_trace()
         case 'WR-P-E-I-0000050381.p.1.s.338.xml':
             # (het ene _ na het andere _) X case
             dag.remove_nodes({'18', '21'})
