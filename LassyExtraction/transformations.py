@@ -12,7 +12,7 @@ def prepare_many(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[st
     return [subtree for etree in lassy for subtree in prepare_for_extraction(*etree)]
 
 
-def prepare_for_extraction(etree: ElementTree, name: str | None = None) -> list[DAG[str]]:
+def prepare_for_extraction(etree: ElementTree, name: str | None = None,) -> list[DAG[str]]:
     def f(_dag: DAG[str]) -> DAG[str]:
         _dag = punct_to_crd(_dag)
         _dag = relabel_extra_crds(_dag)
@@ -28,12 +28,15 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None) -> list[
         _dag = coerce_conjunctions(_dag)
         assertions(_dag)
         return _dag
+    return sorted([f(dag) for dag in salvage_headless(ad_hoc_fixes(etree_to_dag(etree, name)))],
+                  key=lambda dag: int(dag.meta['name'].split('(')[1].rstrip(')')))
+
+
+def etree_to_dag(etree: ElementTree, name: str | None) -> DAG[str]:
     nodes = set(etree.iter('node'))
     edges = {Edge(s.attrib['id'], t.attrib['id'], t.attrib['rel']) for s in nodes for t in s.findall('node')}
     attribs = {n.attrib['id']: {k: v for k, v in n.attrib.items() if k != 'rel'} for n in nodes}
-    initial = ad_hoc_fixes(DAG(set(attribs.keys()), edges, attribs, {'name': name}))
-    return sorted([f(dag) for dag in salvage_headless(initial)],
-                  key=lambda dag: int(dag.meta['name'].split('(')[1].rstrip(')')))
+    return DAG(set(attribs.keys()), edges, attribs, {'name': name} if name is not None else {})
 
 
 def is_indexed(dag: DAG[str], node: str) -> bool:
@@ -164,6 +167,7 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
                 (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
 
     def candidate(label: str) -> bool:
+        # todo: should I actually be removing obj edges
         return label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
 
     def is_understood(edge: Edge[str]) -> bool:
@@ -305,16 +309,28 @@ def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
             _subgraph.attribs |= rooted.attribs
         return _subgraph
 
+    def add_boundaries(_dag: DAG[str], puncts: set[str], left: int, right: int) -> set[str]:
+        included = {p for p in puncts if left - 1 < int(dag.get(p, 'begin')) < right}
+        puncts -= included
+        left_boundary = next((p for p in puncts if int(dag.get(p, 'begin')) == left - 1), None)
+        right_boundary = next((p for p in puncts if int(dag.get(p, 'end')) == right), None)
+        if left_boundary is not None:
+            if dag.get(left_boundary, 'word') not in {',', '.', ':', ')', '>>'}:
+                included.add(left_boundary)
+        if right_boundary is not None:
+            if dag.get(right_boundary, 'word') not in {':', ',', '(', '<<'}:
+                included.add(right_boundary)
+        return included
+
     def insert_punct(_subgraph: DAG[str], root: str) -> DAG[str]:
         begin, end = int(_subgraph.get(root, 'begin')), int(_subgraph.get(root, 'end'))
-        puncts = {n for n in dag.nodes
-                  if dag.get(n, 'pos') == 'punct' and
-                  begin < int(dag.get(n, 'begin')) - 1 < end and
-                  n not in _subgraph.nodes}
+        puncts = {n for n in dag.nodes if dag.get(n, 'pos') == 'punct' and n not in _subgraph.nodes}
+        puncts = add_boundaries(dag, puncts, begin, end)
         _subgraph.edges |= {Edge(root, n, 'punct') for n in puncts}
         _subgraph.nodes |= puncts
         _subgraph.attribs |= {n: dag.get(n) for n in puncts}
-        _subgraph.set(root, 'end', str(max((dag.get(p, 'end') for p in puncts), default=_subgraph.get(root, 'end'))))
+        _subgraph.set(root, 'begin', str(min((int(dag.get(n, 'begin')) for n in puncts), default=str(begin))))
+        _subgraph.set(root, 'end', str(max((int(dag.get(p, 'end')) for p in puncts), default=str(end))))
         return insert_punct(_subgraph, root) if len(puncts) > 0 else _subgraph
 
     def rename(_subgraph: DAG[str], root: str) -> DAG[str]:
@@ -428,6 +444,7 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
         case 'dpc-ibm-001314-nl-sen.p.57.s.1.xml':
             dag.edges |= {Edge('15', '48', 'cnj')}
             dag.remove_nodes({'45', '46', '47'})
+            pdb.set_trace()
         case 'WR-P-E-I-0000050381.p.1.s.338.xml':
             # (het ene _ na het andere _) X case
             dag.remove_nodes({'18', '21'})
@@ -446,6 +463,6 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
 def assertions(dag: DAG[str]):
     # assert single root
     if len(rs := dag.get_roots()) != 1:
-        raise ValueError('Too many roots!')
+        raise ValueError(f'Too many roots {dag.meta["name"]}')
     # assert tree structure
     assert all((len(dag.incoming_edges(n)) == 1 for n in dag.nodes if n not in rs))

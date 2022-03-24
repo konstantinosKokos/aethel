@@ -66,4 +66,3 @@ class Premise:
     @staticmethod
     def load(word: str, pos: str, pt: str, lemma: str, stype: SerializedType) -> 'Premise':
         return Premise(word, pos, pt, lemma, deserialize_type(stype))
-

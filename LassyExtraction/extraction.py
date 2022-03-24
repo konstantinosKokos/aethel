@@ -186,7 +186,10 @@ def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
         case [], [], [(_, head)], adjuncts, arguments, []:
             # print(f'{root} case 2 ')
             # simple or relative clause
-            arg_terms = make_args(arguments, coindexed_with({head}))
+            if dag.get(head, 'lemma') == 'vallen':
+                arg_terms = make_args(arguments, lambda x: coindexed_with({head})(x) or type(x).decoration == 'vc')
+            else:
+                arg_terms = make_args(arguments, coindexed_with({head}))
             adj_terms = make_adj(adjuncts, top_type)
             head_term = _prove(dag, head, None, make_functor(top_type, [type(a) for a in arg_terms]))
             return unbox_and_apply(apply(head_term, arg_terms), adj_terms)
