@@ -310,12 +310,12 @@ def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
         return _subgraph
 
     def add_boundaries(_dag: DAG[str], puncts: set[str], left: int, right: int) -> set[str]:
-        included = {p for p in puncts if left - 1 < int(dag.get(p, 'begin')) < right}
+        included = {p for p in puncts if left - 1 < int(dag.get(p, 'begin')) <= right}
         puncts -= included
         left_boundary = next((p for p in puncts if int(dag.get(p, 'begin')) == left - 1), None)
-        right_boundary = next((p for p in puncts if int(dag.get(p, 'end')) == right), None)
+        right_boundary = next((p for p in puncts if int(dag.get(p, 'end')) == right + 1), None)
         if left_boundary is not None:
-            if dag.get(left_boundary, 'word') not in {',', '.', ':', ')', '>>'}:
+            if dag.get(left_boundary, 'word') not in {',', '.', ':', ')', '>>', ';'}:
                 included.add(left_boundary)
         if right_boundary is not None:
             if dag.get(right_boundary, 'word') not in {':', ',', '(', '<<'}:
