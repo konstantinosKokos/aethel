@@ -187,7 +187,9 @@ def _prove(dag: DAG, root: str, label: str | None, hint: T, ) -> T:
             # print(f'{root} case 2 ')
             # simple or relative clause
             if dag.get(head, 'lemma') == 'vallen':
-                arg_terms = make_args(arguments, lambda x: coindexed_with({head})(x) or type(x).decoration == 'vc')
+                arg_terms = make_args(arguments,
+                                      lambda x: (coindexed_with({head})(x) or
+                                                 isinstance((tx := type(x)), Diamond) and tx.decoration == 'vc'))
             else:
                 arg_terms = make_args(arguments, coindexed_with({head}))
             adj_terms = make_adj(adjuncts, top_type)
