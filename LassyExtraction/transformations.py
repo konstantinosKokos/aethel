@@ -19,12 +19,12 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None,) -> list
         _dag = normalize_ghost_positions(_dag)
         _dag = remove_understood_argument(_dag)
         _dag = refine_body(_dag)
+        _dag = collapse_mwu(_dag)
         _dag = relabel_determiners(_dag)
-        _dag = relocate_nominal_modifiers(_dag)
         _dag = swap_np_heads(_dag)
+        _dag = relocate_nominal_modifiers(_dag)
         _dag = raise_nouns(_dag)
         _dag = factor_distributed_subgraphs(_dag)
-        _dag = collapse_mwu(_dag)
         _dag = coerce_conjunctions(_dag)
         assertions(_dag)
         return _dag
@@ -208,14 +208,14 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
                     (hd := next((edge for edge in edges if edge.label == 'np_head'), None)) is not None}
     for node, (det, mods, hd) in nominal_mods.items():
         premods = {mod for mod in mods
-                   if int(dag.get(det.target, 'end')) < int(dag.get(mod.target, 'begin'))
-                   and int(dag.get(mod.target, 'end')) < int(dag.get(hd.target, 'begin'))}
+                   if int(dag.get(det.target, 'end')) <= int(dag.get(mod.target, 'begin'))
+                   and int(dag.get(mod.target, 'end')) <= int(dag.get(hd.target, 'begin'))}
         if premods:
             intermediate = add_fresh_node(dag)
             dag.edges |= {Edge(node, intermediate, hd.label), Edge(intermediate, hd.target, hd.label)}
             dag.edges |= {Edge(intermediate, mod.target, mod.label) for mod in premods}
             dag.edges -= (premods | {Edge(node, hd.target, hd.label)})
-            dag.set(intermediate, {'cat': dag.get(hd.target, 'pt'),
+            dag.set(intermediate, {'cat': dag.get(get_material(dag, hd.target), 'pt'),
                                    'begin': str(min(int(dag.get(n, 'begin')) for n in dag.successors(intermediate))),
                                    'end': str(max(int(dag.get(n, 'end')) for n in dag.successors(intermediate)))})
     return dag
@@ -226,7 +226,7 @@ def raise_nouns(dag: DAG[str]) -> DAG[str]:
     nouns = {node: dag.parents(node) for node in dag.nodes
              if dag.is_leaf(node) and dag.get(node, 'pt') in {'n', 'spec'}}
     for noun, parents in nouns.items():
-        if not any(dag.get(parent, 'cat') in {'np', 'n'} for parent in parents):
+        if not any(dag.get(parent, 'cat') in {'np', 'n', 'spec'} for parent in parents):
             dag.set(noun, {'pt': 'np'})
     return dag
 
