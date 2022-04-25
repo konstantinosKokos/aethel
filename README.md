@@ -64,27 +64,26 @@ Begin by cloning the project locally and placing the dump file in `data/` (remem
 You can then load the dump by running:
 
 ```
-from LassyExtraction.aethel import aethel
-dataset = aethel.load_data(PATH_TO_DUMP_FILE)
+import LassyExtraction
+aethel = LassyExtraction.ProofBank.load_data(PATH_TO_DUMP_FILE)
 ```
 where the dataset is a container of instances of the `Sample` class. 
 Note that loading might take a short while, as proofs are reconstructed bottom up and type-checked along the way.
 
 Example usage:
 ```
->>> print(dataset)
-æthel dump version 0.9.dev0, containing 56858 training samples, 6095 dev samples, and 5766 test samples.
->>> sample = dataset.train[1312]
->>> print(sample)
-WR-P-E-I-0000015007.p.1.s.120.xml(1)
+>>> print(aethel)
+æthel dump version 0.9.dev1 containing 68768 samples.
+>>> print(sample := aethel.samples[1312])
+WR-P-E-I-0000050381.p.1.s.82.xml(2)
 >>> print(sample.show_sentence())
-De toenemende spanning bereikte een voorlopig hoogtepunt met de Arabische opstand die begon in 1936 en in 1939 door bijzonder hardhandig ingrijpen van het Britse leger tot een einde kwam .
->>> print(sample.show_proof())
-▾mod(met::◇obj1(NP)⊸□mod(SMAIN⊸SMAIN) ▵obj1(▾mod(Arabische::□mod(NP⊸NP)) (▾mod(die::(◇relcl(◇su(VNW)⊸◇su(VNW)⊸SSUB))⊸□mod(NP⊸NP) ▵relcl(λx0.(λx1.(en::◇cnj(SSUB)⊸◇cnj(SSUB)⊸SSUB ▵cnj(▾mod(in::◇obj1(TW)⊸□mod(SSUB⊸SSUB) ▵obj1(1939::TW)) (▾mod(door::◇obj1(NP)⊸□mod(SSUB⊸SSUB) ▵obj1(▾mod(▾mod(bijzonder::□mod((□mod(NP⊸NP))⊸□mod(NP⊸NP))) hardhandig::□mod(NP⊸NP)) (▾mod(van::◇obj1(NP)⊸□mod(NP⊸NP) ▵obj1(▾mod(Britse::□mod(NP⊸NP)) (▾det(het::□det(N⊸NP)) leger::N))) ingrijpen::NP))) (kwam::◇pc(PP)⊸◇su(VNW)⊸SSUB ▵pc(tot::◇obj1(NP)⊸PP ▵obj1(▾det(een::□det(N⊸NP)) einde::N)) x0::◇su(VNW)))) ▵cnj(▾mod(in::◇obj1(TW)⊸□mod(SSUB⊸SSUB) ▵obj1(1936::TW)) (begon::◇su(VNW)⊸SSUB x1::◇su(VNW))))))) (▾det(de::□det(N⊸NP)) opstand::N)))) (bereikte::◇obj1(NP)⊸◇su(NP)⊸SMAIN ▵obj1(▾mod(voorlopig::□mod(NP⊸NP)) (▾det(een::□det(N⊸NP)) hoogtepunt::N)) ▵su(▾mod(toenemende::□mod(NP⊸NP)) (▾det(De::□det(N⊸NP)) spanning::N)))
->>> print(sample.premises[12])
-Premise(word='begon', pos='verb', pt='ww', lemma='beginnen', type=◇su(VNW)⊸SSUB)
+De weg werd gemaakt door Spaanse krijgsgevangenen , soms onder erbarmelijke omstandigheden .
+>>> print(sample.show_term())
+werd::◇vc(PPART)⊸◇su(NP)⊸SMAIN ▵vc(▾mod(door::◇obj1(NP)⊸□mod(PPART⊸PPART) ▵obj1(▾mod(Spaanse::□mod(NP⊸NP)) krijgsgevangenen::NP)) (▾mod(▾mod(soms::□mod((□mod(PPART⊸PPART))⊸□mod(PPART⊸PPART))) (onder::◇obj1(NP)⊸□mod(PPART⊸PPART) ▵obj1(▾mod(erbarmelijke::□mod(NP⊸NP)) omstandigheden::NP))) gemaakt::PPART)) ▵su(▾det(De::□det(N⊸NP)) weg::N)
+>>> print(sample.premises[3])
+Premise(word='gemaakt', pos='verb', pt='ww', lemma='maken', type=PPART)
 >>> print(sample.subset)
-dev
+train
 ```
 ---
 ### Citing

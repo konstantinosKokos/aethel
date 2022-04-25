@@ -1,13 +1,13 @@
 from LassyExtraction.utils.lassy import Lassy
 from LassyExtraction.utils.graph import DAG
 from LassyExtraction.transformations import prepare_many, get_lex_nodes
-from LassyExtraction.aethel import Sample, Premise
+from LassyExtraction.frontend import Sample, Premise
 from LassyExtraction.extraction import prove, ExtractionError
 import os
 
 
 name_to_subset = {name: subset for name, subset in
-                  map(lambda x: x.split('\t'), open('./data/name_to_subset.tsv').read().splitlines())}
+                  map(lambda x: x.split('\t'), open('../data/name_to_subset.tsv').read().splitlines())}
 
 
 def get_premises(dag: DAG[str], attrs: tuple[str, ...]) -> list[tuple]:
@@ -29,9 +29,9 @@ def make_sample(dag: DAG[str]) -> Sample:
 
 
 def store_aethel(version: str,
-                 transform_path: str = './data/transformed.pickle',
+                 transform_path: str = '../data/transformed.pickle',
                  save_intermediate: bool = False,
-                 output_path: str = f'./data/aethel.pickle') -> None:
+                 output_path: str = f'../data/aethel.pickle') -> None:
     import pickle
     if save_intermediate or not os.path.exists(transform_path):
         lassy = Lassy()
@@ -64,4 +64,4 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel('0.9.dev0')
+    store_aethel('0.9.dev1')

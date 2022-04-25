@@ -4,23 +4,26 @@ from LassyExtraction.mill.types import (T, Type, show_term, deserialize_type, Se
 from dataclasses import dataclass
 import pickle
 
+import pathlib
+
 
 @dataclass(frozen=True)
-class aethel:
+class ProofBank:
     version: str
-    data: list[Sample]
+    samples: list[Sample]
 
-    def __getitem__(self, item: int) -> Sample: return self.data[item]
-    def __len__(self) -> int: return len(self.data)
-    def find_by_name(self, name: str) -> list[Sample]: return [sample for sample in self.data if name in sample.name]
+    def __getitem__(self, item: int) -> Sample: return self.samples[item]
+    def __len__(self) -> int: return len(self.samples)
+    def find_by_name(self, name: str) -> list[Sample]: return [sample for sample in self.samples if name in sample.name]
     def __repr__(self) -> str: return f"æthel dump version {self.version} containing {len(self)} samples."
     def __post_init__(self): print(f'Loaded {self}')
 
     @staticmethod
-    def load_data(path: str) -> aethel:
+    def load_data(path: str) -> ProofBank:
+        print(f'Loading and verifying {pathlib.Path(path).name}...')
         with open(path, 'rb') as f:
             version, (train, dev, test) = pickle.load(f)
-            return aethel(version=version, data=[Sample.load(*x) for x in train+dev+test])
+            return ProofBank(version=version, samples=[Sample.load(*x) for x in train + dev + test])
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,7 @@ class Sample:
     subset: 'str'
 
     def __len__(self) -> int: return len(self.premises)
+    def __repr__(self) -> str: return self.name
 
     def show_term(self, show_decorations: bool = True, show_types: bool = True, show_words: bool = True) -> str:
         return show_term(self.proof,
