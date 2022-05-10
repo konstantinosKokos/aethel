@@ -338,7 +338,7 @@ def is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
 
     def go(_tree: _TreeOfTs[IndexedBracket]) -> bool:
         left, right = _tree
-        return tree[0] == Bracket.Lock if indexed_bracket(_tree) else go(left) and go(right)
+        return left == Bracket.Lock if indexed_bracket(_tree) else go(left) and go(right)
     return go(collapsed) if collapsed is not None else True
 
 
@@ -479,8 +479,7 @@ class Proof:
         return min((_flatten(_collapse(tree)) for tree in associahedron(self.brackets())), key=len, default=[])
 
     def is_negative(self: Proof) -> bool:
-        # ...
-        return False if (bs := self.brackets()) == [] else not(any(map(is_positive, associahedron(bs))))
+        return False if (bs := self.brackets()) == [] else not (any(map(is_positive, associahedron(bs))))
 
     def unbracketed(self: Proof) -> bool:
         return any(map(cancels_out, associahedron(self.brackets())))
