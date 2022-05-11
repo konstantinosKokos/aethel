@@ -248,20 +248,20 @@ class TypeInference:
         return functor.result
 
     @staticmethod
-    def box_elim(wrapped: Type, box: str | None = None) -> Type:
+    def box_elim(wrapped: Type, box: str | None = None) -> tuple[Type, str]:
         if not isinstance(wrapped, Box):
             raise TypeInference.TypeCheckError(f'{wrapped} is not a box')
         if box is not None and box != wrapped.decoration:
             raise TypeInference.TypeCheckError(f'{wrapped} is not a {box}-box')
-        return wrapped.content
+        return wrapped.content, wrapped.decoration
 
     @staticmethod
-    def dia_elim(wrapped: Type, dia: str | None = None) -> Type:
+    def dia_elim(wrapped: Type, dia: str | None = None) -> tuple[Type, str]:
         if not isinstance(wrapped, Diamond):
             raise TypeInference.TypeCheckError(f'{wrapped} is not a diamond')
         if dia is not None and dia != wrapped.decoration:
             raise TypeInference.TypeCheckError(f'{wrapped} is not a {dia}-diamond')
-        return wrapped.content
+        return wrapped.content, wrapped.decoration
 
 
 ########################################################################################################################
@@ -278,12 +278,17 @@ IndexedBracket = tuple[Bracket, str]
 def indexed_bracket(x: _TreeOfTs[IndexedBracket]) -> bool: return isinstance(x[0], Bracket)
 
 
-def bracket_cancellations(outer: IndexedBracket, inner: IndexedBracket) -> bool:
+def bracket_cancellations(
+        outer: IndexedBracket,
+        inner: IndexedBracket,
+        structural_rules: Callable[[str, str], bool] = lambda _: False) -> bool:
     match outer, inner:
         case (Bracket.Lock, outer_mode), (Bracket.Inner, inner_mode):
             return outer_mode == inner_mode
         case (Bracket.Outer, outer_mode), (Bracket.Lock, inner_mode):
             return outer_mode == inner_mode
+        case (Bracket.Lock, outer_mode), (Bracket.Lock, inner_mode):
+            return structural_rules(outer_mode, inner_mode)
         case _:
             return False
 
@@ -322,7 +327,9 @@ def _collapse(_tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracke
             return col_left, col_right
 
 
-def _flatten(_tree: _TreeOfTs[IndexedBracket]) -> list[IndexedBracket]:
+def _flatten(_tree: Maybe[_TreeOfTs[IndexedBracket]]) -> list[IndexedBracket]:
+    if _tree is None:
+        return []
     if indexed_bracket(_tree):
         return [_tree]
     left, right = _tree
@@ -340,6 +347,10 @@ def is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
         left, right = _tree
         return left == Bracket.Lock if indexed_bracket(_tree) else go(left) and go(right)
     return go(collapsed) if collapsed is not None else True
+
+
+def minimal_brackets(brackets: list[IndexedBracket]) -> list[IndexedBracket]:
+    return min((_flatten(_collapse(tree)) for tree in associahedron(brackets)), key=len, default=[])
 
 
 ########################################################################################################################
@@ -382,6 +393,8 @@ class Proof:
         @staticmethod
         def _init_arrow_intro(proof: Proof, abstraction: Proof, body: Proof) -> None:
             TypeInference.assert_equal(Functor(abstraction.type, body.type), proof.type)
+            if abstraction.rule != Proof.Rule.Variable:
+                raise TypeInference.TypeCheckError(f'{abstraction} is not a variable')
             if abstraction not in body.vars():
                 raise TypeInference.TypeCheckError(f'{abstraction} does not occur in {body}')
             if abstraction not in body.free():
@@ -446,13 +459,13 @@ class Proof:
         res_type = Diamond(diamond, self.type)
         return res_type(rule=Proof.Rule.DiamondIntroduction, diamond=diamond, body=self)
 
-    def unbox(self: Proof, decoration: str | None = None) -> Proof:
-        res_type = TypeInference.box_elim(self.type, decoration)
-        return res_type(rule=Proof.Rule.BoxElimination, box=self.decoration, body=self)
+    def unbox(self: Proof, decoration: str = None) -> Proof:
+        res_type, decoration = TypeInference.box_elim(self.type, decoration)
+        return res_type(rule=Proof.Rule.BoxElimination, box=decoration, body=self)
 
-    def undiamond(self: Proof, decoration: str | None = None) -> Proof:
-        res_type = TypeInference.dia_elim(self.type, decoration)
-        return res_type(rule=Proof.Rule.DiamondElimination, diamond=self.decoration, body=self)
+    def undiamond(self: Proof, decoration: str = None) -> Proof:
+        res_type, decoration = TypeInference.dia_elim(self.type, decoration)
+        return res_type(rule=Proof.Rule.DiamondElimination, diamond=decoration, body=self)
 
     ####################################################################################################################
     # Utilities
@@ -475,14 +488,22 @@ class Proof:
                 case _: return context
         return go(self, [])
 
-    def minimal_brackets(self: Proof) -> list[IndexedBracket]:
-        return min((_flatten(_collapse(tree)) for tree in associahedron(self.brackets())), key=len, default=[])
-
     def is_negative(self: Proof) -> bool:
         return False if (bs := self.brackets()) == [] else not (any(map(is_positive, associahedron(bs))))
 
     def unbracketed(self: Proof) -> bool:
         return any(map(cancels_out, associahedron(self.brackets())))
+
+    def substructures(self: Proof) -> list[tuple[list[IndexedBracket], Proof]]:
+        def go(proof: Proof, context: list[IndexedBracket]) -> list[tuple[list[IndexedBracket], Proof]]:
+            match proof.rule:
+                case Proof.Rule.Variable | Proof.Rule.Lexicon:
+                    return [(context, proof)]
+                case Proof.Rule.ArrowElimination:
+                    return [(context, proof), *go(proof.function, context), *go(proof.argument, context)]
+                case _:
+                    return [(context, proof), *go(proof.nested_body(), context + minimal_brackets(proof.brackets()))]
+        return go(self, [])
 
     def __repr__(self) -> str: return show_term(self)
     def __str__(self) -> str: return show_term(self)
@@ -598,9 +619,9 @@ class Proof:
     def subproofs(self: Proof) -> list[Proof]:
         match self.rule:
             case Proof.Rule.Variable | Proof.Rule.Lexicon: return [self]
-            case Proof.Rule.ArrowElimination: return [self, self.function, self.argument]
-            case Proof.Rule.ArrowIntroduction: return [self, self.body]
-            case _: return [self] + self.body.subproofs()
+            case Proof.Rule.ArrowElimination: return [self, *self.function.subproofs(), *self.argument.subproofs()]
+            case Proof.Rule.ArrowIntroduction: return [self, *self.body.subproofs()]
+            case _: return [self, *self.body.subproofs()]
 
     def canonicalize_var_names(self: Proof) -> Proof:
         def de_bruijn(proof: Proof, variable: Proof) -> int:
