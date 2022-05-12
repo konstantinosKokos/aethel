@@ -8,8 +8,18 @@ from xml.etree.cElementTree import ElementTree
 from typing import Iterator
 
 
+class TransformationError(Exception):
+    pass
+
+
 def prepare_many(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[str]]:
-    return [subtree for etree in lassy for subtree in prepare_for_extraction(*etree)]
+    dags = []
+    for etree in lassy:
+        try:
+            dags.extend(prepare_for_extraction(*etree))
+        except TransformationError:
+            continue
+    return dags
 
 
 def prepare_for_extraction(etree: ElementTree, name: str | None = None,) -> list[DAG[str]]:
@@ -372,10 +382,10 @@ def factor_distributed_subgraphs(dag: DAG[str]) -> DAG[str]:
             case ([], [(label, edges)], []) | ([], [], [(label, edges)]) | ([(label, edges)], [], []):
                 # distributed edges of a common label
                 dag = _factor_group(dag, index, label, edges)
-            case ([('rhd' | 'whd', [_])], [(label, [edge])], []) | ([('rhd' | 'whd', [_])], [], [(label, [edge])]):
+            case ([('rhd' | 'whd', [_])], [(_, [_])], []) | ([('rhd' | 'whd', [_])], [], [(_, [_])]):
                 # simple relative clause
                 continue
-            case ([('rhd' | 'whd', [_])], [(label, edges)], []) | ([('rhd' | 'whd', [_])], [], [(label, edges)]):
+            case ([('rhd' | 'whd', [_])], [(_, [_, *_])], []) | ([('rhd' | 'whd', [_])], [], [(_, [_, *_])]):
                 # simple relative clause over a conjunction
                 continue
             case _:
@@ -387,9 +397,14 @@ def factor_distributed_subgraphs(dag: DAG[str]) -> DAG[str]:
 def _factor_group(dag: DAG[str], index: str, label: str, edges: list[Edge[str]]) -> DAG[str]:
     if len(edges) == 1:
         return dag
+    common_ancestor = dag.first_common_predecessor(*{edge.target for edge in edges})
+    if dag.get(common_ancestor, 'cat') != 'conj':
+        # todo: deal with some cases of non-conjunction node sharing
+        raise TransformationError(f'Cannot redistribute edges over a non-conjunction ancestor')
     material = find_coindex(dag, index)
     fresh_node = add_ghost_of(dag, material)
     common_ancestor = dag.first_common_predecessor(*{edge.target for edge in edges})
+
     material_src = next((edge.source for edge in edges if edge.target == material))
     dag.edges |= {Edge(material_src, fresh_node, label), Edge(common_ancestor, material, label)}
     dag.edges.remove(Edge(material_src, material, label))

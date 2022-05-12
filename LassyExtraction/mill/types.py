@@ -2,7 +2,6 @@
 # todo: accessing _registry due to __getitem__ not working in metaclasses; see https://bugs.python.org/issue35992
 # todo: class-level methods for proof construction take redundant arguments
 # todo: Modal is itself ABC -- await pr @ https://github.com/python/cpython/pull/27648
-# todo: beta-reduction
 
 
 from __future__ import annotations
@@ -10,14 +9,18 @@ from __future__ import annotations
 from abc import ABCMeta
 from typing import TypeVar, Callable
 from typing import Type as TYPE
-from functools import partial
+from typing import Optional as Maybe
+from functools import partial, reduce
 from enum import Enum
+from itertools import product as prod
+from collections import Counter as Bag
 
 ########################################################################################################################
 # Type Syntax
 ########################################################################################################################
 
 T = TypeVar('T', bound='Type')
+
 SerializedType = tuple[TYPE, tuple[str]] | \
                  tuple[TYPE, tuple['SerializedType', 'SerializedType']] | \
                  tuple[TYPE, tuple[str, 'SerializedType']]
@@ -50,6 +53,15 @@ class Type(ABCMeta):
 
     @staticmethod
     def parse_prefix(string: str) -> Type: return parse_prefix(string)
+
+    ####################################################################################################################
+    # Type-level shortcuts
+    ####################################################################################################################
+    def var(self: Type, var: int) -> Proof:
+        return self(Proof.Rule.Variable, variable=var)
+
+    def lex(self: Type, lex: int) -> Proof:
+        return self(Proof.Rule.Lexicon, constant=lex)
 
 
 class Atom(Type):
@@ -126,6 +138,9 @@ class Diamond(Modal):
         cls.decoration = decoration
 
 
+########################################################################################################################
+# Type utilities
+########################################################################################################################
 def type_order(type_: Type) -> int:
     match type_:
         case Atom(_): return 0
@@ -217,8 +232,6 @@ def deserialize_type(serialized: SerializedType) -> Type:
 ########################################################################################################################
 # Type Inference
 ########################################################################################################################
-
-
 class TypeInference:
     class TypeCheckError(Exception):
         pass
@@ -229,327 +242,462 @@ class TypeInference:
             raise TypeInference.TypeCheckError(f'{a} != {b}')
 
     @staticmethod
-    def arrow_elim(functor: Type, argument: Type) -> Type | Proof:
+    def arrow_elim(functor: Type, argument: Type) -> Type:
         if not isinstance(functor, Functor) or functor.argument != argument:
             raise TypeInference.TypeCheckError(f'{functor} is not a functor of {argument}')
         return functor.result
 
     @staticmethod
-    def arrow_intro(variable: Type, body: Type) -> Type | Proof:
-        return Functor(variable, body)
-
-    @staticmethod
-    def box_elim(wrapped: Type, key: str | None = None) -> Type | Proof:
+    def box_elim(wrapped: Type, box: str | None = None) -> tuple[Type, str]:
         if not isinstance(wrapped, Box):
             raise TypeInference.TypeCheckError(f'{wrapped} is not a box')
-        if key is not None and key != wrapped.decoration:
-            raise TypeInference.TypeCheckError(f'{wrapped} is not a box with {key}')
-        return wrapped.content
+        if box is not None and box != wrapped.decoration:
+            raise TypeInference.TypeCheckError(f'{wrapped} is not a {box}-box')
+        return wrapped.content, wrapped.decoration
 
     @staticmethod
-    def diamond_elim(wrapped: Type, key: str | None = None) -> Type | Proof:
+    def dia_elim(wrapped: Type, dia: str | None = None) -> tuple[Type, str]:
         if not isinstance(wrapped, Diamond):
             raise TypeInference.TypeCheckError(f'{wrapped} is not a diamond')
-        if key is not None and key != wrapped.decoration:
-            raise TypeInference.TypeCheckError(f'{wrapped} is not a diamond with {key}')
-        return wrapped.content
+        if dia is not None and dia != wrapped.decoration:
+            raise TypeInference.TypeCheckError(f'{wrapped} is not a {dia}-diamond')
+        return wrapped.content, wrapped.decoration
 
-    @staticmethod
-    def box_intro(decoration: str, content: Type) -> Type | Proof:
-        return Box(decoration, content)
 
-    @staticmethod
-    def diamond_intro(decoration: str, content: Type) -> Type | Proof:
-        return Diamond(decoration, content)
+########################################################################################################################
+# Structural brackets
+########################################################################################################################
+class Bracket(Enum):
+    Lock = '<>'
+    Inner = ']['
+    Outer = '[]'
+    def __repr__(self) -> str: return self.name
+
+
+IndexedBracket = tuple[Bracket, str]
+def indexed_bracket(x: _TreeOfTs[IndexedBracket]) -> bool: return isinstance(x[0], Bracket)
+
+
+def bracket_cancellations(
+        outer: IndexedBracket,
+        inner: IndexedBracket) -> bool:
+    match outer, inner:
+        case (Bracket.Lock, outer_mode), (Bracket.Inner, inner_mode):
+            return outer_mode == inner_mode
+        case (Bracket.Outer, outer_mode), (Bracket.Lock, inner_mode):
+            return outer_mode == inner_mode
+        case (Bracket.Lock, outer_mode), (Bracket.Lock, inner_mode):
+            return inner_mode == f'{outer_mode}!'
+        case _:
+            return False
+
+
+_T = TypeVar('_T')
+_TreeOfTs = _T | tuple['_TreeOfTs', '_TreeOfTs']
+
+
+def associahedron(xs: list[_T]) -> list[_TreeOfTs]:
+    def splits(_xs: list[_T]) -> list[tuple[list[_T], list[_T]]]:
+        match _xs:
+            case []: return [([], [])]
+            case [_x]: return [([_x], []), ([], [_x])]
+            case _: return [(_xs[:i], _xs[i:]) for i in range(1, len(_xs))]
+    match xs:
+        case []: return []
+        case [x]: return [x]
+        case _: return reduce(list.__add__, [list(prod(associahedron(s[0]), associahedron(s[1]))) for s in splits(xs)])
+
+
+def _collapse(tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracket]]:
+    if indexed_bracket(tree):
+        return tree
+    left, right = tree
+    col_left, col_right = _collapse(left), _collapse(right)
+    match col_left, col_right:
+        case None, None:
+            return None
+        case None, _:
+            return col_right
+        case _, None:
+            return col_left
+        case _:
+            if indexed_bracket(col_left) and indexed_bracket(col_right) and bracket_cancellations(col_left, col_right):
+                return None
+            return col_left, col_right
+
+
+def _flatten(tree: Maybe[_TreeOfTs[IndexedBracket]]) -> list[IndexedBracket]:
+    if tree is None:
+        return []
+    if indexed_bracket(tree):
+        return [tree]
+    left, right = tree
+    return _flatten(left) + _flatten(right)
+
+
+def _cancellable(brackets: list[IndexedBracket]) -> bool:
+    locks = Bag([s for b, s in brackets if b == Bracket.Lock and not s.endswith('!')])
+    unlocks = Bag([s.rstrip('!') for b, s in brackets if b == Bracket.Lock and s.endswith('!')])
+    keys = Bag([s for b, s in brackets if b in (Bracket.Outer, Bracket.Inner)])
+    return keys+unlocks == locks
+
+
+def _cancel_out(brackets: list[IndexedBracket]) -> bool:
+    if not _cancellable(brackets):
+        return False
+    if all(b == Bracket.Lock for b, _ in brackets):
+        return len(brackets) % 2 == 0 and all(f'{brackets[i][1]}!' == brackets[-i-1][1] for i in range(len(brackets)//2))
+    return any(map(lambda x: _collapse(x) is None, associahedron(brackets))) if brackets else True
+
+
+def _is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
+    collapsed = _collapse(tree)
+
+    def go(_tree: _TreeOfTs[IndexedBracket]) -> bool:
+        left, right = _tree
+        return left == Bracket.Lock if indexed_bracket(_tree) else go(left) and go(right)
+    return go(collapsed) if collapsed is not None else True
+
+
+def _minimal_brackets(brackets: list[IndexedBracket]) -> list[IndexedBracket]:
+    return min((_flatten(_collapse(tree)) for tree in associahedron(brackets)), key=len, default=[])
 
 
 ########################################################################################################################
 # Term Syntax
 ########################################################################################################################
-
-
 class Proof:
     rule: Rule
+    decoration: str
     constant: int
     variable: int
+    abstraction: Proof
     function: Proof
     argument: Proof
-    decoration: str
-    abstraction: Proof
     body: Proof
+    abstraction: Proof
 
+    ####################################################################################################################
+    # Constructors
+    ####################################################################################################################
     class Rule(Enum):
         @staticmethod
-        def _init_lexicon(self, constant: int):
-            self.constant = constant
+        def _init_lex(proof: Proof, constant: int) -> None:
+            proof.constant = constant
 
         @staticmethod
-        def _init_axiom(self, variable: int):
-            self.variable = variable
+        def _init_var(proof: Proof, variable: int) -> None:
+            proof.variable = variable
 
         @staticmethod
-        def _init_arrow_elim(self, function: Proof, argument: Proof):
-            TypeInference.assert_equal(TypeInference.arrow_elim(type(function), type(argument)), type(self))
-            self.function = function
-            self.argument = argument
+        def _init_arrow_elim(proof: Proof, function: Proof, argument: Proof) -> None:
+            rest = TypeInference.arrow_elim(function.type, argument.type)
+            TypeInference.assert_equal(rest, proof.type)
+            if function.is_negative():
+                raise TypeInference.TypeCheckError(f'{function} is a negative structure')
+            if argument.is_negative():
+                raise TypeInference.TypeCheckError(f'{argument} is a negative structure')
+            proof.function = function
+            proof.argument = argument
 
         @staticmethod
-        def _init_arrow_intro(self, abstraction: Proof, body: Proof):
-            TypeInference.assert_equal(TypeInference.arrow_intro(type(abstraction), type(body)), type(self))
+        def _init_arrow_intro(proof: Proof, abstraction: Proof, body: Proof) -> None:
+            TypeInference.assert_equal(Functor(abstraction.type, body.type), proof.type)
+            if abstraction.rule != Proof.Rule.Variable:
+                raise TypeInference.TypeCheckError(f'{abstraction} is not a variable')
+            if abstraction not in body.vars():
+                raise TypeInference.TypeCheckError(f'{abstraction} does not occur in {body}')
             if abstraction not in body.free():
-                raise TypeInference.TypeCheckError(f'{abstraction} is not free in {body}')
-            self.abstraction = abstraction
-            self.body = body
+                raise TypeInference.TypeCheckError(f'{abstraction} structurally locked in {body}')
+            proof.abstraction = abstraction
+            proof.body = body
 
         @staticmethod
-        def _init_box_elim(self, box: str, body: Proof):
-            TypeInference.assert_equal(Box(box, type(self)), type(body))
-            self.body = body
-            self.decoration = box
+        def _init_box_elim(proof: Proof, box: str, body: Proof) -> None:
+            TypeInference.assert_equal(Box(box, proof.type), body.type)
+            proof.decoration = box
+            proof.body = body
 
         @staticmethod
-        def _init_box_intro(self, box: str, body: Proof):
-            TypeInference.assert_equal(Box(box, type(body)), type(self))
-            self.body = body
-            self.decoration = box
+        def _init_dia_intro(proof: Proof, diamond: str, body: Proof) -> None:
+            TypeInference.assert_equal(Diamond(diamond, body.type), proof.type)
+            proof.decoration = diamond
+            proof.body = body
 
         @staticmethod
-        def _init_diamond_elim(self, diamond: str, body: Proof):
-            TypeInference.assert_equal(Diamond(diamond, type(self)), type(body))
-            self.body = body
-            self.decoration = diamond
+        def _init_box_intro(proof: Proof, box: str, body: Proof) -> None:
+            TypeInference.assert_equal(Box(box, body.type), proof.type)
+            proof.decoration = box
+            proof.body = body
 
         @staticmethod
-        def _init_diamond_intro(self, diamond: str, body: Proof):
-            TypeInference.assert_equal(Diamond(diamond, type(body)), type(self))
-            self.body = body
-            self.decoration = diamond
+        def _init_dia_elim(proof: Proof, diamond: str, body: Proof) -> None:
+            TypeInference.assert_equal(Diamond(diamond, proof.type), body.type)
+            proof.decoration = diamond
+            proof.body = body
 
-        Lexicon = partial(_init_lexicon)
-        Axiom = partial(_init_axiom)
+        # Enumeration of rules
+        Lexicon = partial(_init_lex)
+        Variable = partial(_init_var)
         ArrowElimination = partial(_init_arrow_elim)
         ArrowIntroduction = partial(_init_arrow_intro)
         BoxElimination = partial(_init_box_elim)
+        DiamondIntroduction = partial(_init_dia_intro)
         BoxIntroduction = partial(_init_box_intro)
-        DiamondElimination = partial(_init_diamond_elim)
-        DiamondIntroduction = partial(_init_diamond_intro)
+        DiamondElimination = partial(_init_dia_elim)
 
-    def __init__(self: Proof | Type, *args, rule: Rule, **kwargs):
+    def __init__(self: Proof, rule: Rule, **kwargs) -> None:
         self.rule = rule
-        self.rule.value(self, *args, **kwargs)
+        self.rule.value(self, **kwargs)
 
-    def __eq__(self: Proof, other: Proof) -> bool:
-        if type(self) == type(other) and self.rule == other.rule:
-            match self.rule:
-                case Proof.Rule.Lexicon:
-                    return self.constant == other.constant
-                case Proof.Rule.Axiom:
-                    return self.variable == other.variable
+    ####################################################################################################################
+    # Term-level computations
+    ####################################################################################################################
+    def apply(self: Proof, argument: Proof) -> Proof:
+        res_type = TypeInference.arrow_elim(self.type, argument.type)
+        return res_type(rule=Proof.Rule.ArrowElimination, function=self, argument=argument)
+       
+    def abstract(self: Proof, variable: Proof) -> Proof:
+        res_type = Functor(variable.type, self.type)
+        return res_type(rule=Proof.Rule.ArrowIntroduction, abstraction=variable, body=self)
+
+    def box(self: Proof, box: str) -> Proof:
+        res_type = Box(box, self.type)
+        return res_type(rule=Proof.Rule.BoxIntroduction, box=box, body=self)
+
+    def diamond(self: Proof, diamond: str) -> Proof:
+        res_type = Diamond(diamond, self.type)
+        return res_type(rule=Proof.Rule.DiamondIntroduction, diamond=diamond, body=self)
+
+    def unbox(self: Proof, decoration: str = None) -> Proof:
+        res_type, decoration = TypeInference.box_elim(self.type, decoration)
+        return res_type(rule=Proof.Rule.BoxElimination, box=decoration, body=self)
+
+    def undiamond(self: Proof, decoration: str = None) -> Proof:
+        res_type, decoration = TypeInference.dia_elim(self.type, decoration)
+        return res_type(rule=Proof.Rule.DiamondElimination, diamond=decoration, body=self)
+
+    ####################################################################################################################
+    # Utilities
+    ####################################################################################################################
+    def nested_body(self: Proof) -> Proof:
+        match self.rule:
+            case Proof.Rule.BoxElimination: return self.body.nested_body()
+            case Proof.Rule.DiamondElimination: return self.body.nested_body()
+            case Proof.Rule.DiamondIntroduction: return self.body.nested_body()
+            case Proof.Rule.BoxIntroduction: return self.body.nested_body()
+            case _: return self
+
+    def brackets(self: Proof) -> list[IndexedBracket]:
+        def go(proof: Proof, context: list[IndexedBracket]) -> list[IndexedBracket]:
+            match proof.rule:
+                case Proof.Rule.BoxElimination: return go(proof.body, context + [(Bracket.Lock, proof.decoration)])
+                case Proof.Rule.DiamondElimination: return go(proof.body, context + [(Bracket.Inner, proof.decoration)])
+                case Proof.Rule.DiamondIntroduction: return go(proof.body, context + [(Bracket.Lock, proof.decoration)])
+                case Proof.Rule.BoxIntroduction: return go(proof.body, context + [(Bracket.Outer, proof.decoration)])
+                case _: return context
+        return go(self, [])
+
+    def is_negative(self: Proof) -> bool:
+        return False if (bs := self.brackets()) == [] else not (any(map(_is_positive, associahedron(bs))))
+
+    def unbracketed(self: Proof) -> bool:
+        return _cancel_out(self.brackets())
+
+    def substructures(self: Proof) -> list[tuple[list[IndexedBracket], Proof]]:
+        def go(proof: Proof, context: list[IndexedBracket]) -> list[tuple[list[IndexedBracket], Proof]]:
+            match proof.rule:
+                case Proof.Rule.Variable | Proof.Rule.Lexicon:
+                    return [(context, proof)]
                 case Proof.Rule.ArrowElimination:
-                    return self.function == other.function and self.argument == other.argument
+                    return [(context, proof), *go(proof.function, context), *go(proof.argument, context)]
                 case Proof.Rule.ArrowIntroduction:
-                    return self.abstraction == other.abstraction and self.body == other.body
-                case Proof.Rule.BoxElimination | self.rule.BoxIntroduction:
-                    return self.decoration == other.decoration and self.body == other.body
-                case Proof.Rule.DiamondElimination | self.rule.DiamondIntroduction:
-                    return self.decoration == other.decoration and self.body == other.body
+                    return [(context, proof), *go(proof.body, context)]
                 case _:
-                    raise ValueError(f'Unrecognized rule: {self.rule}')
-        return False
+                    return [(context, proof), *go(proof.nested_body(), context + _minimal_brackets(proof.brackets()))]
+        return go(self, [])
+
+    def __repr__(self) -> str: return show_term(self)
+    def __str__(self) -> str: return show_term(self)
+
+    def __eq__(self, other):
+        if self.type != other.type or self.rule != other.rule: return False
+        match self.rule:
+            case Proof.Rule.Lexicon: return self.constant == other.constant
+            case Proof.Rule.Variable: return self.variable == other.variable
+            case Proof.Rule.ArrowElimination: return self.abstraction == other.abstraction and self.body == other.body
+            case Proof.Rule.ArrowIntroduction: return self.abstraction == other.abstraction and self.body == other.body
+            case _: return self.decoration == other.decoration and self.body == other.body
 
     def __hash__(self) -> int:
         match self.rule:
-            case Proof.Rule.Lexicon: return hash((self.rule, type(self), self.constant))
-            case Proof.Rule.Axiom: return hash((self.rule, type(self), self.variable))
-            case Proof.Rule.ArrowElimination: return hash((self.rule, type(self), self.function, self.argument))
-            case Proof.Rule.ArrowIntroduction: return hash((self.rule, type(self), self.abstraction, self.body))
-            case Proof.Rule.BoxElimination | self.rule.BoxIntroduction:
-                return hash((self.rule, type(self), self.decoration, self.body))
-            case Proof.Rule.DiamondElimination | self.rule.DiamondIntroduction:
-                return hash((self.rule, type(self), self.decoration, self.body))
-            case _: raise ValueError(f'Unrecognized rule: {self.rule}')
+            case Proof.Rule.Lexicon: return hash((self.rule, self.type, self.constant))
+            case Proof.Rule.Variable: return hash((self.rule, self.type, self.variable))
+            case Proof.Rule.ArrowElimination: return hash((self.rule, self.type, self.function, self.argument))
+            case Proof.Rule.ArrowIntroduction: return hash((self.rule, self.type, self.abstraction, self.body))
+            case _: return hash((self.rule, self.type, self.decoration, self.body))
 
-    @classmethod
-    def con(cls: T, c: int) -> T:
-        if isinstance(cls, Type):
-            return type(cls)._registry[cls.__name__](c, rule=Proof.Rule.Lexicon)
-        raise TypeInference.TypeCheckError('Cannot instantiate an untyped constant')
-
-    @classmethod
-    def var(cls: T, v: int) -> T:
-        if isinstance(cls, Type):
-            return type(cls)._registry[cls.__name__](v, rule=Proof.Rule.Axiom)
-        raise TypeInference.TypeCheckError('Cannot instantiate an untyped variable')
-
-    @classmethod
-    def apply(cls: T, function: T, argument: T) -> T:
-        if isinstance(cls, Type):
-            return cls(function, argument, rule=Proof.Rule.ArrowElimination)
-        return TypeInference.arrow_elim(type(function), type(argument)).apply(function, argument)
-
-    @classmethod
-    def abstract(cls: T, variable: Proof | Type, body: Proof | Type) -> Proof | Type:
-        if isinstance(cls, Type):
-            return cls(variable, body, rule=Proof.Rule.ArrowIntroduction)
-        return TypeInference.arrow_intro(type(variable), type(body)).abstract(variable, body)
-
-    @classmethod
-    def box(cls: Proof | Type, box: str, body: Proof | Type) -> Proof | Type:
-        if isinstance(cls, Type):
-            return cls(box, body, rule=Proof.Rule.BoxIntroduction)
-        return TypeInference.box_intro(box, type(body)).box(box, body)
-
-    @classmethod
-    def diamond(cls: Proof | Type, diamond: str, body: Proof | Type) -> Proof | Type:
-        if isinstance(cls, Type):
-            return cls(diamond, body, rule=Proof.Rule.DiamondIntroduction)
-        return TypeInference.diamond_intro(diamond, type(body)).diamond(diamond, body)
-
-    @classmethod
-    def unbox(cls: Proof | Type, body: Proof | Type) -> Proof | Type:
-        if isinstance(cls, Type):
-            return cls(type(body).decoration, body, rule=Proof.Rule.BoxElimination)
-        return TypeInference.box_elim(type(body)).unbox(body)
-
-    @classmethod
-    def undiamond(cls: Proof | Type, body: Proof | Type) -> Proof | Type:
-        if isinstance(cls, Type):
-            return cls(type(body).decoration, body, rule=Proof.Rule.DiamondElimination)
-        return TypeInference.diamond_elim(type(body)).undiamond(body)
-
-    def __repr__(self) -> str: return show_term(self)
-
-    def free(self: T) -> list[T]:
+    def vars(self) -> list[Proof]:
         match self.rule:
+            case Proof.Rule.Variable: return [self]
             case Proof.Rule.Lexicon: return []
-            case Proof.Rule.Axiom: return [self]
-            case Proof.Rule.ArrowElimination: return self.function.free() + self.argument.free()
-            case Proof.Rule.ArrowIntroduction: return [f for f in self.body.free() if f != self.abstraction]
-            case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.free()
-            case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.free()
-
-    def vars(self: T) -> list[T]:
-        match self.rule:
-            case Proof.Rule.Lexicon: return []
-            case Proof.Rule.Axiom: return [self]
             case Proof.Rule.ArrowElimination: return self.function.vars() + self.argument.vars()
-            case Proof.Rule.ArrowIntroduction: return self.abstraction.vars() + self.body.vars()
-            case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.vars()
-            case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.vars()
+            case Proof.Rule.ArrowIntroduction: return [f for f in self.body.vars() if f != self.abstraction]
+            case _: return self.body.vars()
 
-    def constants(self: T) -> set[T]:
+    def free(self: Proof) -> list[Proof]:
+        substructures = self.substructures()
+        return [var for brackets, var in substructures if var.rule == Proof.Rule.Variable and _cancel_out(brackets)]
+
+    def serialize(self) -> SerializedProof:
+        return serialize_proof(self)
+
+    @property
+    def type(self) -> Type:
+        return type(self)  # type: ignore
+
+    ####################################################################################################################
+    # Meta-rules and rewrites
+    ####################################################################################################################
+    def eta_norm(self: Proof) -> Proof:
+        if self.is_negative():
+            return self
+
         match self.rule:
-            case Proof.Rule.Lexicon: return {self}
-            case Proof.Rule.Axiom: return set()
-            case Proof.Rule.ArrowElimination: return self.function.constants() | self.argument.constants()
-            case Proof.Rule.ArrowIntroduction: return self.body.constants()
-            case Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction: return self.body.constants()
-            case Proof.Rule.DiamondElimination | Proof.Rule.DiamondIntroduction: return self.body.constants()
-
-    def translate_lex(self: T, trans: dict[int, int]) -> T:
-        f = lambda x: x.translate_lex(trans)
-        match self.rule:
-            case Proof.Rule.Lexicon: return type(self).con(trans[c]) if (c := self.constant) in trans.keys() else self
-            case Proof.Rule.Axiom: return self
-            case Proof.Rule.ArrowElimination: return Proof.apply(f(self.function), f(self.argument))
-            case Proof.Rule.ArrowIntroduction: return Proof.abstract(f(self.abstraction), f(self.body))
-            case Proof.Rule.BoxElimination: return Proof.unbox(f(self.body))
-            case Proof.Rule.BoxIntroduction: return Proof.box(self.decoration, f(self.body))
-            case Proof.Rule.DiamondElimination: return Proof.undiamond(f(self.body))
-            case Proof.Rule.DiamondIntroduction: return Proof.diamond(self.decoration, f(self.body))
-
-    def canonicalize_var_names(self: T) -> set[T]:
-        def translate(x: T, trans: dict[int, int]) -> tuple[T, dict[int, int]]:
-            match x.rule:
-                case Proof.Rule.Lexicon: return x, trans
-                case Proof.Rule.Axiom:
-                    return type(x).var(trans.pop(x.variable)), trans
-                case Proof.Rule.ArrowElimination:
-                    fn, trans = translate(x.function, trans)
-                    arg, trans = translate(x.argument, trans)
-                    return type(x).apply(fn, arg), trans
-                case Proof.Rule.ArrowIntroduction:
-                    trans |= {x.abstraction.variable:
-                                  (var := next(k for k in range(999) if k not in trans.values()))}
-                    body, trans = translate(x.body, trans)
-                    return type(x).abstract(type(x.abstraction).var(var), body), trans
-                case Proof.Rule.BoxIntroduction:
-                    wrapped, trans = translate(x.body, trans)
-                    return type(x).box(x.decoration, wrapped), trans
-                case Proof.Rule.DiamondIntroduction:
-                    wrapped, trans = translate(x.body, trans)
-                    return type(x).diamond(x.decoration, wrapped), trans
-                case Proof.Rule.BoxElimination:
-                    wrapped, trans = translate(x.body, trans)
-                    return type(x).unbox(wrapped), trans
-                case Proof.Rule.DiamondElimination:
-                    wrapped, trans = translate(x.body, trans)
-                    return type(x).undiamond(wrapped), trans
-        return translate(self, {})[0]
-
-    def eta_norm(self: T) -> T:
-        match self.rule:
-            case Proof.Rule.Lexicon | Proof.Rule.Axiom: return self
+            case Proof.Rule.Variable | Proof.Rule.Lexicon:
+                return self
             case Proof.Rule.ArrowElimination:
-                return Proof.apply(self.function.eta_norm(), self.argument.eta_norm())
+                return self.function.eta_norm().apply(self.argument.eta_norm())
             case Proof.Rule.ArrowIntroduction:
                 body = self.body.eta_norm()
                 if body.rule == Proof.Rule.ArrowElimination and body.argument == self.abstraction:
                     return body.function
-                return Proof.abstract(self.abstraction, body)
-            case Proof.Rule.BoxElimination:
-                return Proof.unbox(self.body.eta_norm())
+                return body.abstract(self.abstraction)
             case Proof.Rule.BoxIntroduction:
                 body = self.body.eta_norm()
                 if body.rule == Proof.Rule.BoxElimination and body.decoration == self.decoration:
                     return body.body
-                return Proof.box(self.decoration, body)
-            case Proof.Rule.DiamondElimination:
-                return Proof.undiamond(self.body.eta_norm())
+                return body.box(self.decoration)
             case Proof.Rule.DiamondIntroduction:
                 body = self.body.eta_norm()
                 if body.rule == Proof.Rule.DiamondElimination and body.decoration == self.decoration:
                     return body.body
-                return Proof.diamond(self.decoration, body)
+                return body.diamond(self.decoration)
+            case Proof.Rule.DiamondElimination:
+                return self.body.eta_norm().undiamond()
+            case Proof.Rule.BoxElimination:
+                return self.body.eta_norm().unbox()
 
-    def inplace_apply(self: T, arg: T) -> T: return Proof.apply(self, arg)
-    def __matmul__(self: T, other: T) -> T: return self.inplace_apply(other)
-    def inplace_abstract(self: T, abstraction: T) -> T: return Proof.abstract(abstraction, self)
-    def __sub__(self: T, other: T) -> T: return self.inplace_abstract(other)
-
-    def serialize(self: T) -> SerializedProof:
-        name = self.rule.name
+    def beta_norm(self: Proof) -> Proof:
         match self.rule:
-            case Proof.Rule.Lexicon: return name, (serialize_type(type(self)), self.constant,)
-            case Proof.Rule.Axiom: return name, (serialize_type(type(self)), self.variable,)
-            case Proof.Rule.ArrowElimination: return name, (self.function.serialize(), self.argument.serialize())
-            case Proof.Rule.ArrowIntroduction: return name, (self.abstraction.serialize(), self.body.serialize())
-            case Proof.Rule.BoxElimination: return name, (self.body.serialize(),)
-            case Proof.Rule.BoxIntroduction: return name, (self.decoration, self.body.serialize())
-            case Proof.Rule.DiamondElimination: return name, (self.body.serialize(),)
-            case Proof.Rule.DiamondIntroduction: return name, (self.decoration, self.body.serialize())
+            case Proof.Rule.Variable | Proof.Rule.Lexicon:
+                return self
+            case Proof.Rule.ArrowElimination:
+                if self.function.rule == Proof.Rule.ArrowIntroduction:
+                    return self.function.body.substitute(self.function.abstraction, self.argument).beta_norm()
+                return self.function.beta_norm().apply(self.argument.beta_norm())
+            case Proof.Rule.ArrowIntroduction:
+                return self.body.beta_norm().abstract(self.abstraction)
+            case Proof.Rule.BoxIntroduction:
+                return self.body.beta_norm().box(self.decoration)
+            case Proof.Rule.DiamondIntroduction:
+                return self.body.beta_norm().diamond(self.decoration)
+            case Proof.Rule.DiamondElimination:
+                if self.body.rule == Proof.Rule.DiamondIntroduction:
+                    return self.body.body
+                return self.body.beta_norm().undiamond()
+            case Proof.Rule.BoxElimination:
+                if self.body.rule == Proof.Rule.BoxIntroduction and self.body.decoration == self.decoration:
+                    return self.body.body
+                return self.body.beta_norm().unbox()
 
+    def translate_lex(self: Proof, trans: dict[int, int]) -> Proof:
+        def go(p: Proof) -> Proof:
+            match p.rule:
+                case Proof.Rule.Lexicon: return p.type.lex(trans[c]) if (c := p.constant) in trans.keys() else p
+                case Proof.Rule.Variable: return p
+                case Proof.Rule.ArrowElimination: return go(p.function).apply(go(p.argument))
+                case Proof.Rule.ArrowIntroduction: return go(p.body).abstract(p.abstraction)
+                case Proof.Rule.BoxElimination: return go(p.body).unbox()
+                case Proof.Rule.BoxIntroduction: return go(p.body).box(p.decoration)
+                case Proof.Rule.DiamondElimination: return go(p.body).undiamond()
+                case Proof.Rule.DiamondIntroduction: return go(p.body).diamond(p.decoration)
+        return go(self)
 
-def deserialize_proof(args):
-    match args:
-        case Proof.Rule.Lexicon.name, (wordtype, idx):
-            return deserialize_type(wordtype).con(idx)
-        case Proof.Rule.Axiom.name, (wordtype, idx):
-            return deserialize_type(wordtype).var(idx)
-        case Proof.Rule.ArrowElimination.name, (left, right):
-            return Proof.apply(deserialize_proof(left), deserialize_proof(right))
-        case Proof.Rule.ArrowIntroduction.name, (left, right):
-            return Proof.abstract(deserialize_proof(left), deserialize_proof(right))
-        case Proof.Rule.BoxElimination.name, (body,):
-            return Proof.unbox(deserialize_proof(body))
-        case Proof.Rule.BoxIntroduction.name, (decoration, body,):
-            return Proof.box(decoration, deserialize_proof(body))
-        case Proof.Rule.DiamondElimination.name, (body,):
-            return Proof.undiamond(deserialize_proof(body))
-        case Proof.Rule.DiamondIntroduction.name, (decoration, body,):
-            return Proof.diamond(decoration, deserialize_proof(body))
-        case _:
-            raise ValueError(f'Cannot deserialize {args}')
+    def subproofs(self: Proof) -> list[Proof]:
+        match self.rule:
+            case Proof.Rule.Variable | Proof.Rule.Lexicon: return [self]
+            case Proof.Rule.ArrowElimination: return [self, *self.function.subproofs(), *self.argument.subproofs()]
+            case Proof.Rule.ArrowIntroduction: return [self, *self.body.subproofs()]
+            case _: return [self, *self.body.subproofs()]
+
+    def canonicalize_var_names(self: Proof) -> Proof:
+        def de_bruijn(proof: Proof, variable: Proof) -> int:
+            match proof.rule:
+                case Proof.Rule.Variable: return 0
+                case Proof.Rule.ArrowIntroduction: return 1 + de_bruijn(proof.body, variable)
+                case Proof.Rule.ArrowElimination:
+                    if variable in proof.function.vars():
+                        return de_bruijn(proof.function, variable)
+                    return de_bruijn(proof.argument, variable)
+                case _: return de_bruijn(proof.body, variable)
+
+        def go(proof: Proof, trans: dict[int, int]) -> tuple[Proof, dict[int, int]]:
+            match proof.rule:
+                case Proof.Rule.Lexicon:
+                    return proof, trans
+                case Proof.Rule.Variable:
+                    return proof.type.var(trans.pop(proof.variable)), trans
+                case Proof.Rule.ArrowElimination:
+                    fn, trans = go(proof.function, trans)
+                    arg, trans = go(proof.argument, trans)
+                    return fn.apply(arg), trans
+                case Proof.Rule.ArrowIntroduction:
+                    trans |= {proof.abstraction.variable: (db := de_bruijn(proof.body, proof.abstraction))}
+                    body, trans = go(proof.body, trans)
+                    return body.abstract(proof.abstraction.type.var(db)), trans
+                case Proof.Rule.BoxElimination:
+                    body, trans = go(proof.body, trans)
+                    return body.unbox(), trans
+                case Proof.Rule.BoxIntroduction:
+                    body, trans = go(proof.body, trans)
+                    return body.box(proof.decoration), trans
+                case Proof.Rule.DiamondIntroduction:
+                    body, trans = go(proof.body, trans)
+                    return body.diamond(proof.decoration), trans
+                case Proof.Rule.DiamondElimination:
+                    body, trans = go(proof.body, trans)
+                    return body.undiamond(), trans
+
+        return go(self, {})[0]
+
+    def substitute(self: Proof, replace: Proof, with_: Proof) -> Proof:
+        TypeInference.assert_equal(replace.type, with_.type)
+        if (c := self.subproofs().count(replace)) != 1:
+            raise TypeInference.TypeCheckError(f"Expected to find one occurrence of {replace} in {self}, but found {c}")
+
+        def go(_proof: Proof) -> Proof:
+            if _proof == replace:
+                return with_
+            match _proof.rule:
+                case Proof.Rule.Variable | Proof.Rule.Lexicon:
+                    return _proof
+                case Proof.Rule.ArrowElimination:
+                    return go(_proof.function).apply(go(_proof.argument))
+                case Proof.Rule.ArrowIntroduction:
+                    return go(_proof.body).abstract(go(_proof.abstraction))
+                case Proof.Rule.BoxIntroduction:
+                    return go(_proof.body).box(_proof.decoration)
+                case Proof.Rule.DiamondIntroduction:
+                    return go(_proof.body).diamond(_proof.decoration)
+                case Proof.Rule.DiamondElimination:
+                    return go(_proof.body).undiamond()
+                case Proof.Rule.BoxElimination:
+                    return go(_proof.body).unbox()
+        return go(self)
+
+    def dia_cut(self: Proof, replace: Proof, diamond: Proof) -> Proof:
+        return self.substitute(replace, diamond.undiamond())
 
 
 def show_term(
@@ -563,7 +711,7 @@ def show_term(
 
     def needs_par(_proof: Proof) -> bool:
         match _proof.rule:
-            case Proof.Rule.Axiom | Proof.Rule.Lexicon: return False
+            case Proof.Rule.Variable | Proof.Rule.Lexicon: return False
             case (Proof.Rule.BoxElimination | Proof.Rule.BoxIntroduction | Proof.Rule.DiamondElimination |
                   Proof.Rule.DiamondIntroduction): return not show_decorations and needs_par(_proof.body)
             case _: return True
@@ -571,7 +719,7 @@ def show_term(
     match proof.rule:
         case Proof.Rule.Lexicon:
             return f'{wp(proof.constant)}' if not show_types else f'{wp(proof.constant)}::{type(proof)}'
-        case Proof.Rule.Axiom:
+        case Proof.Rule.Variable:
             return f'x{proof.variable}' if not show_types else f'x{proof.variable}::{type(proof)}'
         case Proof.Rule.ArrowElimination:
             fn, arg = proof.function, proof.argument
@@ -587,3 +735,61 @@ def show_term(
             return f'▿{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
         case Proof.Rule.DiamondIntroduction:
             return f'▵{proof.decoration}({f(proof.body)})' if show_decorations else f(proof.body)
+
+
+def serialize_proof(proof: Proof) -> SerializedProof:
+    name = proof.rule.name
+    match proof.rule:
+        case Proof.Rule.Lexicon: return name, (serialize_type(proof.type), proof.constant)
+        case Proof.Rule.Variable: return name, (serialize_type(proof.type), proof.variable)
+        case Proof.Rule.ArrowElimination: return name, (proof.function.serialize(), proof.argument.serialize())
+        case Proof.Rule.ArrowIntroduction: return name, (proof.abstraction.serialize(), proof.body.serialize())
+        case _: return name, (proof.decoration, proof.body.serialize())
+
+
+def deserialize_proof(args) -> Proof:
+    match args:
+        case Proof.Rule.Lexicon.name, (t, idx):
+            return deserialize_type(t).lex(idx)
+        case Proof.Rule.Variable.name, (t, idx):
+            return deserialize_type(t).var(idx)
+        case Proof.Rule.ArrowElimination.name, (fn, arg):
+            return deserialize_proof(fn).apply(deserialize_proof(arg))
+        case Proof.Rule.ArrowIntroduction.name, (var, body):
+            return deserialize_proof(body).abstract(deserialize_proof(var))
+        case Proof.Rule.BoxElimination.name, (box, body):
+            return deserialize_proof(body).unbox(box)
+        case Proof.Rule.BoxIntroduction.name, (box, body):
+            return deserialize_proof(body).box(box)
+        case Proof.Rule.DiamondElimination.name, (diamond, body):
+            return deserialize_proof(body).undiamond(diamond)
+        case Proof.Rule.DiamondIntroduction.name, (diamond, body):
+            return deserialize_proof(body).box(diamond)
+        case _:
+            raise ValueError(f'Cannot deserialize {args}')
+
+
+########################################################################################################################
+# Examples / Tests
+########################################################################################################################
+A = Atom('A')
+
+# <>[]A => A
+p1 = (x := Box('', A).var(0)).unbox().dia_cut(x, Diamond('', Box('', A)).var(0))
+assert p1.unbracketed()
+
+# []A => []<>[]A
+p3 = Box('', A).var(0).diamond('').box('')
+assert p3.unbracketed()
+
+# <>A => <>[]<>A
+p4 = (x := A.var(0)).diamond('').box('').diamond('').dia_cut(x, Diamond('', A).var(0))
+assert p4.unbracketed()
+
+# <>[]<>A => <>A
+p5 = (x := Box('', Diamond('', A)).var(0)).unbox().dia_cut(x, Diamond('', Box('', Diamond('', A))).var(0))
+assert p5.unbracketed()
+
+# []<>[]A => []A
+p6 = (x := Box('', A).var(0)).unbox().dia_cut(x, Box('', Diamond('', Box('', A))).var(0).unbox()).box('')
+assert p6.unbracketed()
