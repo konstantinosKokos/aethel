@@ -45,7 +45,7 @@ class Lassy:
         return (self.__getitem__(i) for i in range(len(self)))
 
     def __index__(self):
-        return self.filelist.index(self.filelist)
+        return self.filelist.index
 
 
 IGNORED_FILES = {
