@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import pdb
 from abc import ABCMeta
 from typing import TypeVar, Callable
 from typing import Type as TYPE
@@ -14,6 +13,7 @@ from typing import Optional as Maybe
 from functools import partial, reduce
 from enum import Enum
 from itertools import product as prod
+from collections import Counter as Bag
 
 ########################################################################################################################
 # Type Syntax
@@ -280,15 +280,14 @@ def indexed_bracket(x: _TreeOfTs[IndexedBracket]) -> bool: return isinstance(x[0
 
 def bracket_cancellations(
         outer: IndexedBracket,
-        inner: IndexedBracket,
-        structural_rules: Callable[[str, str], bool] = lambda _: False) -> bool:
+        inner: IndexedBracket) -> bool:
     match outer, inner:
         case (Bracket.Lock, outer_mode), (Bracket.Inner, inner_mode):
             return outer_mode == inner_mode
         case (Bracket.Outer, outer_mode), (Bracket.Lock, inner_mode):
             return outer_mode == inner_mode
         case (Bracket.Lock, outer_mode), (Bracket.Lock, inner_mode):
-            return structural_rules(outer_mode, inner_mode)
+            return inner_mode == f'{outer_mode}!'
         case _:
             return False
 
@@ -309,10 +308,10 @@ def associahedron(xs: list[_T]) -> list[_TreeOfTs]:
         case _: return reduce(list.__add__, [list(prod(associahedron(s[0]), associahedron(s[1]))) for s in splits(xs)])
 
 
-def _collapse(_tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracket]]:
-    if indexed_bracket(_tree):
-        return _tree
-    left, right = _tree
+def _collapse(tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracket]]:
+    if indexed_bracket(tree):
+        return tree
+    left, right = tree
     col_left, col_right = _collapse(left), _collapse(right)
     match col_left, col_right:
         case None, None:
@@ -327,20 +326,31 @@ def _collapse(_tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracke
             return col_left, col_right
 
 
-def _flatten(_tree: Maybe[_TreeOfTs[IndexedBracket]]) -> list[IndexedBracket]:
-    if _tree is None:
+def _flatten(tree: Maybe[_TreeOfTs[IndexedBracket]]) -> list[IndexedBracket]:
+    if tree is None:
         return []
-    if indexed_bracket(_tree):
-        return [_tree]
-    left, right = _tree
+    if indexed_bracket(tree):
+        return [tree]
+    left, right = tree
     return _flatten(left) + _flatten(right)
 
 
-def cancels_out(tree: _TreeOfTs[IndexedBracket]) -> bool:
-    return _collapse(tree) is None
+def _cancellable(brackets: list[IndexedBracket]) -> bool:
+    locks = Bag([s for b, s in brackets if b == Bracket.Lock and not s.endswith('!')])
+    unlocks = Bag([s.rstrip('!') for b, s in brackets if b == Bracket.Lock and s.endswith('!')])
+    keys = Bag([s for b, s in brackets if b in (Bracket.Outer, Bracket.Inner)])
+    return keys+unlocks == locks
 
 
-def is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
+def _cancel_out(brackets: list[IndexedBracket]) -> bool:
+    if not _cancellable(brackets):
+        return False
+    if all(b == Bracket.Lock for b, _ in brackets):
+        return len(brackets) % 2 == 0 and all(f'{brackets[i][1]}!' == brackets[-i-1][1] for i in range(len(brackets)//2))
+    return any(map(lambda x: _collapse(x) is None, associahedron(brackets))) if brackets else True
+
+
+def _is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
     collapsed = _collapse(tree)
 
     def go(_tree: _TreeOfTs[IndexedBracket]) -> bool:
@@ -349,7 +359,7 @@ def is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
     return go(collapsed) if collapsed is not None else True
 
 
-def minimal_brackets(brackets: list[IndexedBracket]) -> list[IndexedBracket]:
+def _minimal_brackets(brackets: list[IndexedBracket]) -> list[IndexedBracket]:
     return min((_flatten(_collapse(tree)) for tree in associahedron(brackets)), key=len, default=[])
 
 
@@ -489,10 +499,10 @@ class Proof:
         return go(self, [])
 
     def is_negative(self: Proof) -> bool:
-        return False if (bs := self.brackets()) == [] else not (any(map(is_positive, associahedron(bs))))
+        return False if (bs := self.brackets()) == [] else not (any(map(_is_positive, associahedron(bs))))
 
     def unbracketed(self: Proof) -> bool:
-        return any(map(cancels_out, associahedron(self.brackets())))
+        return _cancel_out(self.brackets())
 
     def substructures(self: Proof) -> list[tuple[list[IndexedBracket], Proof]]:
         def go(proof: Proof, context: list[IndexedBracket]) -> list[tuple[list[IndexedBracket], Proof]]:
@@ -501,8 +511,10 @@ class Proof:
                     return [(context, proof)]
                 case Proof.Rule.ArrowElimination:
                     return [(context, proof), *go(proof.function, context), *go(proof.argument, context)]
+                case Proof.Rule.ArrowIntroduction:
+                    return [(context, proof), *go(proof.body, context)]
                 case _:
-                    return [(context, proof), *go(proof.nested_body(), context + minimal_brackets(proof.brackets()))]
+                    return [(context, proof), *go(proof.nested_body(), context + _minimal_brackets(proof.brackets()))]
         return go(self, [])
 
     def __repr__(self) -> str: return show_term(self)
@@ -534,12 +546,8 @@ class Proof:
             case _: return self.body.vars()
 
     def free(self: Proof) -> list[Proof]:
-        match self.rule:
-            case Proof.Rule.Variable: return [self]
-            case Proof.Rule.Lexicon: return []
-            case Proof.Rule.ArrowElimination: return self.function.free() + self.argument.free()
-            case Proof.Rule.ArrowIntroduction: return [f for f in self.body.free() if self.abstraction != f]
-            case _: return self.nested_body().free() if self.brackets() == [] else []
+        substructures = self.substructures()
+        return [var for brackets, var in substructures if var.rule == Proof.Rule.Variable and _cancel_out(brackets)]
 
     def serialize(self) -> SerializedProof:
         return serialize_proof(self)
@@ -629,7 +637,7 @@ class Proof:
                 case Proof.Rule.Variable: return 0
                 case Proof.Rule.ArrowIntroduction: return 1 + de_bruijn(proof.body, variable)
                 case Proof.Rule.ArrowElimination:
-                    if variable in proof.function.free():
+                    if variable in proof.function.vars():
                         return de_bruijn(proof.function, variable)
                     return de_bruijn(proof.argument, variable)
                 case _: return de_bruijn(proof.body, variable)
@@ -741,10 +749,10 @@ def serialize_proof(proof: Proof) -> SerializedProof:
 
 def deserialize_proof(args) -> Proof:
     match args:
-        case Proof.Rule.Lexicon.name, (wordtype, idx):
-            return deserialize_type(wordtype).lex(idx)
-        case Proof.Rule.Variable.name, (wordtype, idx):
-            return deserialize_type(wordtype).var(idx)
+        case Proof.Rule.Lexicon.name, (t, idx):
+            return deserialize_type(t).lex(idx)
+        case Proof.Rule.Variable.name, (t, idx):
+            return deserialize_type(t).var(idx)
         case Proof.Rule.ArrowElimination.name, (fn, arg):
             return deserialize_proof(fn).apply(deserialize_proof(arg))
         case Proof.Rule.ArrowIntroduction.name, (var, body):
@@ -754,7 +762,7 @@ def deserialize_proof(args) -> Proof:
         case Proof.Rule.BoxIntroduction.name, (box, body):
             return deserialize_proof(body).box(box)
         case Proof.Rule.DiamondElimination.name, (diamond, body):
-            return deserialize_proof(body).unbox(diamond)
+            return deserialize_proof(body).undiamond(diamond)
         case Proof.Rule.DiamondIntroduction.name, (diamond, body):
             return deserialize_proof(body).box(diamond)
         case _:
