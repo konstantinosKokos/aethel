@@ -1,0 +1,224 @@
+from .mill.proofs import Proof, variable, constant, Logical
+from .mill.types import Atom, Type, Functor, Diamond, Box
+from .mill.terms import Variable
+from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
+from typing import Callable, Iterable
+from functools import reduce
+
+
+class ExtractionError(Exception):
+    pass
+
+
+Atoms = {'adj':     (ADJ    := Atom('ADJ')),
+         'bw':      (BW     := Atom('BW')),
+         'let':     (PUNCT  := Atom('PUNCT')),
+         'lid':     (LID    := Atom('LID')),
+         'n':       (N      := Atom('N')),
+         'spec':    N,
+         'vnw':     (VNW    := Atom('VNW', (N,))),
+         'np':      (NP     := Atom('NP', (N,))),
+         'tsw':     (TSW    := Atom('TSW')),
+         'tw':      (TW     := Atom('TW')),
+         'vg':      (VG     := Atom('VG')),
+         'vz':      (VZ     := Atom('VZ')),
+         'ww':      (INF     := Atom('INF')),
+         'advp':    (ADV    := Atom('ADV')),
+         'ahi':     (AHI    := Atom('AHI')),
+         'ap':      (AP     := Atom('AdjP')),
+         'cp':      (CP     := Atom('CP')),
+         'inf':     INF,
+         'detp':    (DETP   := Atom('DETP')),
+         'oti':     (OTI    := Atom('OTI')),
+         'ti':      (TI     := Atom('TI')),
+         'pp':      (PP     := Atom('PP')),
+         'ppart':   (PPART  := Atom('PPART')),
+         'ppres':   (PPRES  := Atom('PPRES')),
+         'rel':     (REL    := Atom('REL')),
+         # sentential types
+         's':       (S      := Atom('S')),
+         'smain':   (Smain  := Atom('SMAIN', (S,))),
+         'ssub':    (Ssub   := Atom('SSUB', (S,))),
+         'sv1':     (Sv1    := Atom('SV1', (S,))),
+         'svan':    (Svan   := Atom('SVAN', (S,))),
+         'whq':     (WHq    := Atom('WHQ', (S,))),
+         'whrel':   (WHrel  := Atom('WHREL', (S,))),
+         'whsub':   (WHsub  := Atom('WHSUB', (S,)))}
+
+
+head_labels = {'hd', 'rhd', 'whd', 'cmp', 'np_head', 'crd'}
+adjunct_labels = {'mod', 'app', 'predm'}
+
+
+ObliquenessOrder = (
+    ('crd', 'hd', 'np_head', 'whd', 'rhd', 'cmp'),  # heads
+    ('mod', 'app', 'predm'),                        # modifiers
+    ('body', 'relcl', 'whbody', 'cmpbody'),         # clause bodies
+    ('sup',),                                       # preliminary subject
+    ('su',),                                        # primary subject
+    ('pobj',),                                      # preliminary object
+    ('obj1',),                                      # primary object
+    ('predc', 'obj2', 'se', 'pc', 'hdf'),           # verb secondary arguments
+    ('ld', 'me', 'vc'),                             # verb complements
+    ('obcomp',),                                    # comparison complement
+    ('svp',),                                       # separable verb part
+    ('det',))                                       # determiner head
+
+
+def dep_to_key(dep: str) -> int:
+    return next((i for i, d in enumerate(sum(ObliquenessOrder, ())) if d == dep), -1)
+
+
+def make_functor(result: Type, arguments: list[Type]) -> Type:
+    return reduce(lambda x, y: Functor(y, x), arguments, result)  # type: ignore
+
+
+def unbox_and_apply(original: Proof, boxes: list[Proof]) -> Proof:
+    def go(f: Proof) -> Proof:
+        unboxed = f.unbox()
+        if isinstance(f.term, Variable):
+            return unboxed.undiamond(
+                where=f, becomes=variable(Diamond(unboxed.term.decoration, f.term.type), f.term.index))
+        return unboxed
+    return reduce(lambda x, y: go(y) @ x, reversed(boxes), original)
+
+
+def apply(function: Proof, arguments: list[Proof]) -> Proof: return reduce(Proof.apply, reversed(arguments), function)
+def endo(of: Type) -> Type: return Functor(of, of)
+
+
+def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
+    if proof.rule == Logical.Variable:
+        return proof
+    variables = [f for f in proof.vars() if condition(f)]
+    for var in variables:
+        # todo: structural rules might need to be applied here
+        proof = proof.abstract(var)
+    return proof
+
+
+def prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
+    dag.attribs[root]['proof'] = (ret := _prove(dag, root, label, hint))
+    return ret
+
+
+def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
+    # utils
+    def coindexed_with(nodes: set[str]) -> Callable[[Variable], bool]:
+        indices = {index for node in nodes if (index := dag.get(node, 'index')) is not None}
+        return lambda v: dag.get(str(v.index), 'index') in indices
+
+    def make_adj(_adjuncts: list[tuple[str, str]], _top_type: Type) -> list[Proof]:
+        return [prove(dag, _child, _label, Box(_label, endo(_top_type))) for _label, _child in _adjuncts]
+
+    def make_args(_dependents: list[tuple[str, str]],
+                  abstract_if: Callable[[Variable], bool] = lambda _: False,
+                  forced_type: Type | None = None) -> list[Proof]:
+        return [_proof.diamond(_label) if _proof.rule != Logical.Variable else _proof for _label, _proof in
+                [(_label, abstract(prove(dag, _child, _label, forced_type), abstract_if))
+                 for _label, _child in _dependents]
+                if _label != 'punct']
+
+    def shared_and_distributed(_roots: list[tuple[str, str]],
+                               siblings: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        indices = {index for node in set().union(*[dag.successors(_root) for _, _root in _roots])
+                   if (index := dag.get(node, 'index')) is not None}
+        return ((shared := [(dep, node) for dep, node in siblings if dag.get(node, 'index') in indices]),
+                [sib for sib in siblings if sib not in shared])
+
+    def get_type_of(_node_id: str, _conjuncts: list[str]) -> Type:
+        coindexed = find_coindexed(dag, dag.get(_node_id, 'index'))
+        per_conjunct = [coindexed & set(dag.successors(_conjunct)) for _conjunct in _conjuncts]
+        abstraction_types = [dag.get(var, 'proof').type for c in per_conjunct for var in c]
+        if not abstraction_types:
+            # todo: see e.g. WR-P-E-I-0000027216.p.1.s.23.xml
+            raise ExtractionError(f'No type information for {_node_id}')
+        # todo: polymorphism assertion or type coercion
+        return next(iter(abstraction_types))
+
+    # terminal case
+    if dag.is_leaf(root):
+        material, node_id = get_material(dag, root), int(dag.get(root, 'id'))
+        if hint is not None:
+            return (variable if is_ghost(dag, root) else constant)(hint, node_id)
+        match is_ghost(dag, root), dag.get(material, 'cat'), dag.get(material, 'pt'):
+            case False, ('mwu' | None), pt: return constant(Atoms[pt], node_id)
+            case False, cat, None: return constant(Atoms[cat], node_id)
+            case True, cat, pt:
+                node_type = Atoms[pt] if pt is not None else Atoms[cat]
+                if label in adjunct_labels:
+                    node_type = Box(label, node_type)
+                elif label not in head_labels:
+                    node_type = Diamond(label, node_type)
+                return variable(node_type, node_id)
+            case _: raise ExtractionError(f'No pattern for node {dag.get(root)}')
+
+    # non-terminal case
+    top_type = Atoms[dag.get(root, 'cat')] if hint is None else hint
+    match split_children(dag, root):
+        case [], dets, [('np_head', head)], adjuncts, arguments, []:
+            np_proof = prove(dag, head, 'np_head', None)
+            arg_proofs = make_args(arguments)
+            det_proofs = [
+                prove(dag, det, 'det', Box('det', make_functor(top_type, [a.type for a in arg_proofs + [np_proof]])))
+                for _, det in dets]
+            adj_proofs = make_adj(adjuncts, top_type)
+            assert len(det_proofs) <= 1
+            return unbox_and_apply(apply(unbox_and_apply(np_proof, det_proofs), arg_proofs), adj_proofs)
+        case [], [], [(_, head)], adjuncts, arguments, []:
+            if dag.get(head, 'lemma') == 'vallen':
+                arg_proofs = make_args(arguments,
+                                      lambda x: (coindexed_with({head})(x) or
+                                                 isinstance(x.type, Diamond) and x.type.decoration == 'vc'))
+            else:
+                arg_proofs = make_args(arguments, coindexed_with({head}))
+            adj_proofs = make_adj(adjuncts, top_type)
+            head_term = prove(dag, head, 'hd', make_functor(top_type, [a.type for a in arg_proofs]))
+            return unbox_and_apply(apply(head_term, arg_proofs), adj_proofs)
+        case conjuncts, [], [('crd', crd), *heads], adjuncts, arguments, correlatives:
+            shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
+            shared_nodes = {node for _, node in heads + shared_adjuncts + arguments}
+            cnj_proofs = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
+            hd_proofs = [prove(dag, head, 'hd', get_type_of(head, [cnj for _, cnj in conjuncts])) for head in heads]
+            shared_adj_proofs = make_adj(shared_adjuncts, top_type)
+            dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
+            cor_proofs, arg_proofs = make_args(correlatives), make_args(arguments)
+            all_args = shared_adj_proofs + arg_proofs + hd_proofs + cnj_proofs + cor_proofs
+            crd_type = make_functor(top_type, [a.type for a in all_args])
+            crd_proof = prove(dag, crd, 'crd', crd_type)
+            return unbox_and_apply(apply(crd_proof, all_args), dist_adj_proofs)
+        case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
+            shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
+            shared_nodes = {node for _, node in shared_adjuncts + arguments} | {det}
+            cnj_proofs = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
+            det_term = prove(dag, det, 'det', get_type_of(det, [cnj for _, cnj in conjuncts]))
+            shared_adj_proofs = make_adj(shared_adjuncts, top_type)
+            dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
+            cor_proofs, arg_proofs = make_args(correlatives), make_args(arguments)
+            all_args = shared_adj_proofs + arg_proofs + [det_term] + cnj_proofs + cor_proofs
+            crd_type = make_functor(top_type, [a.type for a in all_args])
+            crd_proof = prove(dag, crd, 'crd', crd_type)
+            return unbox_and_apply(apply(crd_proof, all_args), dist_adj_proofs)
+        case [_, *_], _, _, _, _, _:
+            raise ExtractionError('Headless conjunction')
+        case _:
+            raise ExtractionError('Unhandled case')
+
+
+
+
+def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...]:
+    def depsort(children: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+        return sorted(children, key=lambda lc: dep_to_key(lc[0]))
+
+    def nodesort(children: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
+        return sorted(children, key=lambda lc: node_to_key(dag, lc[1]))
+
+    outgoing = {(edge.label, edge.target) for edge in dag.outgoing_edges(root)}
+    conjuncts = {(label, child) for label, child in outgoing if label == 'cnj'}
+    adjuncts = {(label, child) for label, child in outgoing if label in adjunct_labels}
+    heads = {(label, child) for label, child in outgoing if label in head_labels}
+    dets = {(label, child) for label, child in outgoing if label == 'det'}
+    cors = {(label, child) for label, child in outgoing if label == 'cor'}
+    dependents = outgoing - conjuncts - adjuncts - heads - dets - cors
+    return nodesort(conjuncts), nodesort(dets), depsort(heads), nodesort(adjuncts), depsort(dependents), nodesort(cors)
