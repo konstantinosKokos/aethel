@@ -14,23 +14,25 @@ def extract_contiguous_subgraphs(dag: DAG[str]):
 
 
 def mod_combinations(proof: T) -> list[T]:
+    # Based on https://github.com/Mar16ke/First-step-towards-parsing-without-parsing
+
     def is_mod(_proof: T) -> bool:
         if _proof.rule == Proof.Rule.BoxElimination and (deco := _proof.decoration) in {'mod', 'app'}:
             return not (_proof.body.rule == Proof.Rule.DiamondElimination and _proof.body.decoration == deco)
         return False
 
     match proof.rule:
-        case Proof.Rule.Axiom: return [proof]
+        case Proof.Rule.Lexicon: return [proof]
         case Proof.Rule.Lexicon: return [proof]
         case Proof.Rule.ArrowElimination:
-            ret = [Proof.apply(f, a)
-                   for f in mod_combinations(proof.function) for a in mod_combinations(proof.argument)]
+            ret = [f.apply(a) for f in mod_combinations(proof.function) for a in mod_combinations(proof.argument)]
             if is_mod(proof.function):
                 ret.append(proof.argument)
             return ret
         case Proof.Rule.ArrowIntroduction:
-            return [Proof.abstract(proof.variable, body) for body in mod_combinations(proof.body)]
+            return [body.abstract(proof.abstraction)
+                    for body in mod_combinations(proof.body) if proof.abstraction in body.vars()]
         case Proof.Rule.BoxElimination:
-            return [Proof.unbox(body) for body in mod_combinations(proof.body)]
+            return [body.unbox() for body in mod_combinations(proof.body)]
         case Proof.Rule.BoxIntroduction:
-            return [Proof.box(proof.box, body) for body in mod_combinations(proof.body)]
+            return [body.box(proof.decoration) for body in mod_combinations(proof.body)]

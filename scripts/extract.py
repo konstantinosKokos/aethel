@@ -64,4 +64,5 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel('0.9.dev1')
+    store_aethel('adjunction', save_intermediate=False)
+

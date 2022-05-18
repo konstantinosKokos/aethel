@@ -14,15 +14,25 @@ programmers and watch them rage in disgust!
 
 ---
 
-### Changelog
+### Major Versioning Changelog
+**v0.9.1.devx (05/2022)**
 
-**01/2022**
+Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more 
+complicated but all proofs are now sound wrt. to the underlying logic.
+* **Adjunction**: diamonds and boxes are no longer treated as ad-hoc type constructors, and their adjoint nature is
+made explicit (i.e. ◇□A⇒A⇒□◇A). 
+* **Bracketing structure**: brackets are now explicated to control the applicability of diamond eliminations 
+and box introductions. A minimal set of structural rules are now defined to allow the abstraction of variables nested
+deeply within constituent substructures (_their formulation is still WiP so anticipate changes_).
+
+
+**v0.9.devx (01/2022)**
 
 Big changes to the extraction algorithm, data representation, and the data.
 * Proofs are now constructed and delivered in natural-deduction (≡ λ-term) format. This ensures type-safety during 
 extraction and loading, and allows inspection of proofs at a sub-sentential level.
-* Proofs are now instances of both the `Proof` protocol and an actual type object (itself an insance of `Type`), 
-allowing pythonic access to a proof's type and its attributes.
+* Proofs are now instances of both the `Proof` protocol and an actual type metaclass (itself an insance of the abstract 
+metaclass `Type`), allowing pythonic access to a proof's type and its attributes.
 * **Punctuation handling**: punctuation marks are now retained and contained in æthel samples.  
 Punctuations are assigned dummy types, and their terms do not show in the derivation.
 * **Fewer but longer sentences**: sentence splitting is now reserved only for non-functional branches.

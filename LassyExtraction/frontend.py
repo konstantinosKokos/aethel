@@ -1,5 +1,5 @@
 from __future__ import annotations
-from LassyExtraction.mill.types import (T, Type, show_term, deserialize_type, SerializedType, SerializedProof,
+from LassyExtraction.mill.types import (Proof, Type, show_term, deserialize_type, SerializedType, SerializedProof,
                                         deserialize_proof)
 from dataclasses import dataclass
 import pickle
@@ -29,9 +29,9 @@ class ProofBank:
 @dataclass(frozen=True)
 class Sample:
     premises: list[Premise]
-    proof: T
+    proof: Proof
     name: str
-    subset: 'str'
+    subset: str
 
     def __len__(self) -> int: return len(self.premises)
     def __repr__(self) -> str: return self.name
