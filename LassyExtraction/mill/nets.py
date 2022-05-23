@@ -1,128 +1,177 @@
-# todo.
+from __future__ import annotations
 
-# import pdb
-#
-# from .types import Type, Atom, Functor, Box, Diamond, Proof, T
-# from typing import NamedTuple
-#
-#
-# class Leaf(NamedTuple):
-#     atom: str
-#     polarity: bool
-#     index: int
-#
-#     def __repr__(self) -> str:
-#         return f'{self.atom}({"+" if self.polarity else "-"},{self.index})'
-#
-#
-# class Unary(NamedTuple):
-#     polarity: bool
-#     modality: str
-#     decoration: str
-#     content: 'Tree'
-#
-#     def __repr__(self) -> str:
-#         return f'Unary({"+" if self.polarity else "-"}, {self.modality}{self.decoration}, {self.content})'
-#
-#
-# class Binary(NamedTuple):
-#     polarity: bool
-#     left: 'Tree'
-#     right: 'Tree'
-#
-#     def __repr__(self) -> str:
-#         return f'Binary({"+" if self.polarity else "-"}, {self.left}, {self.right})'
-#
-#
-# Tree = Leaf | Unary | Binary
-#
-#
-# def type_to_tree(_type: Type, polarity: bool = True, index: int = 0, step: int = 1) -> tuple[Tree, int]:
-#     match _type:
-#         case Atom(a):
-#             return Leaf(a, polarity, index), index + step                                             # type: ignore
-#         case Functor(argument, result):
-#             left_tree, index = type_to_tree(argument, not polarity, index, step)
-#             right_tree, index = type_to_tree(result, polarity, index, step)
-#             return Binary(polarity, left_tree, right_tree), index
-#         case Box(decoration, content):
-#             content_tree, index = type_to_tree(content, polarity, index, step)
-#             return Unary(polarity, '□', decoration, content_tree), index
-#         case Diamond(decoration, content):
-#             content_tree, index = type_to_tree(content, polarity, index, step)
-#             return Unary(polarity, '◇', decoration, content_tree), index
-#
-#
-# def match_trees(left: Tree, right: Tree) -> dict[Leaf, Leaf]:
-#     match left, right:
-#         case Leaf(latom, lpolarity, _), Leaf(ratom, rpolarity, _):
-#             assert latom == ratom and lpolarity != rpolarity
-#             return {right: left} if lpolarity else {left: right}
-#         case Unary(lpolarity, lmodality, ldecoration, lcontent), Unary(rpolarity, rmodality, rdecoration, rcontent):
-#             assert lmodality == rmodality and ldecoration == rdecoration and lpolarity != rpolarity
-#             return match_trees(lcontent, rcontent)
-#         case Binary(lpolarity, lleft, lright), Binary(rpolarity, rleft, rright):
-#             assert lpolarity != rpolarity
-#             left_mapping = match_trees(lleft, rleft)
-#             right_mapping = match_trees(lright, rright)
-#             return left_mapping | right_mapping
-#         case _:
-#             raise ValueError(f'Cannot match trees: {left} and {right}')
-#
-#
-# def flip_polarity(tree: Tree) -> Tree:
-#     match tree:
-#         case Leaf(atom, polarity, index):
-#             return Leaf(atom, not polarity, index)
-#         case Unary(polarity, modality, decoration, content):
-#             return Unary(not polarity, modality, decoration, flip_polarity(content))
-#         case Binary(polarity, left, right):
-#             return Binary(not polarity, flip_polarity(left), flip_polarity(right))
-#
-#
-# def term_to_links(proof: T) -> tuple[dict[Leaf, Leaf], dict[int, Tree]]:
-#     constants, (conclusion, index), lex_trees = proof.constants(), type_to_tree(type(proof), False), {}
-#     for term in constants:
-#         formula_tree, index = type_to_tree(type(term), True, index, 1)
-#         lex_trees[term.constant] = formula_tree
-#
-#     def f(_proof: Proof, _index: int, _vars: dict[int, Tree]) -> tuple[dict[Leaf, Leaf], Tree, int, dict[int, Tree]]:
-#         match _proof.rule:
-#             case Proof.Rule.Lexicon:
-#                 return {}, lex_trees[_proof.constant], _index, _vars
-#             case Proof.Rule.Axiom:
-#                 return {}, _vars.pop(_proof.variable), _index, _vars
-#             case Proof.Rule.ArrowElimination:
-#                 left_links, (_, left_match, rem), _index, _vars = f(_proof.function, _index, _vars)
-#                 right_links, right_match, _index, _vars = f(_proof.argument, _index, _vars)
-#                 return left_links | right_links | match_trees(left_match, right_match), rem, _index, _vars
-#             case Proof.Rule.ArrowIntroduction:
-#                 var_tree, _index = type_to_tree(type(_proof.abstraction), True, _index, -1)           # type: ignore
-#                 _vars[_proof.abstraction.variable] = var_tree
-#                 _links, tree, _index, _vars = f(_proof.body, _index, _vars)
-#                 return _links, Binary(tree.polarity, flip_polarity(var_tree), tree), _index, _vars
-#             case Proof.Rule.BoxElimination | Proof.Rule.DiamondElimination:
-#                 _links, tree, _index, _vars = f(_proof.body, _index, _vars)
-#                 return _links, tree.content, _index, _vars
-#             case Proof.Rule.BoxIntroduction:
-#                 _links, tree, _index, _vars = f(_proof.body, _index, _vars)
-#                 return _links, Unary(tree.polarity, '□', _proof.decoration, tree), _index, _vars
-#             case Proof.Rule.DiamondIntroduction:
-#                 _links, tree, _index, _vars = f(_proof.body, _index, _vars)
-#                 return _links, Unary(tree.polarity, '◇', _proof.decoration, tree), _index, _vars
-#
-#     links, output_tree, _, _ = f(proof, -1, {})
-#     links |= match_trees(output_tree, conclusion)
-#
-#     def beta_norm(_links: dict[Leaf, Leaf]) -> dict[Leaf, Leaf]:
-#         detours = {(x, y) for x in _links.items() for y in _links.items()
-#                    if x[0].index == y[1].index and x[1].index > 0}
-#         beta_long_links = {x for x, _ in detours} | {y for _, y in detours}
-#         beta_norm_links = {y[0]: x[1] for x, y in detours}
-#         return (beta_norm({x: y for x, y in _links.items() if (x, y) not in beta_long_links} | beta_norm_links)
-#                 if beta_long_links else _links)
-#     return beta_norm(links), lex_trees
-#
+import pdb
+
+from .types import Type, Atom, Functor, Box, Diamond
+from .terms import (Term, Variable, Constant, ArrowElimination, ArrowIntroduction,
+                    DiamondIntroduction, DiamondElimination, BoxIntroduction, BoxElimination)
+from typing import Literal, Iterable
+from abc import ABC, abstractmethod
+from itertools import product
+
+
+########################################################################################################################
+# Formula Trees
+########################################################################################################################
+
+
+class FormulaTree(ABC):
+    @property
+    @abstractmethod
+    def polarity(self) -> bool: ...
+    def to_type(self) -> Type: return tree_to_type(self)
+
+    @staticmethod
+    def from_type(_type: Type, polarity: bool, index: int) -> tuple[FormulaTree, int]:
+        return type_to_tree(_type, polarity, index)
+
+    @staticmethod
+    def from_types(types: Iterable[Type]) -> tuple[list[FormulaTree], int]:
+        ...
+
+    @abstractmethod
+    def __repr__(self) -> str: ...
+
+
+class LeafFT(FormulaTree):
+    __match_args__ = ('atom', 'index', 'polarity')
+
+    atom:       str
+    index:      int
+    _polarity:   bool
+
+    def __init__(self, atom: str, polarity: bool, index: int):
+        self.atom = atom
+        self.index = index
+        self._polarity = polarity
+
+    @property
+    def polarity(self) -> bool: return self._polarity
+    def __repr__(self) -> str: return f'{self.atom}({"+" if self.polarity else "-"},{self.index})'
+
+
+class UnaryFT(FormulaTree):
+    __match_args__ = ('modality', 'content', 'decoration', 'polarity')
+    modality:   Literal['box'] | Literal['diamond']
+    decoration: str
+    content:    FormulaTree
+
+    def __init__(self, modality: Literal['box'] | Literal['diamond'], content: FormulaTree, decoration: str):
+        self.modality = modality
+        self.decoration = decoration
+        self.content = content
+
+    @property
+    def polarity(self) -> bool: return self.content.polarity
+    def __repr__(self) -> str: return f'U({"□" if self.modality == "box" else "◇"}{self.decoration}, {self.content})'
+
+
+class BinaryFT(FormulaTree):
+    __match_args__ = ('left', 'right')
+
+    left:   FormulaTree
+    right:  FormulaTree
+
+    def __init__(self, left: FormulaTree, right: FormulaTree):
+        assert left.polarity == (not right.polarity)
+        self.left = left
+        self.right = right
+
+    @property
+    def polarity(self) -> bool: return self.right.polarity
+    def __repr__(self) -> str: return f'B({self.left},{self.right})'
+
+
+def tree_to_type(tree: FormulaTree) -> Type:
+    match tree:
+        case LeafFT(a, _, _): return Atom(a)
+        case UnaryFT('box', c, decoration, _): return Box(decoration, tree_to_type(c))
+        case UnaryFT('diamond', c, decoration, _): return Diamond(decoration, tree_to_type(c))
+        case BinaryFT(l, r, _): return Functor(tree_to_type(l), tree_to_type(r))
+
+
+def type_to_tree(_type: Type, polarity: bool = True,  index: int = 0, step: int = 1) -> tuple[FormulaTree, int]:
+    match _type:
+        case Atom(a): return LeafFT(a, polarity, index), index + step
+        case Functor(left, right):
+            ltree, lindex = type_to_tree(left, not polarity, index)
+            rtree, rindex = type_to_tree(right, polarity, lindex)
+            return BinaryFT(ltree, rtree), rindex
+        case Box(decoration, content):
+            ctree, index = type_to_tree(content, polarity, index)
+            return UnaryFT('box', ctree, decoration), index
+        case Diamond(decoration, content):
+            ctree, index = type_to_tree(content, polarity, index)
+            return UnaryFT('diamond', ctree, decoration), index
+
+
+def match(left: FormulaTree, right: FormulaTree) -> dict[LeafFT, LeafFT]:
+    match left, right:
+        case LeafFT(l_atom, _, l_polarity), LeafFT(r_atom, _, r_polarity):
+            assert l_atom == r_atom and l_polarity == (not r_polarity)
+            return {right: left} if l_polarity else {left: right}  # type: ignore
+        case UnaryFT(l_mod, l_content, l_deco, _), UnaryFT(r_mod, r_content, r_deco, _):
+            assert l_mod == r_mod and l_deco == r_deco
+            return match(l_content, r_content)
+        case BinaryFT(l_left, l_right), BinaryFT(r_left, r_right):
+            return match(l_left, r_left) | match(l_right, r_right)
+
+
+def flip(tree: FormulaTree) -> FormulaTree:
+    match tree:
+        case LeafFT(atom, index, polarity): return LeafFT(atom, not polarity, index)
+        case UnaryFT(mod, content, decoration, _): return UnaryFT(mod, flip(content), decoration)
+        case BinaryFT(left, right): return BinaryFT(flip(left), flip(right))
+
+
+def term_to_links(term: Term) -> tuple[dict[LeafFT, LeafFT], dict[int, FormulaTree]]:
+    constants, (conclusion, index), lex_trees = term.constants(), type_to_tree(term.type, False), {}
+
+    for constant in constants:
+        formula_tree, index = type_to_tree(constant.type, True, index)
+        lex_trees[constant.index] = formula_tree
+
+    def go(_term: Term, _index: int, _vars: dict[int, FormulaTree]) -> \
+            tuple[dict[LeafFT, LeafFT], FormulaTree, int, dict[int, FormulaTree]]:
+        match _term:
+            case Variable(_type, _index):
+                return {}, _vars.pop(_index), _index, _vars
+            case Constant(_type, _index):
+                return {}, lex_trees[_index], _index, _vars
+            case ArrowElimination(function, argument):
+                left_links, (_, left_match, rem), _index, _vars = go(function, _index, _vars)
+                right_links, right_match, _index, _vars = go(argument, _index, _vars)
+                return left_links | right_links | match(left_match, right_match), rem, _index, _vars
+            case ArrowIntroduction(abstraction, body):
+                var_tree, _index = type_to_tree(abstraction.type, True, _index, step=-1)
+                _vars[abstraction.index] = var_tree
+                _links, tree, _index, _vars = go(body, _index, _vars)
+                return _links, BinaryFT(flip(var_tree), tree), _index, _vars
+            case BoxElimination(_, body) | DiamondElimination(_, body):
+                _links, tree, _index, _vars = go(body, _index, _vars)
+                return _links, tree.content, _index, _vars
+            case BoxIntroduction(decoration, body):
+                _links, tree, _index, _vars = go(body, _index, _vars)
+                return _links, UnaryFT('box', tree, decoration), _index, _vars
+            case DiamondIntroduction(decoration, body):
+                _links, tree, _index, _vars = go(body, _index, _vars)
+                return _links, UnaryFT('diamond', tree, decoration), _index, _vars
+
+    links, output_tree, _, _ = go(term, -1, {})
+    links |= match(output_tree, conclusion)
+
+    def beta_norm(_links: dict[LeafFT, LeafFT]) -> dict[LeafFT, LeafFT]:
+        detours = {(x, y) for x, y in product(_links.items(), _links.items())
+                   if x[0].index == y[1].index and x[0].index < 0}
+        if not detours:
+            return _links
+        long_links = {x for x, _ in detours} | {y for _, y in detours}
+        norm_links = {y[0]: x[1] for x, y in detours}
+        next_round = {x: y for x, y in _links.items() if (x, y) not in long_links} | norm_links
+        return beta_norm(next_round)
+
+    return beta_norm(links), lex_trees
+
 #
 # def reachable_positives(tree: Tree) -> set[int]:
 #     match tree:
