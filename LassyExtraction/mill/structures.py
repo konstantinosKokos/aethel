@@ -11,60 +11,62 @@ class StructureError(Exception):
 _T = TypeVar('_T')
 
 
-class Structure(ABC, Iterable, Generic[_T]):
-    @abstractmethod
-    def __iter__(self) -> Iterator[Self]: ...
+class Structure(ABC, Generic[_T], Iterable[_T]):
     def __repr__(self) -> str: return struct_repr(self)
-    @abstractmethod
-    def __contains__(self, item: Structure) -> bool: ...
-    def __pow__(self, brackets: str) -> Unary[_T]: return Unary(self, brackets)
     def __eq__(self, other) -> bool: return struct_eq(self, other)
     @abstractmethod
-    def __abs__(self) -> Structure[_T]: ...
+    def __contains__(self, item) -> bool: ...
     @abstractmethod
-    def replace(self, old: Structure, new: Structure) -> Structure[_T]: ...
+    def units(self) -> Iterable[tuple[tuple[str, ...], _T]]: ...
     @abstractmethod
-    def vars(self) -> list[_T]: ...
+    def __iter__(self) -> Iterator[_T]: ...
+    @abstractmethod
+    def substitute(self, var: Structure[_T], value: Structure[_T]) -> Structure[_T]: ...
 
 
 class Unary(Structure[_T]):
     __match_args__ = ('content', 'brackets')
 
-    def __init__(self, content: Structure[_T], brackets: str):
-        self.content = content
+    def __init__(self, content: Sequence[_T], brackets: str) -> None:
+        self.content = Sequence(content)
         self.brackets = brackets
 
-    def __iter__(self) -> Iterator[Unary]: yield self
-    def __contains__(self, item: Structure[_T]) -> bool: return struct_eq(self, item)
-    def __abs__(self) -> Structure[_T]: return self
+    def __contains__(self, item) -> bool: return struct_eq(self, item)
 
-    def replace(self, old: Structure[_T], new: Structure[_T]) -> Structure[_T]:
-        if self == old:
-            return new
-        raise StructureError(f'{old} != {self}')
+    def units(self) -> Iterable[tuple[tuple[str, ...], _T]]:
+        for (ctx, item) in self.content.units():
+            yield (self.brackets, *ctx), item
 
-    def vars(self) -> list[_T]: return self.content.vars()
+    def __iter__(self) -> Iterator[Self]: yield self
+
+    def substitute(self, var: Structure[_T], value: Structure[_T]) -> Structure[_T]:
+        if struct_eq(self, var):
+            return value
+        raise ValueError(f'{var} != {self}')
 
 
-class Sequence(SequenceType, Structure[_T]):
+class Sequence(Structure[_T], SequenceType[_T]):
     __match_args__ = ('structures',)
 
-    def __init__(self, *structures: Structure[_T] | _T):
-        self.structures = structures
+    def __init__(self, *structures: _T | Unary[_T]) -> None:
+        self.structures = sum((s.structures if isinstance(s, Sequence) else (s,) for s in structures), ())
 
+    def __getitem__(self, item: int | slice) -> Structure[_T]: return self.structures[item]
     def __len__(self) -> int: return len(self.structures)
-    def __iter__(self) -> Iterator[Sequence[_T]]: yield from self.structures
-    def __contains__(self, item: Structure[_T]) -> bool: return item in self.structures
-    def __getitem__(self, item: int) -> Structure[_T]: return self.structures[item]
-    def __abs__(self) -> Structure[_T]: return self if len(self) > 1 else self[0] if len(self) == 1 else Sequence()
+    def __contains__(self, item): return item in self.structures
 
-    def replace(self, item: Structure[_T], new_item: Structure[_T]) -> Structure[_T]:
-        if (cs := self.structures.count(item)) != 1:
-            raise StructureError(f'Expected exactly one occurrence of {item} in {self}, but found {cs}')
-        return abs(Sequence(*(new_item if struct == item else struct for struct in self.structures)))
+    def units(self) -> Iterable[tuple[tuple[str, ...], _T]]:
+        for s in self.structures:
+            match s:
+                case Unary(_, _): yield from s.units()
+                case _: yield (), s
 
-    def vars(self) -> list[_T]:
-        return [struct.vars() if isinstance(struct, Structure) else struct for struct in self.structures]
+    def __iter__(self) -> Iterator[Structure[_T]]: yield from self.structures
+
+    def substitute(self, var: Structure[_T], value: Structure[_T]) -> Structure[_T]:
+        if (cs := self.structures.count(var)) != 1:
+            raise StructureError(f'Expected exactly one occurrence of {var} in {self}, but found {cs}')
+        return Sequence(*(s if s != var else value for s in self.structures))
 
 
 def struct_repr(structure: Structure[_T]) -> str:
@@ -78,7 +80,3 @@ def struct_eq(structure1: Structure[_T], structure2: Structure[_T]) -> bool:
         case Sequence(xs), Sequence(ys): return xs == ys
         case Unary(x, lb), Unary(y, rb): return x == y and lb == rb
         case _: return False
-
-
-def bracket(structure: Structure[_T] | _T, brackets: str) -> Unary[_T]:
-    return structure**brackets if isinstance(structure, (Structure, Unary)) else Sequence(structure)**brackets
