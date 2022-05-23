@@ -1,9 +1,3 @@
-# todo: missing correct annotation for intersection types; see https://github.com/python/typing/issues/213
-# todo: accessing _registry due to __getitem__ not working in metaclasses; see https://bugs.python.org/issue35992
-# todo: class-level methods for proof construction take redundant arguments
-# todo: Modal is itself ABC -- await pr @ https://github.com/python/cpython/pull/27648
-
-
 from __future__ import annotations
 
 from abc import ABCMeta
@@ -24,10 +18,6 @@ T = TypeVar('T', bound='Type')
 SerializedType = tuple[TYPE, tuple[str]] | \
                  tuple[TYPE, tuple['SerializedType', 'SerializedType']] | \
                  tuple[TYPE, tuple[str, 'SerializedType']]
-# SerializedProof = tuple[str, tuple[SerializedType, int]] | \
-#                   tuple[str, tuple['SerializedProof', 'SerializedProof']] | \
-#                   tuple[str, tuple[str, 'SerializedProof']] | \
-#                   tuple[str, tuple['SerializedProof']]
 
 
 class Type(ABCMeta):
@@ -253,102 +243,3 @@ class TypeInference:
         if dia is not None and dia != wrapped.decoration:
             raise TypeInference.TypeCheckError(f'{wrapped} is not a {dia}-diamond')
         return wrapped.content, wrapped.decoration
-
-
-########################################################################################################################
-# Structural brackets
-########################################################################################################################
-class Bracket(Enum):
-    Lock = '<>'
-    Inner = ']['
-    Outer = '[]'
-    def __repr__(self) -> str: return self.name
-
-
-IndexedBracket = tuple[Bracket, str]
-def indexed_bracket(x: _TreeOfTs[IndexedBracket]) -> bool: return isinstance(x[0], Bracket)
-
-
-def bracket_cancellations(
-        outer: IndexedBracket,
-        inner: IndexedBracket) -> bool:
-    match outer, inner:
-        case (Bracket.Lock, outer_mode), (Bracket.Inner, inner_mode):
-            return outer_mode == inner_mode
-        case (Bracket.Outer, outer_mode), (Bracket.Lock, inner_mode):
-            return outer_mode == inner_mode
-        case (Bracket.Lock, outer_mode), (Bracket.Lock, inner_mode):
-            return inner_mode == f'{outer_mode}!'
-        case _:
-            return False
-
-
-_T = TypeVar('_T')
-_TreeOfTs = _T | tuple['_TreeOfTs', '_TreeOfTs']
-
-
-def associahedron(xs: list[_T]) -> list[_TreeOfTs]:
-    def splits(_xs: list[_T]) -> list[tuple[list[_T], list[_T]]]:
-        match _xs:
-            case []: return [([], [])]
-            case [_x]: return [([_x], []), ([], [_x])]
-            case _: return [(_xs[:i], _xs[i:]) for i in range(1, len(_xs))]
-    match xs:
-        case []: return []
-        case [x]: return [x]
-        case _: return reduce(list.__add__, [list(prod(associahedron(s[0]), associahedron(s[1]))) for s in splits(xs)])
-
-
-def _collapse(tree: _TreeOfTs[IndexedBracket]) -> Maybe[_TreeOfTs[IndexedBracket]]:
-    if indexed_bracket(tree):
-        return tree
-    left, right = tree
-    col_left, col_right = _collapse(left), _collapse(right)
-    match col_left, col_right:
-        case None, None:
-            return None
-        case None, _:
-            return col_right
-        case _, None:
-            return col_left
-        case _:
-            if indexed_bracket(col_left) and indexed_bracket(col_right) and bracket_cancellations(col_left, col_right):
-                return None
-            return col_left, col_right
-
-
-def _flatten(tree: Maybe[_TreeOfTs[IndexedBracket]]) -> list[IndexedBracket]:
-    if tree is None:
-        return []
-    if indexed_bracket(tree):
-        return [tree]
-    left, right = tree
-    return _flatten(left) + _flatten(right)
-
-
-def _cancellable(brackets: list[IndexedBracket]) -> bool:
-    locks = Bag([s for b, s in brackets if b == Bracket.Lock and not s.endswith('!')])
-    unlocks = Bag([s.rstrip('!') for b, s in brackets if b == Bracket.Lock and s.endswith('!')])
-    keys = Bag([s for b, s in brackets if b in (Bracket.Outer, Bracket.Inner)])
-    return keys+unlocks == locks
-
-
-def _cancel_out(brackets: list[IndexedBracket]) -> bool:
-    if not _cancellable(brackets):
-        return False
-    if all(b == Bracket.Lock for b, _ in brackets):
-        return len(brackets) % 2 == 0 and all(f'{brackets[i][1]}!' == brackets[-i-1][1] for i in range(len(brackets)//2))
-    return any(map(lambda x: _collapse(x) is None, associahedron(brackets))) if brackets else True
-
-
-def _is_positive(tree: _TreeOfTs[IndexedBracket]) -> bool:
-    collapsed = _collapse(tree)
-
-    def go(_tree: _TreeOfTs[IndexedBracket]) -> bool:
-        left, right = _tree
-        return left == Bracket.Lock if indexed_bracket(_tree) else go(left) and go(right)
-    return go(collapsed) if collapsed is not None else True
-
-
-def _minimal_brackets(brackets: list[IndexedBracket]) -> list[IndexedBracket]:
-    return min((_flatten(_collapse(tree)) for tree in associahedron(brackets)), key=len, default=[])
