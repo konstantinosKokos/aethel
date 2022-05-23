@@ -1,7 +1,7 @@
 from __future__ import annotations
 from .types import Type, TypeInference, Functor, Diamond, Box
 from abc import ABC
-from typing import Callable
+from typing import Callable, Iterable
 
 
 class TermError(Exception):
@@ -13,14 +13,16 @@ class Term(ABC):
     def __repr__(self) -> str: return term_repr(self)
     def __matmul__(self, other) -> ArrowElimination: return ArrowElimination(self, other)
     def subterms(self) -> list[Term]: return subterms(self)
+    def vars(self) -> Iterable[Variable]: return term_vars(self)
+    def constants(self) -> Iterable[Constant]: return term_constants(self)
 
 
 class Variable(Term):
     __match_args__ = ('type', 'index')
 
-    def __init__(self, type: Type, index: int):
+    def __init__(self, _type: Type, index: int):
         self.index = index
-        self.type = type
+        self.type = _type
 
 
 class Constant(Term):
@@ -139,3 +141,25 @@ def term_repr(term: Term,
         case BoxIntroduction(decoration, body): return f'▴{decoration}({f(body)})'
         case DiamondElimination(decoration, body): return f'▿{decoration}({f(body)})'
         case _: raise NotImplementedError
+
+
+def term_vars(term: Term) -> Iterable[Variable]:
+    match term:
+        case Variable(_, _): yield term
+        case Constant(_, _): yield from ()
+        case ArrowElimination(fn, arg):
+            yield from fn.vars()
+            yield from arg.vars()
+        case _:
+            yield from term.body.vars()  # type: ignore
+
+
+def term_constants(term: Term) -> Iterable[Constant]:
+    match term:
+        case Variable(_, _): yield from ()
+        case Constant(_, _): yield term
+        case ArrowElimination(fn, arg):
+            yield from fn.constants()
+            yield from arg.constants()
+        case _:
+            yield from term.body.constants()  # type: ignore
