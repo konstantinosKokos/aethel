@@ -16,12 +16,12 @@ class Renderer:
 
     @staticmethod
     def make_node_label(node: dict) -> str:
-        return '\n'.join(f'{k}: {node[k] if k != "proof" else type(node[k])}'
+        return '\n'.join(f'{k}: {node[k] if k != "proof" else node[k].type}'
                          for k in Renderer.properties if k in node.keys())
 
     @staticmethod
     def make_html_label(node: dict) -> str:
-        return '<' + '<br/>'.join(f'<b>{k}</b>: {node[k] if k != "proof" else type(node[k])}'
+        return '<' + '<br/>'.join(f'<b>{k}</b>: {node[k] if k != "proof" else node[k].type}'
                                   for k in Renderer.properties if k in node.keys()) + '>'
 
     @staticmethod
