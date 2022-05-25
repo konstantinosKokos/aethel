@@ -76,7 +76,7 @@ class Functor(Type):
     @staticmethod
     def repr(argument: Type, result: Type) -> str:
         def par(x: Type) -> str: return f"({x})" if x.order() > 0 else f'{x}'
-        return f'{par(argument)}->{result}'
+        return f'{par(argument)}⟶{result}'
 
 
 class Modal(Type):
@@ -165,7 +165,7 @@ def parse_prefix(string: str) -> Type:
     symbols = string.split()
     stack: list[Type] = []
     for symbol in reversed(symbols):
-        if symbol == '⊸':
+        if symbol == '⟶':
             return Functor(stack.pop(), stack.pop())
         if symbol.startswith('□'):
             return Box(symbol.lstrip('□'), stack.pop())
