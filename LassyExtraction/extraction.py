@@ -77,8 +77,8 @@ def unbox_and_apply(original: Proof, boxes: list[Proof]) -> Proof:
     def go(f: Proof) -> Proof:
         unboxed = f.unbox()
         if isinstance(f.term, Variable):
-            return unboxed.undiamond(
-                where=f, becomes=variable(Diamond(unboxed.term.decoration, f.term.type), f.term.index))
+            return unboxed.undiamond(where=f,
+                                     becomes=variable(Diamond(unboxed.term.decoration, f.term.type), f.term.index))
         return unboxed
     return reduce(lambda x, y: go(y) @ x, reversed(boxes), original)
 
@@ -90,8 +90,17 @@ def endo(of: Type) -> Type: return Functor(of, of)
 def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
     if proof.rule == Logical.Variable:
         return proof
-    variables = [f for f in proof.vars() if condition(f)]
-    for var in variables:
+    variables = [(ctx, v) for ctx, v in proof.vars() if condition(v)]
+    for ctx, var in variables:
+        if ctx:
+            # todo: structural rules here
+            assert var not in proof.structure
+            with open('/home/kokos/Projects/lassy-tlg-extraction/nested_variables.txt', 'a') as f:
+                f.write('[' + ','.join(ctx) + ']\n')
+                f.write(f'{var} in\n')
+                f.write(f'{proof.structure}\n')
+                f.write('-' * 64 + '\n')
+            raise ExtractionError
         # todo: structural rules might need to be applied here
         proof = proof.abstract(var)
     return proof
@@ -103,10 +112,18 @@ def prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
 
 
 def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
-    # utils
-    def coindexed_with(nodes: set[str]) -> Callable[[Variable], bool]:
-        indices = {index for node in nodes if (index := dag.get(node, 'index')) is not None}
-        return lambda v: dag.get(str(v.index), 'index') in indices
+    def nodes_to_indices(nodes: Iterable[str]) -> set[str]:
+        return {index for node in nodes if (index := dag.get(node, 'index')) is not None}
+
+    def shared_content(branch_roots: Iterable[str]) -> set[str]:
+        return set.intersection(
+            *({index for node in dag.successors(branch_root) if (index := dag.get(node, 'index')) is not None}
+              for branch_root in branch_roots))
+
+    def coindexed_with(indices: set[str]) -> Callable[[Variable], bool]:
+        def go(variable: Variable) -> bool:
+            return dag.get(str(variable.index), 'index') in indices
+        return go
 
     def make_adj(_adjuncts: list[tuple[str, str]], _top_type: Type) -> list[Proof]:
         return [prove(dag, _child, _label, Box(_label, endo(_top_type))) for _label, _child in _adjuncts]
@@ -167,19 +184,21 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
             return unbox_and_apply(apply(unbox_and_apply(np_proof, det_proofs), arg_proofs), adj_proofs)
         case [], [], [(_, head)], adjuncts, arguments, []:
             if dag.get(head, 'lemma') == 'vallen':
-                arg_proofs = make_args(arguments,
-                                      lambda x: (coindexed_with({head})(x) or
-                                                 isinstance(x.type, Diamond) and x.type.decoration == 'vc'))
+                arg_proofs = make_args(
+                    arguments,
+                    lambda x: (coindexed_with(nodes_to_indices({head}))(x)
+                               or isinstance(x.type, Diamond) and x.type.decoration == 'vc'))
             else:
-                arg_proofs = make_args(arguments, coindexed_with({head}))
+                arg_proofs = make_args(arguments, coindexed_with(nodes_to_indices({head})))
             adj_proofs = make_adj(adjuncts, top_type)
             head_term = prove(dag, head, 'hd', make_functor(top_type, [a.type for a in arg_proofs]))
             return unbox_and_apply(apply(head_term, arg_proofs), adj_proofs)
         case conjuncts, [], [('crd', crd), *heads], adjuncts, arguments, correlatives:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
-            shared_nodes = {node for _, node in heads + shared_adjuncts + arguments}
-            cnj_proofs = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
-            hd_proofs = [prove(dag, head, 'hd', get_type_of(head, [cnj for _, cnj in conjuncts])) for head in heads]
+            shared_indices = nodes_to_indices(node for _, node in heads + shared_adjuncts + arguments)
+            shared_indices |= shared_content(c for _, c in conjuncts)
+            cnj_proofs = make_args(conjuncts, coindexed_with(shared_indices), top_type)
+            hd_proofs = [prove(dag, head, 'hd', get_type_of(head, [cnj for _, cnj in conjuncts])) for _, head in heads]
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
             cor_proofs, arg_proofs = make_args(correlatives), make_args(arguments)
@@ -190,7 +209,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_nodes = {node for _, node in shared_adjuncts + arguments} | {det}
-            cnj_proofs = make_args(conjuncts, coindexed_with(shared_nodes), top_type)
+            cnj_proofs = make_args(conjuncts, coindexed_with(nodes_to_indices(shared_nodes)), top_type)
             det_term = prove(dag, det, 'det', get_type_of(det, [cnj for _, cnj in conjuncts]))
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
@@ -203,8 +222,6 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
             raise ExtractionError('Headless conjunction')
         case _:
             raise ExtractionError('Unhandled case')
-
-
 
 
 def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...]:
