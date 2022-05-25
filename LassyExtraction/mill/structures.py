@@ -54,6 +54,7 @@ class Sequence(Structure[_T], SequenceType[_T]):
     def __getitem__(self, item: int | slice) -> Structure[_T]: return self.structures[item]
     def __len__(self) -> int: return len(self.structures)
     def __contains__(self, item): return item in self.structures
+    def __pow__(self, brackets: str) -> Unary[_T]: return Unary(self, brackets)
 
     def units(self) -> Iterable[tuple[tuple[str, ...], _T]]:
         for s in self.structures:
