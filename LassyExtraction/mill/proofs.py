@@ -1,10 +1,10 @@
 from __future__ import annotations
-
-from .structures import Sequence, Unary
+from typing import Callable
+from .structures import Sequence, Unary, struct_repr
 from .types import Type, Atom, Diamond, Box
 from .terms import (Term, Variable, Constant, ArrowElimination, ArrowIntroduction,
                     DiamondIntroduction, BoxElimination, BoxIntroduction, DiamondElimination,
-                    substitute, term_repr)
+                    substitute, term_repr, _word_repr)
 from enum import Enum
 from functools import partial
 
@@ -14,20 +14,21 @@ class ProofError(Exception):
 
 
 class Judgement:
-    __match_args__ = ('structure', 'term')
+    __match_args__ = ('assumptions', 'term')
 
-    structure:  Sequence
-    term:       Term
+    assumptions:    Sequence
+    term:           Term
 
-    def __init__(self, structure: Sequence, term: Term) -> None:
-        self.structure = structure
+    def __init__(self, assumptions: Sequence, term: Term) -> None:
+        self.assumptions = assumptions
         self.term = term
 
     def __repr__(self) -> str: return judgement_repr(self)
 
 
-def judgement_repr(judgement: Judgement) -> str:
-    return f'{judgement.structure} |- {term_repr(judgement.term, False)}: {judgement.term.type}'
+def judgement_repr(judgement: Judgement, word_repr: Callable[[int], str] = _word_repr) -> str:
+    return f'{struct_repr(judgement.assumptions, item_repr=lambda x: term_repr(x, True, word_repr=word_repr))} |- ' \
+           f'{term_repr(judgement.term, False, word_repr=word_repr)}: {judgement.term.type}'
 
 
 class Rule(Enum):
@@ -52,7 +53,7 @@ class Logical(Rule):
                                           ArrowElimination(function.term, argument.term)))
 
     @staticmethod
-    def _init_arrow_intro(abstraction: Term, body: Proof) -> Proof:
+    def _init_arrow_intro(abstraction: Variable, body: Proof) -> Proof:
         if abstraction not in body.structure:
             raise ProofError(f'{abstraction} does not occur free in {body.structure}')
         return Proof(rule=Logical.ArrowIntroduction,
@@ -84,15 +85,14 @@ class Logical(Rule):
 
     @staticmethod
     def _init_box_intro(body: Proof, box: str) -> Proof:
-        structure = body.structure
-        if len(structure) != 1:
-            raise ProofError(f'{body.structure} is not a singleton structure')
-        unary = structure[0]
-        if not isinstance(unary, Unary) or unary.brackets != box:
-            raise ProofError(f'{unary} is not a {box}-bracketed structure')
-        return Proof(rule=Logical.BoxIntroduction,
-                     premises=(body,),
-                     conclusion=Judgement(Sequence(unary.content), BoxIntroduction(box, body.term)))
+        match body.structure:
+            case Sequence((Unary(unary, b),)):
+                if b == box:
+                    return Proof(rule=Logical.BoxIntroduction,
+                                 premises=(body,),
+                                 conclusion=Judgement(Sequence(unary), BoxIntroduction(box, body.term)))
+                raise ProofError(f'{body.structure} is not {box}-bracketed')
+            case _: raise ProofError(f'{body.structure} is not a singleton')
 
     @staticmethod
     def _init_box_elim(body: Proof, box: str | None) -> Proof:
@@ -111,6 +111,32 @@ class Logical(Rule):
     DiamondElimination = partial(_init_dia_elim)
 
 
+class Structural(Rule):
+    @staticmethod
+    def _extract(proof: Proof, var: Variable) -> Proof:
+        match proof.structure:
+            case Sequence((Unary(inner, b),)):
+                if len(inner) <= 1:
+                    raise ProofError(f'{inner} is a singleton')
+                if var not in inner:
+                    raise ProofError(f'{var} does not immediately occur in {inner}')
+                struct = Sequence(Sequence(*(s for s in inner if s != var))**b, Sequence(var)**b)
+                return Proof(rule=Structural.Extract,
+                             premises=(proof,),
+                             conclusion=Judgement(struct, proof.term))
+            case _:
+                raise ProofError(f'{proof.structure} is not a bracketed singleton')
+
+    @staticmethod
+    def _extract_renaming(proof: Proof, var: Variable) -> Proof:
+        proof = Structural.Extract(proof, var)
+        # extracted: Unary = proof.structure[-1]
+        # return proof.undiamond(where=extracted, becomes=variable(Diamond(extracted.brackets, var.type), var.index))
+
+    Extract = partial(_extract)
+    ExtractRenaming = partial(_extract_renaming)
+
+
 class Proof:
     __match_args__ = ('premises', 'conclusion', 'rule')
 
@@ -124,12 +150,13 @@ class Proof:
         self.rule = rule
 
     @property
-    def structure(self) -> Sequence: return self.conclusion.structure
+    def structure(self) -> Sequence: return self.conclusion.assumptions
     @property
     def term(self) -> Term: return self.conclusion.term
     @property
     def type(self) -> Type: return self.term.type
-    def __repr__(self) -> str: return judgement_repr(self.conclusion)
+    def __repr__(self) -> str: return proof_repr(self)
+    def __str__(self) -> str: return repr(self)
     def apply(self, other: Proof) -> Proof: return Logical.ArrowElimination(self, other)
     def diamond(self, diamond: str) -> Proof: return Logical.DiamondIntroduction(self, diamond)
     def box(self, box: str) -> Proof: return Logical.BoxIntroduction(self, box)
@@ -143,7 +170,8 @@ class Proof:
     def constants(self) -> list[tuple[tuple[str, ...], Constant]]:
         return [(ctx, c) for ctx, c in self.structure.units() if isinstance(c, Constant)]
 
-    def abstract(self, var: Term) -> Proof: return Logical.ArrowIntroduction(var, self)
+    def abstract(self, var: Variable) -> Proof: return Logical.ArrowIntroduction(var, self)
+    def extract(self, var: Variable) -> Proof: return Structural.Extract(self, var)
 
     def translate_lex(self, trans: dict[int, int]) -> Proof:
         def go(p: Proof) -> Proof:
@@ -158,6 +186,7 @@ class Proof:
                 case Logical.DiamondElimination:
                     original, where, becomes = p.premises
                     return go(original).undiamond(where, go(becomes))
+                case _: raise NotImplementedError
         return go(self)
 
     def eta_norm(self) -> Proof:
@@ -169,6 +198,10 @@ class Proof:
 
 def constant(type: Type, index: int) -> Proof: return Logical.Constant(Constant(type, index))
 def variable(type: Type, index: int) -> Proof: return Logical.Variable(Variable(type, index))
+
+
+def proof_repr(proof: Proof, word_repr: Callable[[int], str] = _word_repr) -> str:
+    return judgement_repr(proof.conclusion, word_repr=word_repr)
 
 
 ########################################################################################################################
@@ -202,4 +235,4 @@ p4 = p4.undiamond(where=x, becomes=y).abstract(y.term)
 # □ ◇ □ A |- □ A
 p5 = (x := variable(Box('a', A), 0)).unbox()
 y = variable(Box('a', Diamond('a', Box('a', A))), 0)
-p5 = p5.undiamond(where=x, becomes=y).box('a').abstract(y.term)
+p5 = (p5.undiamond(where=x, becomes=y.unbox()).box('a')).abstract(y.term)
