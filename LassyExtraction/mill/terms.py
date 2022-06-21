@@ -120,20 +120,23 @@ def subterms(term: Term) -> list[Term]:
         case DiamondElimination(_, body): return [term, *body.subterms()]
 
 
+def _word_repr(idx: int) -> str: return f'c{idx}'
+
+
 def term_repr(term: Term,
               show_types: bool = True,
-              word_printer: Callable[[int], str] = lambda i: f'c{i}') -> str:
+              word_repr: Callable[[int], str] = _word_repr) -> str:
     def needs_par(_term: Term) -> bool:
         match _term:
             case Variable(_, _) | Constant(_, _): return False
             case _: return True
 
-    def f(_term: Term) -> str: return term_repr(_term, show_types, word_printer)
+    def f(_term: Term) -> str: return term_repr(_term, show_types, word_repr)
     def v(_term: Term) -> str: return term_repr(_term, False)
 
     match term:
         case Variable(_type, index): return f'x{index}' + f': {_type}' * show_types
-        case Constant(_type, index): return f'{word_printer(index)}' + f': {_type}' * show_types
+        case Constant(_type, index): return f'{word_repr(index)}' + f': {_type}' * show_types
         case ArrowElimination(fn, arg): return f'{f(fn)} ({f(arg)})' if needs_par(arg) else f'{f(fn)} {f(arg)}'
         case ArrowIntroduction(var, body): return f'λ{v(var)}.({f(body)})'
         case DiamondIntroduction(decoration, body): return f'▵{decoration}({f(body)})'

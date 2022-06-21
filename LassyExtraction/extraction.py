@@ -87,15 +87,12 @@ def apply(function: Proof, arguments: list[Proof]) -> Proof: return reduce(Proof
 def endo(of: Type) -> Type: return Functor(of, of)
 
 
-def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
+def abstract(proof: Proof, condition: Callable[[Variable], bool], dag: DAG) -> Proof:
     if proof.rule == Logical.Variable:
         return proof
     variables = [(ctx, v) for ctx, v in proof.vars() if condition(v)]
     for ctx, var in variables:
         if ctx:
-            # print('=' * 64)
-            # print(f'Trying to extract {var}')
-            # print(proof)
             proof, var = deep_extract_renaming(proof, var)
             # print(proof)
         proof = proof.abstract(var)
