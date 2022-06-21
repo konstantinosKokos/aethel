@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Iterable, Iterator, Self, Generic, TypeVar
+from typing import Iterable, Iterator, Self, Generic, TypeVar, Callable
 from typing import Sequence as SequenceType
 from abc import ABC, abstractmethod
 
@@ -51,7 +51,8 @@ class Sequence(Structure[_T], SequenceType[_T]):
     def __init__(self, *structures: _T | Unary[_T]) -> None:
         self.structures = sum((s.structures if isinstance(s, Sequence) else (s,) for s in structures), ())
 
-    def __getitem__(self, item: int | slice) -> Structure[_T]: return self.structures[item]
+    def __getitem__(self, index: int | slice) -> Structure[_T]: return self.structures[index]
+    def __index__(self, item: _T) -> int: return self.structures.index(item)
     def __len__(self) -> int: return len(self.structures)
     def __contains__(self, item): return item in self.structures
     def __pow__(self, brackets: str) -> Unary[_T]: return Unary(self, brackets)
@@ -70,10 +71,12 @@ class Sequence(Structure[_T], SequenceType[_T]):
         return Sequence(*(s if s != var else value for s in self.structures))
 
 
-def struct_repr(structure: Structure[_T]) -> str:
+def struct_repr(structure: Structure[_T], item_repr: Callable[[_T], str] = repr) -> str:
+    def go(s: Structure[_T]) -> str: return struct_repr(s, item_repr)
     match structure:
-        case Sequence(xs): return ', '.join(map(repr, xs))
-        case Unary(x, bs): return f'〈{repr(x)}〉{bs}'
+        case Sequence(xs): return ', '.join(map(go, xs))
+        case Unary(x, bs): return f'〈{go(x)}〉{bs}'
+        case _: return item_repr(structure)
 
 
 def struct_eq(structure1: Structure[_T], structure2: Structure[_T]) -> bool:

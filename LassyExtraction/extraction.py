@@ -1,4 +1,4 @@
-from .mill.proofs import Proof, variable, constant, Logical
+from .mill.proofs import Proof, variable, constant, Logical, deep_extract_renaming
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
@@ -77,7 +77,7 @@ def unbox_and_apply(original: Proof, boxes: list[Proof]) -> Proof:
     def go(f: Proof) -> Proof:
         unboxed = f.unbox()
         if isinstance(f.term, Variable):
-            return unboxed.undiamond(where=f,
+            return unboxed.undiamond(where=f.term,
                                      becomes=variable(Diamond(unboxed.term.decoration, f.term.type), f.term.index))
         return unboxed
     return reduce(lambda x, y: go(y) @ x, reversed(boxes), original)
@@ -93,15 +93,11 @@ def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
     variables = [(ctx, v) for ctx, v in proof.vars() if condition(v)]
     for ctx, var in variables:
         if ctx:
-            # todo: structural rules here
-            assert var not in proof.structure
-            with open('/home/kokos/Projects/lassy-tlg-extraction/nested_variables.txt', 'a') as f:
-                f.write('[' + ','.join(ctx) + ']\n')
-                f.write(f'{var} in\n')
-                f.write(f'{proof.structure}\n')
-                f.write('-' * 64 + '\n')
-            raise ExtractionError
-        # todo: structural rules might need to be applied here
+            # print('=' * 64)
+            # print(f'Trying to extract {var}')
+            # print(proof)
+            proof, var = deep_extract_renaming(proof, var)
+            # print(proof)
         proof = proof.abstract(var)
     return proof
 
@@ -121,8 +117,8 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
               for branch_root in branch_roots))
 
     def coindexed_with(indices: set[str]) -> Callable[[Variable], bool]:
-        def go(variable: Variable) -> bool:
-            return dag.get(str(variable.index), 'index') in indices
+        def go(_var: Variable) -> bool:
+            return dag.get(str(_var.index), 'index') in indices
         return go
 
     def make_adj(_adjuncts: list[tuple[str, str]], _top_type: Type) -> list[Proof]:
