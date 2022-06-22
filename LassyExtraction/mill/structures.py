@@ -25,6 +25,9 @@ class Structure(ABC, Generic[_T], Iterable[_T]):
 
 
 class Unary(Structure[_T]):
+    content: Sequence[_T]
+    brackets: str
+
     __match_args__ = ('content', 'brackets')
 
     def __init__(self, content: Sequence[_T], brackets: str) -> None:
@@ -32,12 +35,11 @@ class Unary(Structure[_T]):
         self.brackets = brackets
 
     def __contains__(self, item) -> bool: return struct_eq(self, item)
+    def __iter__(self) -> Iterator[Self]: yield self
 
     def units(self) -> Iterable[tuple[tuple[str, ...], _T]]:
         for (ctx, item) in self.content.units():
             yield (self.brackets, *ctx), item
-
-    def __iter__(self) -> Iterator[Self]: yield self
 
     def substitute(self, var: Structure[_T], value: Structure[_T]) -> Structure[_T]:
         if struct_eq(self, var):
@@ -46,10 +48,12 @@ class Unary(Structure[_T]):
 
 
 class Sequence(Structure[_T], SequenceType[_T]):
+    structures: tuple[_T | Unary[_T], ...]
+
     __match_args__ = ('structures',)
 
     def __init__(self, *structures: _T | Unary[_T]) -> None:
-        self.structures = sum((s.structures if isinstance(s, Sequence) else (s,) for s in structures), ())
+        self.structures = sum((s.nonempty if isinstance(s, Sequence) else (s,) for s in structures), ())
 
     def __getitem__(self, index: int | slice) -> Structure[_T]: return self.structures[index]
     def __index__(self, item: _T) -> int: return self.structures.index(item)
@@ -69,6 +73,10 @@ class Sequence(Structure[_T], SequenceType[_T]):
         if (cs := self.structures.count(var)) != 1:
             raise StructureError(f'Expected exactly one occurrence of {var} in {self}, but found {cs}')
         return Sequence(*(s if s != var else value for s in self.structures))
+
+    @property
+    def nonempty(self) -> tuple[_T | Unary[_T], ...]:
+        return tuple(s for s in self.structures if not isinstance(s, Unary) or len(list(s.units())) > 0)
 
 
 def struct_repr(structure: Structure[_T], item_repr: Callable[[_T], str] = repr) -> str:
