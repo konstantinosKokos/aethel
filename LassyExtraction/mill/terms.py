@@ -1,5 +1,5 @@
 from __future__ import annotations
-from .types import Type, TypeInference, Functor, Diamond, Box
+from .types import Type, TypeInference, Functor, Diamond, Box, TypeVar
 from abc import ABC
 from typing import Callable, Iterable
 
@@ -17,6 +17,9 @@ class Term(ABC):
     def constants(self) -> Iterable[Constant]: return term_constants(self)
 
 
+TERM = TypeVar('TERM', bound=Term)
+
+
 class Variable(Term):
     __match_args__ = ('type', 'index')
 
@@ -28,9 +31,9 @@ class Variable(Term):
 class Constant(Term):
     __match_args__ = ('type', 'index')
 
-    def __init__(self, type: Type, index: int):
+    def __init__(self, _type: Type, index: int):
         self.index = index
-        self.type = type
+        self.type = _type
 
 
 class ArrowElimination(Term):
@@ -45,9 +48,7 @@ class ArrowElimination(Term):
 class ArrowIntroduction(Term):
     __match_args__ = ('abstraction', 'body')
 
-    def __init__(self, abstraction: Term, body: Term):
-        if not isinstance(abstraction, Variable):
-            raise TypeInference.TypeCheckError(f'{abstraction} of type {type(abstraction)} is not a variable')
+    def __init__(self, abstraction: Variable, body: Term):
         self.abstraction = abstraction
         self.body = body
         self.type = Functor(abstraction.type, body.type)

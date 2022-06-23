@@ -3,18 +3,21 @@ from __future__ import annotations
 from typing import Callable
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
-from .types import Type, Atom, Diamond, Box, TypeVar
-from .terms import (Term, Variable, Constant, ArrowElimination, ArrowIntroduction,
+from .types import Type, Atom, Diamond, Box
+from .terms import (TERM, Variable, Constant, ArrowElimination, ArrowIntroduction,
                     DiamondIntroduction, BoxElimination, BoxIntroduction, DiamondElimination,
                     substitute, term_repr, _word_repr)
 from enum import Enum
 from functools import partial
 
-TERM = TypeVar('TERM', bound=Term)
-
 
 class ProofError(Exception):
     pass
+
+
+########################################################################################################################
+# Judgements
+########################################################################################################################
 
 
 class Judgement:
@@ -35,8 +38,13 @@ def judgement_repr(judgement: Judgement, word_repr: Callable[[int], str] = _word
            f'{term_repr(judgement.term, False, word_repr=word_repr)}: {judgement.term.type}'
 
 
+########################################################################################################################
+# Rules
+########################################################################################################################
+
 class Rule(Enum):
     def __repr__(self) -> str: return self.name
+    def __str__(self) -> str: return repr(self)
     def __call__(self, *args, **kwargs) -> Proof: return self.value(*args, **kwargs)
 
 
@@ -131,11 +139,12 @@ class Structural(Rule):
 
     @staticmethod
     def extractable(proof: Proof, var: Variable) -> Maybe[Unary[Variable | Constant]]:
-        return next(iter(s for s in proof.structure if isinstance(s, Unary) and var in (v for _, v in s.units())), None)
+        return next(iter(s for s in proof.structure if isinstance(s, Unary) and var in s.content), None)
 
     Extract = partial(_extract)
 
 
+# shortcut for extract followed by diamond elimination
 def extract_renaming(proof: Proof,
                      var: Variable,
                      context: Maybe[Unary[Variable | Constant]] = None) -> tuple[Proof, Variable]:
@@ -145,51 +154,62 @@ def extract_renaming(proof: Proof,
     return proof.undiamond(where=proof.focus, becomes=renamed), renamed.term
 
 
-def deep_extract_renaming(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
+# fixpoint iteration of the nested version
+def deep_extract_renaming(proof: Proof, var: Variable, recurse: bool = True) -> tuple[Proof, Variable]:
+    def go(_proof: Proof, _var: Variable) -> tuple[Proof, Variable]:
+        return deep_extract_renaming(_proof, _var, False)
+
     if (substructure := Structural.extractable(proof, var)) is not None:
         return extract_renaming(proof, var, substructure)
-    print(proof, var)
+    if not recurse:
+        return proof, var
     match proof.rule:
         case Logical.DiamondElimination:
             original, becomes = proof.premises
             if var in (v for _, v in original.vars()):
                 deep, renamed = deep_extract_renaming(original, var)
-                return Logical.DiamondElimination(deep, proof.focus, becomes), renamed
-            pdb.set_trace()
+                return go(Logical.DiamondElimination(deep, proof.focus, becomes), renamed)
             raise ProofError
         case Logical.DiamondIntroduction:
             (body,) = proof.premises
             (struct,) = proof.structure
             deep, renamed = deep_extract_renaming(body, var)
-            return Logical.DiamondIntroduction(deep, struct.brackets), renamed
+            return go(Logical.DiamondIntroduction(deep, struct.brackets), renamed)
         case Logical.BoxElimination:
             (body,) = proof.premises
             (struct,) = proof.structure
             deep, renamed = deep_extract_renaming(body, var)
-            return Logical.BoxElimination(deep, struct.brackets), renamed
+            return go(Logical.BoxElimination(deep, struct.brackets), renamed)
         case Logical.BoxIntroduction:
             (body,) = proof.premises
             (struct,) = body.structure
             deep, renamed = deep_extract_renaming(body, var)
-            return Logical.BoxIntroduction(deep, struct.brackets), renamed
+            return go(Logical.BoxIntroduction(deep, struct.brackets), renamed)
         case Logical.ArrowElimination:
             (fn, arg) = proof.premises
             if var in (v for _, v in fn.vars()):
                 deep, renamed = deep_extract_renaming(fn, var)
-                return deep @ arg, renamed
+                return go(deep @ arg, renamed)
             elif var in (v for _, v in arg.vars()):
                 deep, renamed = deep_extract_renaming(arg, var)
-                return fn @ deep, renamed
+                return go(fn @ deep, renamed)
             else:
                 raise AssertionError
         case Logical.ArrowIntroduction:
             (body,) = proof.premises
             deep, renamed = deep_extract_renaming(body, var)
-            return deep.abstract(proof.focus), renamed
+            return go(deep.abstract(proof.focus), renamed)
+        case Structural.Extract:
+            (body,) = proof.premises
+            deep, renamed = deep_extract_renaming(body, var)
+            return go(Structural.Extract(deep, proof.focus), renamed)
         case _:
-            print(proof.rule)
             raise NotImplementedError
 
+
+########################################################################################################################
+# Proofs
+########################################################################################################################
 
 class Proof:
     __match_args__ = ('premises', 'conclusion', 'rule')
@@ -263,7 +283,6 @@ class Proof:
                 case Structural.Extract:
                     (body,) = p.premises
                     return Structural.Extract(body, p.focus)
-                    # raise NotImplementedError
         return go(self)
 
     def eta_norm(self) -> Proof:
@@ -282,7 +301,7 @@ def proof_repr(proof: Proof, word_repr: Callable[[int], str] = _word_repr) -> st
 
 
 ########################################################################################################################
-# # Examples / Tests
+# Examples / Tests
 ########################################################################################################################
 A = Atom('A')
 

@@ -2,22 +2,12 @@ from __future__ import annotations
 
 from abc import ABCMeta
 from typing import TypeVar
-from typing import Type as TYPE
-from typing import Optional as Maybe
-from functools import reduce
-from enum import Enum
-from itertools import product as prod
-from collections import Counter as Bag
 
 ########################################################################################################################
 # Type Syntax
 ########################################################################################################################
 
 T = TypeVar('T', bound='Type')
-
-SerializedType = tuple[TYPE, tuple[str]] | \
-                 tuple[TYPE, tuple['SerializedType', 'SerializedType']] | \
-                 tuple[TYPE, tuple[str, 'SerializedType']]
 
 
 class Type(ABCMeta):
@@ -27,7 +17,6 @@ class Type(ABCMeta):
     def __eq__(cls, other) -> bool: return type_eq(cls, other)
     def __hash__(cls) -> int: return type_hash(cls)
     def prefix(cls) -> str: return type_prefix(cls)
-    def serialize_type(cls) -> SerializedType: return serialize_type(cls)
 
     @classmethod
     def __init_subclass__(mcs, **kwargs):
@@ -182,32 +171,6 @@ def type_hash(type_: Type) -> int:
         case Box(decoration, content): return hash((f'□{decoration}', type_hash(content)))
         case Diamond(decoration, content): return hash((f'◇{decoration}', type_hash(content)))
         case _: raise ValueError(f'Unknown type: {type_}')
-
-
-def serialize_type(type_: Type) -> SerializedType:
-    match type_:
-        case Atom(sign): return Atom, (sign,)
-        case Functor(argument, result): return Functor, (serialize_type(argument), serialize_type(result))
-        case Box(decoration, content): return Box, (decoration, serialize_type(content))
-        case Diamond(decoration, content): return Diamond, (decoration, serialize_type(content))
-        case _: raise ValueError(f'Unknown type: {type_}')
-
-
-def deserialize_type(serialized: SerializedType) -> Type:
-    cls, args = serialized
-    if cls == Atom:
-        (sign,) = args
-        return Atom(sign)
-    if cls == Functor:
-        (left, right) = args
-        return Functor(deserialize_type(left), deserialize_type(right))
-    if cls == Box:
-        (decoration, content) = args
-        return Box(decoration, deserialize_type(content))
-    if cls == Diamond:
-        (decoration, content) = args
-        return Diamond(decoration, deserialize_type(content))
-    raise ValueError(f'Unknown type: {cls}')
 
 
 ########################################################################################################################
