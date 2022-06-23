@@ -144,7 +144,7 @@ def type_eq(type_: Type, other: Type) -> bool:
 def type_prefix(type_: Type) -> str:
     match type_:
         case Atom(sign): return sign
-        case Functor(argument, result): return f'⊸ {type_prefix(argument)} {type_prefix(result)}'
+        case Functor(argument, result): return f'⟶ {type_prefix(argument)} {type_prefix(result)}'
         case Box(decoration, content): return f'□{decoration} {type_prefix(content)}'
         case Diamond(decoration, content): return f'◇{decoration} {type_prefix(content)}'
         case _: raise ValueError(f'Unknown type: {type_}')
@@ -155,12 +155,13 @@ def parse_prefix(string: str) -> Type:
     stack: list[Type] = []
     for symbol in reversed(symbols):
         if symbol == '⟶':
-            return Functor(stack.pop(), stack.pop())
-        if symbol.startswith('□'):
-            return Box(symbol.lstrip('□'), stack.pop())
-        if symbol.startswith('◇'):
-            return Diamond(symbol.lstrip('◇'), stack.pop())
-        stack.append(Atom(symbol))
+            stack.append(Functor(stack.pop(), stack.pop()))
+        elif symbol.startswith('□'):
+            stack.append(Box(symbol.lstrip('□'), stack.pop()))
+        elif symbol.startswith('◇'):
+            stack.append(Diamond(symbol.lstrip('◇'), stack.pop()))
+        else:
+            stack.append(Atom(symbol))
     return stack.pop()
 
 
