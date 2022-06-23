@@ -15,6 +15,7 @@ class Term(ABC):
     def subterms(self) -> list[Term]: return subterms(self)
     def vars(self) -> Iterable[Variable]: return term_vars(self)
     def constants(self) -> Iterable[Constant]: return term_constants(self)
+    def __eq__(self, other) -> bool: return isinstance(other, Term) and term_eq(self, other)
 
 
 TERM = TypeVar('TERM', bound=Term)
@@ -167,3 +168,25 @@ def term_constants(term: Term) -> Iterable[Constant]:
             yield from arg.constants()
         case _:
             yield from term.body.constants()  # type: ignore
+
+
+def term_eq(left: Term, right: Term) -> bool:
+    match left, right:
+        case Variable(left_type, left_index), Variable(right_type, right_index):
+            return left_index == right_index and left_type == right_type
+        case Constant(left_type, left_index), Constant(right_type, right_index):
+            return left_index == right_index and left_type == right_type
+        case ArrowElimination(left_fn, left_arg), ArrowElimination(right_fn, right_arg):
+            return left_fn == right_fn and left_arg == right_arg
+        case ArrowIntroduction(left_var, left_body), ArrowIntroduction(right_var, right_body):
+            return left_var == right_var and left_body == right_body
+        case DiamondIntroduction(left_decoration, left_body), DiamondIntroduction(right_decoration, right_body):
+            return left_decoration == right_decoration and left_body == right_body
+        case BoxElimination(left_decoration, left_body), BoxElimination(right_decoration, right_body):
+            return left_decoration == right_decoration and left_body == right_body
+        case BoxIntroduction(left_decoration, left_body), BoxIntroduction(right_decoration, right_body):
+            return left_decoration == right_decoration and left_body == right_body
+        case DiamondElimination(left_decoration, left_body), DiamondElimination(right_decoration, right_body):
+            return left_decoration == right_decoration and left_body == right_body
+        case _:
+            return False

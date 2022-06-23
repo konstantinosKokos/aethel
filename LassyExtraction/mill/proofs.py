@@ -31,11 +31,16 @@ class Judgement:
         self.term = term
 
     def __repr__(self) -> str: return judgement_repr(self)
+    def __eq__(self, other): return isinstance(other, Judgement) and judgement_eq(self, other)
 
 
 def judgement_repr(judgement: Judgement, word_repr: Callable[[int], str] = _word_repr) -> str:
     return f'{struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, True, word_repr=word_repr))} |- ' \
            f'{term_repr(judgement.term, False, word_repr=word_repr)}: {judgement.term.type}'
+
+
+def judgement_eq(left: Judgement, right: Judgement) -> bool:
+    return left.assumptions == right.assumptions and left.term == right.term
 
 
 ########################################################################################################################
@@ -233,6 +238,7 @@ class Proof:
     def type(self) -> Type: return self.term.type
     def __repr__(self) -> str: return proof_repr(self)
     def __str__(self) -> str: return repr(self)
+    def __eq__(self, other) -> bool: return isinstance(other, Proof) and proof_eq(self, other)
     def apply(self, other: Proof) -> Proof: return Logical.ArrowElimination(self, other)
     def diamond(self, diamond: str) -> Proof: return Logical.DiamondIntroduction(self, diamond)
     def box(self, box: str) -> Proof: return Logical.BoxIntroduction(self, box)
@@ -298,6 +304,10 @@ def variable(_type: Type, index: int) -> Proof: return Logical.Variable(Variable
 
 def proof_repr(proof: Proof, word_repr: Callable[[int], str] = _word_repr) -> str:
     return judgement_repr(proof.conclusion, word_repr=word_repr)
+
+
+def proof_eq(left: Proof, right: Proof) -> bool:
+    return all((left.premises == right.premises, left.conclusion == right.conclusion, left.rule == right.rule))
 
 
 ########################################################################################################################
