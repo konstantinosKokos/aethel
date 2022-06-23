@@ -1,52 +1,28 @@
 from typing import Type as TYPE
-from .types import Type, Atom, Functor, Box, Diamond
+from .types import Type, type_prefix, parse_prefix
 from .terms import (TERM, Term, Variable, Constant, ArrowIntroduction, ArrowElimination,
                     DiamondIntroduction, DiamondElimination, BoxIntroduction, BoxElimination)
-from .structures import Structure, Sequence, Unary
-from .proofs import Judgement, Rule, Logical, Structural, Proof
+from .proofs import Rule, Logical, Structural, Proof
 
 
-SerializedType = tuple[TYPE,
-                       tuple[str] |
-                       tuple['SerializedType', 'SerializedType'] |
-                       tuple[str, 'SerializedType']]
+SerializedType = str
 SerializedTerm = tuple[TYPE,
-                       tuple[SerializedType, int] |
-                       tuple['SerializedTerm', 'SerializedTerm'] |
-                       tuple[str, 'SerializedTerm']]
-SerializedStructure = tuple[TYPE,
-                            tuple['SerializedStructure', ...] |
-                            tuple['SerializedStructure', str] |
-                            tuple[SerializedType, int]]
-SerializedJudgement = tuple[SerializedStructure, SerializedTerm]
+                       tuple[SerializedType, int]
+                       | tuple['SerializedTerm', 'SerializedTerm']
+                       | tuple[str, 'SerializedTerm']]
 SerializedRule = str
-SerializedProof = tuple[tuple['SerializedProof', ...], SerializedJudgement, SerializedRule, SerializedTerm | None]
+SerializedProof = tuple[SerializedRule,
+                        SerializedTerm
+                        | tuple['SeralizedProof', SerializedTerm]
+                        | tuple['SerializedProof', 'SerializedProof']
+                        | tuple['SerializedProof', str]
+                        | tuple['SerializedProof', SerializedTerm, 'SerializedProof']]
 
 
-def serialize_type(_type: Type) -> SerializedType:
-    match _type:
-        case Atom(sign): return Atom, (sign,)
-        case Functor(argument, result): return Functor, (serialize_type(argument), serialize_type(result))
-        case Box(decoration, content): return Box, (decoration, serialize_type(content))
-        case Diamond(decoration, content): return Diamond, (decoration, serialize_type(content))
-        case _: raise ValueError(f'Unknown type: {_type}')
+def serialize_type(_type: Type) -> SerializedType: return type_prefix(_type)
 
 
-def deserialize_type(serialized: SerializedType) -> Type:
-    cls, args = serialized
-    if cls == Atom:
-        (sign,) = args
-        return Atom(sign)
-    if cls == Functor:
-        (left, right) = args
-        return Functor(deserialize_type(left), deserialize_type(right))
-    if cls == Box:
-        (decoration, content) = args
-        return Box(decoration, deserialize_type(content))
-    if cls == Diamond:
-        (decoration, content) = args
-        return Diamond(decoration, deserialize_type(content))
-    raise ValueError(f'Unknown type: {cls}')
+def deserialize_type(serialized: SerializedType) -> Type: return parse_prefix(serialized)
 
 
 def serialize_term(term: Term) -> SerializedTerm:
@@ -62,6 +38,10 @@ def serialize_term(term: Term) -> SerializedTerm:
         case BoxIntroduction(box, body): return BoxIntroduction, (box, serialize_term(body))
         case BoxElimination(box, body): return BoxElimination, (box, serialize_term(body))
         case _: raise ValueError(f'Unknown term: {term}')
+
+
+def serialize_maybe_term(term: Term | None) -> SerializedTerm | None:
+    return serialize_term(term) if term is not None else None
 
 
 def deserialize_term(serialized: SerializedTerm) -> TERM:
@@ -93,32 +73,6 @@ def deserialize_term(serialized: SerializedTerm) -> TERM:
     raise ValueError(f'Unknown term: {constructor}')
 
 
-def serialize_structure(structure: Structure[Variable | Constant] | Variable | Constant) -> SerializedStructure:
-    match structure:
-        case Sequence(premises): return Sequence, tuple(map(serialize_structure, premises))
-        case Unary(content, brackets): return Unary, (serialize_structure(content), brackets)
-        case _: return serialize_term(structure)
-
-
-def deserialize_structure(serialized: SerializedStructure) -> Structure[Variable | Constant] | Variable | Constant:
-    cons, args = serialized
-    if cons == Sequence:
-        return Sequence(*tuple(map(deserialize_structure, args)))
-    if cons == Unary:
-        (content, brackets) = args
-        return Unary(Sequence(deserialize_structure(content)), brackets)
-    return deserialize_term(serialized)
-
-
-def serialize_judgement(judgement: Judgement) -> SerializedJudgement:
-    return serialize_structure(judgement.assumptions), serialize_term(judgement.term)
-
-
-def deserialize_judgement(serialized: SerializedJudgement) -> Judgement:
-    assumptions, term = serialized
-    return Judgement(deserialize_structure(assumptions), deserialize_term(term))  # type: ignore
-
-
 def serialize_rule(rule: Rule) -> SerializedRule:
     match rule:
         case Logical(): return f'Logical.{rule}'
@@ -134,15 +88,65 @@ def deserialize_rule(rule: SerializedRule) -> Rule:
 
 
 def serialize_proof(proof: Proof) -> SerializedProof:
-    return (tuple(map(serialize_proof, proof.premises)),
-            serialize_judgement(proof.conclusion),
-            serialize_rule(proof.rule),
-            serialize_term(proof.focus) if proof.focus is not None else None)
+    match proof.rule:
+        case Logical.Variable | Logical.Constant:
+            ret = serialize_term(proof.term)
+        case Logical.ArrowIntroduction:
+            (body,) = proof.premises
+            ret = serialize_proof(body), serialize_term(proof.focus)
+        case Logical.ArrowElimination:
+            fn, arg = proof.premises
+            ret = serialize_proof(fn), serialize_proof(arg)
+        case Logical.DiamondIntroduction:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            ret = (serialize_proof(body), struct.brackets)
+        case Logical.DiamondElimination:
+            original, becomes = proof.premises
+            ret = serialize_proof(original), serialize_term(proof.focus), serialize_proof(becomes)
+        case Logical.BoxIntroduction:
+            (body,) = proof.premises
+            (struct,) = body.structure
+            ret = serialize_proof(body), struct.brackets
+        case Logical.BoxElimination:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            ret = serialize_proof(body), struct.brackets
+        case Structural.Extract:
+            (body,) = proof.premises
+            ret = serialize_proof(body), serialize_term(proof.focus)
+        case _:
+            raise NotImplementedError
+    return serialize_rule(proof.rule), ret
 
 
 def deserialize_proof(serialized: SerializedProof) -> Proof:
-    premises, conclusion, rule, focus = serialized
-    return Proof(tuple(map(deserialize_proof, premises)),
-                 deserialize_judgement(conclusion),
-                 deserialize_rule(rule),
-                 deserialize_term(focus) if focus is not None else None)
+    serial_rule, args = serialized
+    rule = deserialize_rule(serial_rule)
+    match rule:
+        case Logical.Variable | Logical.Constant:
+            return rule(deserialize_term(args))
+        case Logical.ArrowIntroduction:
+            body, var = args
+            return rule(deserialize_term(var), deserialize_proof(body))
+        case Logical.ArrowElimination:
+            fn, arg = args
+            return rule(deserialize_proof(fn), deserialize_proof(arg))
+        case Logical.DiamondIntroduction:
+            body, diamond = args
+            return rule(deserialize_proof(body), diamond)
+        case Logical.DiamondElimination:
+            original, where, becomes = args
+            return rule(deserialize_proof(original), deserialize_term(where), deserialize_proof(becomes))
+        case Logical.BoxIntroduction:
+            body, box = args
+            return rule(deserialize_proof(body), box)
+        case Logical.BoxElimination:
+            body, box = args
+            return rule(deserialize_proof(body), box)
+        case Structural.Extract:
+            body, focus = args
+            return rule(deserialize_proof(body), deserialize_term(focus))
+        case _:
+            raise NotImplementedError
+
