@@ -152,6 +152,54 @@ class Structural(Rule):
     Extract = partial(_extract)
 
 
+def make_extractable(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
+    match proof.rule:
+        case Logical.Variable:
+            return (deep := variable(Box('x', var.type), var.index)).unbox('x'), deep.term
+        case Logical.ArrowElimination:
+            (function, argument) = proof.premises
+            if var in (v for _, v in function.vars()):
+                deep, var = make_extractable(function, var)
+                return deep @ argument, var
+            else:
+                deep, var = make_extractable(argument, var)
+                return function @ deep, var
+        case Logical.ArrowIntroduction:
+            (body,) = proof.premises
+            (deep, var) = make_extractable(body, var)
+            return deep.abstract(proof.focus), var
+        case Logical.DiamondIntroduction:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            (deep, var) = make_extractable(body, var)
+            return deep.diamond(struct.brackets), var
+        case Logical.DiamondElimination:
+            if proof.focus.index == var.index:
+                (original, becomes) = proof.premises
+                becomes = (var := variable(Box('x', becomes.type), var.index)).unbox('x')
+                return original.undiamond(proof.focus, becomes), var.term
+            (original, becomes) = proof.premises
+            (deep, var) = make_extractable(original, var)
+            return deep.undiamond(proof.focus, becomes), var
+        case Logical.BoxIntroduction:
+            (body,) = proof.premises
+            (struct,) = body.structure
+            (deep, var) = make_extractable(body, var)
+            return deep.box(struct.brackets), var
+        case Logical.BoxElimination:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            (deep, var) = make_extractable(body, var)
+            return deep.unbox(struct.brackets), var
+        case Structural.Extract:
+            (body,) = proof.premises
+            (deep, var) = make_extractable(body, var)
+            return deep.extract(proof.focus), var
+        case _:
+            print(proof.rule)
+            raise NotImplementedError
+
+
 # fixpoint iteration of the nested version
 def deep_extract(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
     def go(_proof: Proof, recurse: bool = True) -> Proof:

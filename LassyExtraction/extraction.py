@@ -1,4 +1,4 @@
-from .mill.proofs import Proof, variable, constant, Logical, deep_extract_renaming
+from .mill.proofs import Proof, variable, constant, Logical, make_extractable, deep_extract
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
@@ -82,66 +82,6 @@ def unbox_and_apply(original: Proof, boxes: list[Proof]) -> Proof:
                                                       f.term.index))
         return unboxed
     return reduce(lambda x, y: go(y) @ x, reversed(boxes), original)
-
-
-def make_extractable(proof: Proof, var: Variable, adjunct_flag: bool = False) -> tuple[Proof, Variable]:
-    match proof.rule:
-        case Logical.Variable:
-            if adjunct_flag:
-                var_type = proof.type
-                if not isinstance(var_type, Box):
-                    raise ProofError
-                decoration, content = var_type.decoration, var_type.content
-                new_type = Box(decoration, Box('x', content))
-                return (deep := variable(new_type, var.index)), deep.term
-            return (deep := variable(Box('x', var.type), var.index)).unbox('x'), deep.term
-        case Logical.ArrowElimination:
-            (function, argument) = proof.premises
-            if var in (v for _, v in function.vars()):
-                deep, var = make_extractable(function, var, adjunct_flag)
-                return deep @ argument, var
-            else:
-                deep, var = make_extractable(argument, var, adjunct_flag)
-                return function @ deep, var
-        case Logical.ArrowIntroduction:
-            (body,) = proof.premises
-            (deep, var) = make_extractable(body, var, adjunct_flag)
-            return deep.abstract(proof.focus), var
-        case Logical.DiamondIntroduction:
-            (body,) = proof.premises
-            (struct,) = proof.structure
-            (deep, var) = make_extractable(body, var, adjunct_flag)
-            return deep.diamond(struct.brackets), var
-        case Logical.DiamondElimination:
-            if proof.focus.index == var.index:
-                (original, _) = proof.premises
-                (deep, var) = make_extractable(original, var, True)
-                _where_type = proof.focus.type
-                if not isinstance(_where_type, Box):
-                    raise ProofError
-                becomes = variable(Diamond(_where_type.decoration, var.type), var.index)
-                return deep.undiamond(var, becomes).unbox('x'), becomes.term
-            (original, becomes) = proof.premises
-            (deep, var) = make_extractable(original, var, adjunct_flag)
-            return deep.undiamond(proof.focus, becomes), var
-        case Logical.BoxIntroduction:
-            (body,) = proof.premises
-            (struct,) = body.structure
-            (deep, var) = make_extractable(body, var, adjunct_flag)
-            return deep.box(struct.brackets), var
-        case Logical.BoxElimination:
-            (body,) = proof.premises
-            (struct,) = proof.structure
-            (deep, var) = make_extractable(body, var, adjunct_flag)
-            return deep.unbox(struct.brackets), var
-        case Structural.Extract:
-            (body,) = proof.premises
-            (deep, var) = make_extractable(body, var, adjunct_flag)
-            return deep.extract(proof.focus), var
-        case _:
-            print(proof.rule)
-            raise NotImplementedError
-
 
 def apply(function: Proof, arguments: list[Proof]) -> Proof: return reduce(Proof.apply, reversed(arguments), function)
 def endo(of: Type) -> Type: return Functor(of, of)
