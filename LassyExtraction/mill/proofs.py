@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pdb
 from typing import Callable
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
@@ -135,8 +136,9 @@ class Structural(Rule):
         if substructure is None:
             substructure = Structural.extractable(proof, var)
         inner, brackets = substructure.content, substructure.brackets
-        substructure = proof.structure.substitute(substructure, Sequence(*(s for s in inner if s != var)) ** brackets)
-        structure = Sequence(*substructure, *Sequence(var)**brackets)
+        substructure = proof.structure.substitute(substructure,
+                                                  Sequence(*(s for s in inner if s != Sequence(var)**'x')) ** brackets)
+        structure = Sequence(*substructure, *Sequence(var)**'x')
         return Proof(rule=Structural.Extract,
                      premises=(proof,),
                      conclusion=Judgement(structure, proof.term),
@@ -144,72 +146,51 @@ class Structural(Rule):
 
     @staticmethod
     def extractable(proof: Proof, var: Variable) -> Maybe[Unary[Variable | Constant]]:
-        return next(iter(s for s in proof.structure if isinstance(s, Unary) and var in s.content), None)
+        return next(iter(s for s in proof.structure if isinstance(s, Unary)
+                         and Sequence(var)**'x' in s.content), None)
 
     Extract = partial(_extract)
 
 
-# shortcut for extract followed by diamond elimination
-def extract_renaming(proof: Proof,
-                     var: Variable,
-                     context: Maybe[Unary[Variable | Constant]] = None) -> tuple[Proof, Variable]:
-    proof = Structural.Extract(proof, var, context)
-    extracted: Unary = proof.structure[-1]
-    renamed = variable(Diamond(extracted.brackets, var.type), var.index)
-    return proof.undiamond(where=proof.focus, becomes=renamed), renamed.term
-
-
 # fixpoint iteration of the nested version
-def deep_extract_renaming(proof: Proof, var: Variable, recurse: bool = True) -> tuple[Proof, Variable]:
-    def go(_proof: Proof, _var: Variable) -> tuple[Proof, Variable]:
-        return deep_extract_renaming(_proof, _var, False)
-
-    if (substructure := Structural.extractable(proof, var)) is not None:
-        return extract_renaming(proof, var, substructure)
-    if not recurse:
-        return proof, var
-    match proof.rule:
-        case Logical.DiamondElimination:
-            original, becomes = proof.premises
-            if var in (v for _, v in original.vars()):
-                deep, renamed = deep_extract_renaming(original, var)
-                return go(Logical.DiamondElimination(deep, proof.focus, becomes), renamed)
-            raise ProofError
-        case Logical.DiamondIntroduction:
-            (body,) = proof.premises
-            (struct,) = proof.structure
-            deep, renamed = deep_extract_renaming(body, var)
-            return go(Logical.DiamondIntroduction(deep, struct.brackets), renamed)
-        case Logical.BoxElimination:
-            (body,) = proof.premises
-            (struct,) = proof.structure
-            deep, renamed = deep_extract_renaming(body, var)
-            return go(Logical.BoxElimination(deep, struct.brackets), renamed)
-        case Logical.BoxIntroduction:
-            (body,) = proof.premises
-            (struct,) = body.structure
-            deep, renamed = deep_extract_renaming(body, var)
-            return go(Logical.BoxIntroduction(deep, struct.brackets), renamed)
-        case Logical.ArrowElimination:
-            (fn, arg) = proof.premises
-            if var in (v for _, v in fn.vars()):
-                deep, renamed = deep_extract_renaming(fn, var)
-                return go(deep @ arg, renamed)
-            elif var in (v for _, v in arg.vars()):
-                deep, renamed = deep_extract_renaming(arg, var)
-                return go(fn @ deep, renamed)
-            else:
-                raise AssertionError
-        case Logical.ArrowIntroduction:
-            (body,) = proof.premises
-            deep, renamed = deep_extract_renaming(body, var)
-            return go(deep.abstract(proof.focus), renamed)
-        case Structural.Extract:
-            (body,) = proof.premises
-            deep, renamed = deep_extract_renaming(body, var)
-            return go(Structural.Extract(deep, proof.focus), renamed)
-        case _:
-            raise NotImplementedError
+def deep_extract(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
+    def go(_proof: Proof, recurse: bool = True) -> Proof:
+        if (substructure := Structural.extractable(_proof, var)) is not None:
+            return Structural.Extract(_proof, var, substructure)
+        if recurse:
+            match _proof.rule:
+                case Logical.DiamondElimination:
+                    original, becomes = _proof.premises
+                    return go(original).undiamond(_proof.focus, becomes)
+                case Logical.DiamondIntroduction:
+                    (body,) = _proof.premises
+                    (struct,) = _proof.structure
+                    return go(go(body).diamond(struct.brackets), False)
+                case Logical.BoxElimination:
+                    (body,) = _proof.premises
+                    (struct,) = _proof.structure
+                    return go(go(body).unbox(struct.brackets), False)
+                case Logical.BoxIntroduction:
+                    (body,) = _proof.premises
+                    (struct,) = body.structure
+                    return go(body).box(struct.brackets)
+                case Logical.ArrowElimination:
+                    (function, argument) = _proof.premises
+                    if var in (v for _, v in function.vars()):
+                        return go(function) @ argument
+                    else:
+                        return function @ go(argument)
+                case Logical.ArrowIntroduction:
+                    (body,) = _proof.premises
+                    return go(body).abstract(_proof.focus)
+                case Structural.Extract:
+                    (body,) = _proof.premises
+                    return go(body).extract(_proof.focus)
+                case _:
+                    raise ValueError
+        return _proof
+    renamed = variable(Diamond('x', var.type), var.index)
+    return go(proof).undiamond(where=var, becomes=renamed), renamed.term
 
 
 ########################################################################################################################
