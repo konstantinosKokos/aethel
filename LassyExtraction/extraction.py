@@ -6,6 +6,10 @@ from typing import Callable, Iterable
 from functools import reduce
 
 
+def is_leaf(dag: DAG[str], root: str) -> bool:
+    return dag.is_leaf(root) or all(edge.label == 'mwp' for edge in dag.outgoing_edges(root))
+
+
 class ExtractionError(Exception):
     pass
 
@@ -83,6 +87,7 @@ def unbox_and_apply(original: Proof, boxes: list[Proof]) -> Proof:
         return unboxed
     return reduce(lambda x, y: go(y) @ x, reversed(boxes), original)
 
+
 def apply(function: Proof, arguments: list[Proof]) -> Proof: return reduce(Proof.apply, reversed(arguments), function)
 def endo(of: Type) -> Type: return Functor(of, of)
 
@@ -147,7 +152,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         return next(iter(abstraction_types))
 
     # terminal case
-    if dag.is_leaf(root):
+    if is_leaf(dag, root):
         material, node_id = get_material(dag, root), int(dag.get(root, 'id'))
         if hint is not None:
             return (variable if is_ghost(dag, root) else constant)(hint, node_id)
@@ -224,7 +229,7 @@ def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...
     def nodesort(children: Iterable[tuple[str, str]]) -> list[tuple[str, str]]:
         return sorted(children, key=lambda lc: node_to_key(dag, lc[1]))
 
-    outgoing = {(edge.label, edge.target) for edge in dag.outgoing_edges(root)}
+    outgoing = {(edge.label, edge.target) for edge in dag.outgoing_edges(root) if edge.label != 'mwp'}
     conjuncts = {(label, child) for label, child in outgoing if label == 'cnj'}
     adjuncts = {(label, child) for label, child in outgoing if label in adjunct_labels}
     heads = {(label, child) for label, child in outgoing if label in head_labels}

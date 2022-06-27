@@ -142,7 +142,9 @@ def add_ghost_of(dag: DAG[str], node: str) -> str:
 
 def get_lex_nodes(dag: DAG[str], root: str | None = None) -> list[str]:
     nodes = sort_nodes(dag) if root is None else sort_nodes(dag, set(dag.successors(root)) | {root})
-    return [node for node in nodes if dag.get(node, 'word') is not None]
+    return [node for node in nodes if
+            all(edge.label == 'mwp' for edge in dag.outgoing_edges(node))
+            and not any(edge.label == 'mwp' for edge in dag.incoming_edges(node))]
 
 
 def get_sentence(dag: DAG[str], root: str | None = None) -> str:
@@ -154,7 +156,7 @@ def node_to_key(dag: DAG[str], node: str) -> tuple[int, int, int]:
 
 
 def sort_nodes(dag: DAG[str], nodes: set[str] | None = None) -> list[str]:
-    return sorted(nodes or dag.nodes, key=lambda n: node_to_key(dag, n))
+    return sorted(nodes if nodes is not None else dag.nodes, key=lambda n: node_to_key(dag, n))
 
 
 def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
@@ -257,7 +259,8 @@ def collapse_mwu(dag: DAG[str]) -> DAG[str]:
     successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if dag.get(n, 'cat') == 'mwu'}
     for mwu in successors.keys():
         dag.set(mwu, propagate_mwu_info(successors[mwu]))
-    return dag.remove_nodes(set().union(*map(set, successors.values())))
+    return dag
+    # return dag.remove_nodes(set().union(*map(set, successors.values())))
 
 
 def refine_body(dag: DAG[str]) -> DAG[str]:
