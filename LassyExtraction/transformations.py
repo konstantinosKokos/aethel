@@ -381,6 +381,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
                 if is_year(last) and is_month(prev) and is_complex_tw(cs := first[::-1]):
                     tw_node = fix_complex_tw(cs)
                     interm_node = add_fresh_node(dag)
+                    dag.set(parent, 'cat', 'np')
                     dag.set(interm_node, {'cat': 'np',
                                           'begin': dag.get(tw_node, 'begin'),
                                           'end': dag.get(tw_node, 'end')})
@@ -435,9 +436,9 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
         match lemmas:
             case [first, second]:
                 if ((first.endswith('se') or first.endswith('sche') or first in region_words)
-                        and first[0].isupper()
                         and first.lower() not in exceptions
                         and second not in frans_surnames):
+                    dag.set(parent, 'cat', 'np')
                     cast_to_mod(parent, nodes[0], nodes[1])
                     detach_mwp(parent, nodes)
                     return True
