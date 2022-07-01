@@ -206,4 +206,6 @@ IGNORED_FILES = {
     'wiki-1941.p.5.s.1.xml',
     'dpc-kam-001286-nl-sen.p.10.s.2.xml',
     'WS-U-E-A-0000000211.p.17.s.9.4.xml',
+    'wiki-7543.p.22.s.1.xml',
+    'wiki-7543.p.22.s.2.xml'
 }
