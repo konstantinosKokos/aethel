@@ -22,13 +22,14 @@ def prepare_many(lassy: Iterator[tuple[ElementTree, str | None]]) -> list[DAG[st
     return dags
 
 
-def prepare_for_extraction(etree: ElementTree, name: str | None = None,) -> list[DAG[str]]:
+def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> list[DAG[str]]:
     def f(_dag: DAG[str]) -> DAG[str]:
         _dag = punct_to_crd(_dag)
         _dag = relabel_extra_crds(_dag)
         _dag = normalize_ghost_positions(_dag)
         _dag = remove_understood_argument(_dag)
         _dag = refine_body(_dag)
+        _dag = structure_mwu(_dag)
         _dag = collapse_mwu(_dag)
         _dag = relabel_determiners(_dag)
         _dag = swap_np_heads(_dag)
@@ -38,6 +39,7 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None,) -> list
         _dag = coerce_conjunctions(_dag)
         assertions(_dag)
         return _dag
+
     return sorted([f(dag) for dag in salvage_headless(ad_hoc_fixes(etree_to_dag(etree, name)))],
                   key=lambda dag: int(dag.meta['name'].split('(')[1].rstrip(')')))
 
@@ -79,7 +81,9 @@ def group_by_index(dag: DAG[str]) -> dict[str, set[str]]:
 
 
 def punct_to_crd(dag: DAG[str]) -> DAG[str]:
-    def crdless(edges: set[Edge[str]]) -> bool: return not any(map(lambda e: e.label == 'crd', edges))
+    def crdless(edges: set[Edge[str]]) -> bool:
+        return not any(map(lambda e: e.label == 'crd', edges))
+
     puncts = {(n, inc.source, node_to_key(dag, n))
               for n in dag.nodes
               if (inc := next(iter(dag.incoming_edges(n)), None)) is not None and inc.label == 'punct'}
@@ -140,15 +144,23 @@ def add_ghost_of(dag: DAG[str], node: str) -> str:
     return fresh_node
 
 
+def is_mwu(dag: DAG[str], node: str) -> bool:
+    return dag.get(node, 'cat') == 'mwu'
+
+
+def is_bottom(dag: DAG[str], node: str) -> bool:
+    return is_mwu(dag, node) or (dag.is_leaf(node) and not any(is_mwu(dag, p) for p in dag.parents(node)))
+
+
 def get_lex_nodes(dag: DAG[str], root: str | None = None) -> list[str]:
     nodes = sort_nodes(dag) if root is None else sort_nodes(dag, set(dag.successors(root)) | {root})
-    return [node for node in nodes if
-            all(edge.label == 'mwp' for edge in dag.outgoing_edges(node))
-            and not any(edge.label == 'mwp' for edge in dag.incoming_edges(node))]
+    return [node for node in nodes if is_bottom(dag, node)]
 
 
 def get_sentence(dag: DAG[str], root: str | None = None) -> str:
-    return ' '.join([dag.get(node, 'word') for node in get_lex_nodes(dag, root)])
+    return ' '.join([dag.get(node, 'word') if not is_mwu(dag, node)
+                     else " ".join(part for mwp in sort_nodes(dag, dag.successors(node)) if (part := dag.get(mwp, 'word')) is not None)
+                     for node in get_lex_nodes(dag, root) if not is_ghost(dag, node)])
 
 
 def node_to_key(dag: DAG[str], node: str) -> tuple[int, int, int]:
@@ -188,12 +200,13 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
             return any(sentential(p) and any(dag.get(c, 'index') == index for c in dag.children(p))
                        for p in dag.predecessors(edge.source))
         return False
+
     return dag.remove_edges(is_understood)
 
 
 def relabel_determiners(dag: DAG[str]) -> DAG[str]:
     possessives = {'mij', 'mijn', 'mijn', 'je', 'jouw', 'uw', 'zijn', 'zijne', 'haar', 'ons', 'onze', 'hun', 'wier',
-                   'wien', 'wiens',  'hum', 'z\'n', 'z´n', 'm\'n', 'm´n', 'zin', 'huin', 'onst', 'welks'}
+                   'wien', 'wiens', 'hum', 'z\'n', 'z´n', 'm\'n', 'm´n', 'zin', 'huin', 'onst', 'welks'}
     determiners = {'welke', 'die', 'deze', 'dit', 'dat', 'zo\'n', 'zo´n', 'wat', 'wélke', 'zo`n', 'díe', 'dát', 'déze'}
     edges = {edge for edge in dag.edges
              if edge.label == 'det' or (edge.label == 'mod' and dag.get(edge.source, 'cat') == 'np')}
@@ -236,7 +249,7 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
 def raise_nouns(dag: DAG[str]) -> DAG[str]:
     # http://web.stanford.edu/group/cslipublications/cslipublications/HPSG/3/van.pdf
     nouns = {node: dag.parents(node) for node in dag.nodes
-             if dag.is_leaf(node) and dag.get(node, 'pt') in {'n', 'spec'}}
+             if is_bottom(dag, node) and dag.get(node, 'pt') in {'n', 'spec'}}
     for noun, parents in nouns.items():
         if not any(dag.get(parent, 'cat') in {'np', 'n', 'spec'} for parent in parents):
             dag.set(noun, {'pt': 'np'})
@@ -247,20 +260,235 @@ def majority_vote(xs: list[str]) -> str | None:
     return 'np' if 'np' in xs else 'n' if ('n' in xs or 'spec' in xs) else max(xs, key=xs.count, default=None)
 
 
+def structure_mwu(dag: DAG[str]) -> DAG[str]:
+    # heuristics for structuring some MWU expressions
+
+    months = {'januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli',
+              'augustus', 'september', 'oktober', 'november', 'december'}
+    currencies = {'eur', 'euro', 'usd', '$', '£', '€', '¥'}
+    measurements = {'duizend', 'honderd', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
+
+    def is_tw(node: str) -> bool: return dag.get(get_material(dag, node), 'pt') == 'tw'
+
+    def is_year(node: str) -> bool:
+        return (lemma := dag.get(get_material(dag, node), 'lemma')).isnumeric() and 999 < int(lemma) < 2999
+
+    def is_month(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in months
+
+    def is_currency(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in currencies
+
+    def is_complex_tw(nodes: list[str]) -> bool:
+        return all((is_tw(n)
+                    or dag.get(get_material(dag, n), 'lemma') in {'en', 'of', 'tot', 'met', '-'})
+                   for n in nodes)
+
+    def is_uur(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() == 'uur'
+
+    def find_crd(nodes: list[str]) -> str:
+        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        if ('tot', 'en', 'met') in tuple(zip(lemmas, lemmas[1:], lemmas[2:])):
+            tot, en, met = nodes[lemmas.index('tot')], nodes[lemmas.index('en')], nodes[lemmas.index('met')]
+            crd = add_fresh_node(dag)
+            dag.set(crd, {'cat': 'mwu', 'begin': dag.get(tot, 'begin'), 'end': dag.get(met, 'end')})
+            dag.edges |= {Edge(crd, tot, 'mwp'), Edge(crd, en, 'mwp'), Edge(crd, met, 'mwp')}
+            return crd
+        elif 'en' in lemmas:
+            return nodes[lemmas.index('en')]
+        elif '-' in lemmas:
+            return nodes[lemmas.index('-')]
+        else:
+            raise TransformationError(f'No crd in {lemmas}')
+
+    def cast_to_mod(_parent: str, _mod: str, _head: str) -> None:
+        dag.edges |= {Edge(_parent, _mod, 'mod'), Edge(_parent, _head, 'hd')}
+
+    def detach_mwp(parent: str, nodes: list[str]) -> None:
+        dag.remove_edges({Edge(parent, n, 'mwp') for n in nodes})
+
+    def fix_complex_tw(nodes: list[str]) -> str:
+        if len(nodes) == 1:
+            return nodes[0]
+        crd = find_crd(nodes)
+        top_node = add_fresh_node(dag)
+        dag.edges |= {Edge(top_node, n, 'cnj') for n in nodes if n != crd}
+        dag.edges.add(Edge(top_node, crd, 'crd'))
+        dag.set(top_node, {'cat': 'cnj', 'begin': dag.get(nodes[0], 'begin'), 'end': dag.get(nodes[-1], 'end')})
+        return top_node
+
+    def is_direction(node: str) -> bool:
+        return dag.get(get_material(dag, node), 'lemma') in {'westen', 'zuiden', 'noorden', 'oosten'}
+
+    def is_countable(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma') in measurements
+
+    def fix_countable(parent: str, nodes: list[str]) -> bool:
+        match nodes[::-1]:
+            case [second, first]:
+                if is_tw(first) and is_countable(second):
+                    dag.set(parent, 'cat', 'str')
+                    cast_to_mod(parent, first, second)
+                    detach_mwp(parent, nodes)
+                    return True
+            case [last, *first]:
+                if is_complex_tw(first[::-1]) and is_countable(last):
+                    tw_node = fix_complex_tw(first[::-1])
+                    dag.set(parent, 'cat', 'str')
+                    cast_to_mod(parent, tw_node, last)
+                    detach_mwp(parent, nodes)
+                    return True
+        return False
+
+    def fix_watvoor(parent: str, nodes: list[str]) -> bool:
+        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        match lemmas:
+            case ['wat', 'voor']:
+                dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'mod')}
+                dag.set(parent, 'cat', 'pp')
+                detach_mwp(parent, nodes)
+                return True
+        return False
+
+    def move_obj_down(parent: str, head: str, last: str):
+        grandparent = next(dag.predecessors(parent))
+        obj = next(edge.target for edge in dag.outgoing_edges(grandparent) if edge.label == 'obj1')
+        interm = add_fresh_node(dag)
+        dag.edges |= {Edge(grandparent, interm, 'obj1'), Edge(interm, obj, 'obj1'),
+                      Edge(interm, head, 'hd')}
+        dag.remove_edges({Edge(grandparent, obj, 'obj1'), Edge(parent, head, 'mwp')})
+        dag.set(interm, {'cat': 'pp', 'begin': dag.get(head, 'begin'), 'end': dag.get(obj, 'end')})
+        dag.set(parent, 'end', dag.get(last, 'end'))
+        detach_mwp(parent, [head])
+
+    def fix_muv(parent: str, nodes: list[str]) -> bool:
+        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        match lemmas:
+            case ['met', 'uitzondering', 'van']:
+                move_obj_down(parent, nodes[-1], nodes[1])
+                return True
+        return False
+
+    def fix_datetime(parent: str, nodes: list[str]) -> bool:
+        match nodes[::-1]:
+            case [second, first]:
+                if (
+                        (is_tw(first) and is_month(second))
+                        or (is_month(first) and is_year(second))
+                        or (is_tw(first) and is_uur(second))):
+                    dag.set(parent, 'cat', 'np')
+                    cast_to_mod(parent, first, second)
+                    detach_mwp(parent, nodes)
+                    return True
+            case [last, prev, *first]:
+                if is_year(last) and is_month(prev) and is_complex_tw(cs := first[::-1]):
+                    tw_node = fix_complex_tw(cs)
+                    interm_node = add_fresh_node(dag)
+                    dag.set(interm_node, {'cat': 'np',
+                                          'begin': dag.get(tw_node, 'begin'),
+                                          'end': dag.get(tw_node, 'end')})
+                    cast_to_mod(parent, interm_node, last)
+                    cast_to_mod(interm_node, tw_node, prev)
+                    detach_mwp(parent, nodes)
+                    return True
+                elif (is_month(last) or is_uur(last)) and is_complex_tw(cs := [prev, *first][::-1]):
+                    tw_node = fix_complex_tw(cs)
+                    dag.set(parent, 'cat', 'np')
+                    cast_to_mod(parent, tw_node, last)
+                    detach_mwp(parent, nodes)
+                    return True
+        return False
+
+    def fix_currency(parent: str, nodes: list[str]) -> bool:
+        match nodes:
+            case [left, right]:
+                if is_tw(left) and is_currency(right):
+                    dag.set(parent, 'cat', 'np')
+                    cast_to_mod(parent, left, right)
+                    detach_mwp(parent, nodes)
+                    return True
+                elif is_currency(left) and is_tw(right):
+                    dag.set(parent, 'cat', 'np')
+                    cast_to_mod(parent, right, left)
+                    detach_mwp(parent, nodes)
+                    return True
+        return False
+
+    def fix_direction(parent: str, nodes: list[str]) -> bool:
+        match nodes:
+            case [ten, direction, van]:
+                if (dag.get(get_material(dag, ten), 'lemma') == 'te'
+                        and is_direction(direction) and dag.get(get_material(dag, van), 'lemma') == 'van'):
+                    move_obj_down(parent, van, direction)
+                    return True
+        return False
+
+    def fix_nationality(parent: str, nodes: list[str]) -> bool:
+        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+
+        region_words = {'afrikaans', 'amsterdams', 'antwerps', 'armeens', 'belgish-nederlands',
+                        'binnenlands', 'brits', 'brussels', 'duits', 'europees', 'ex_vlaams',
+                        'fins', 'flanders', 'frans', 'grieks', 'gallo-romeins', 'hollands', 'frans',
+                        'leuvens', 'limburgs', 'nederlands', 'noors', 'oostenrijks', 'pols', 'portugees',
+                        'west-romeins', 'westers', 'zuidost-vlaams', 'zwitsers'}
+        exceptions = {'louise', 'rose', 'case', 'moïse', 'enterprise', 'serse'}
+        frans_surnames = {'bonduel', 'bromet', 'detiège', 'gors', 'i', 'ii', 'jozefland', 'verbeek',
+                          'weisglas', 'wymeersch'}
+
+        match lemmas:
+            case [first, second]:
+                if ((first.endswith('se') or first.endswith('sche') or first in region_words)
+                        and first[0].isupper()
+                        and first.lower() not in exceptions
+                        and second not in frans_surnames):
+                    cast_to_mod(parent, nodes[0], nodes[1])
+                    detach_mwp(parent, nodes)
+                    return True
+        return False
+
+    def split_puncts(nodes: list[str]) -> tuple[list[str], list[str]]:
+        ps = [n for n in nodes if dag.get(get_material(dag, n), 'pos') == 'punct'
+              and dag.get(get_material(dag, n), 'lemma').lower() != '-']
+        rs = [n for n in nodes if n not in ps]
+        return ps, rs
+
+    def reattach_puncts(parent: str, puncts: list[str]) -> None:
+        root = next(iter(dag.get_roots()))
+        dag.edges |= {Edge(root, p, 'punct') for p in puncts}
+        dag.remove_edges({Edge(parent, p, 'mwp') for p in puncts})
+
+    successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if is_mwu(dag, n)}
+    for mwu in successors:
+        puncts, rest = split_puncts(successors[mwu])
+        if any(map(lambda fn: fn(mwu, rest),
+                   (fix_currency, fix_countable, fix_muv, fix_watvoor, fix_direction, fix_datetime, fix_nationality))):
+            reattach_puncts(mwu, puncts)
+    return dag
+
+
 def collapse_mwu(dag: DAG[str]) -> DAG[str]:
     def propagate_mwu_info(nodes: list[str]) -> dict[str, str | list[str]]:
         return {'begin': str(min(int(dag.get(n, 'begin')) for n in nodes)),
                 'end': str(max(int(dag.get(n, 'end')) for n in nodes)),
                 'word': ' '.join(word for n in nodes if (word := dag.get(n, 'word')) is not None),
-                'pos': majority_vote([pos for node in nodes if (pos := dag.get(node, 'pos')) is not None]),
-                'pt': majority_vote([pt for node in nodes if (pt := dag.get(node, 'pt')) is not None]),
+                'pos': majority_vote([pos for node in nodes
+                                      if (pos := dag.get(get_material(dag, node), 'pos')) is not None]),
+                'pt': majority_vote([pt for node in nodes
+                                     if (pt := dag.get(get_material(dag, node), 'pt')) is not None]),
                 'lemma': ' '.join(lemma for node in nodes if (lemma := dag.get(node, 'lemma')) is not None)}
 
-    successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if dag.get(n, 'cat') == 'mwu'}
-    for mwu in successors.keys():
-        dag.set(mwu, propagate_mwu_info(successors[mwu]))
+    successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if is_mwu(dag, n)}
+    for mwu, parts in successors.items():
+        if all(is_ghost(dag, n) for n in parts):
+            material = dag.first_common_predecessor(*[get_material(dag, n) for n in parts])
+            if (idx := dag.get(material, 'index')) is not None:
+                dag.set(mwu, 'index', idx)
+            else:
+                idx = str(max(int(node_idx) for n in dag.nodes
+                              if (node_idx := dag.get(n, 'index')) is not None) + 1)
+                dag.set(material, 'index', idx)
+                dag.set(mwu, 'index', idx)
+            dag.remove_nodes(set(parts))
+        else:
+            dag.set(mwu, propagate_mwu_info(parts))
     return dag
-    # return dag.remove_nodes(set().union(*map(set, successors.values())))
 
 
 def refine_body(dag: DAG[str]) -> DAG[str]:
@@ -269,10 +497,14 @@ def refine_body(dag: DAG[str]) -> DAG[str]:
                if (body := next(filter(lambda e: e.label == 'body', (out := dag.outgoing_edges(n))), None)) is not None}
     for src, (body, head) in clauses.items():
         match head:
-            case 'cmp': label = 'cmpbody'
-            case 'rhd': label = 'relcl'
-            case 'whd': label = 'whbody'
-            case _: raise ValueError(f'Unexpected label {head}')
+            case 'cmp':
+                label = 'cmpbody'
+            case 'rhd':
+                label = 'relcl'
+            case 'whd':
+                label = 'whbody'
+            case _:
+                raise ValueError(f'Unexpected label {head}')
         dag.edges.remove(body)
         dag.edges.add(Edge(body.source, body.target, label))
     return dag
@@ -305,7 +537,8 @@ def swap_np_heads(dag: DAG[str]) -> DAG[str]:
 
 
 def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
-    def is_headless(edge: Edge[str]) -> bool: return edge.label in {'dp', 'sat', 'nucl', 'tag', 'du', '--'}
+    def is_headless(edge: Edge[str]) -> bool:
+        return edge.label in {'dp', 'sat', 'nucl', 'tag', 'du', '--'}
 
     def replace_ghost(_subgraph: DAG[str], root: str) -> DAG[str]:
         floating_nodes = {n for n in _subgraph.nodes
@@ -357,7 +590,7 @@ def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
         return rename(insert_punct(replace_ghost(_subgraph, root), root), root)
 
     def maximal(_subgraphs: list[DAG[str]]) -> list[DAG[str]]:
-        return [graph for graph in _subgraphs if not(any(map(lambda g: graph < g, _subgraphs)))]
+        return [graph for graph in _subgraphs if not (any(map(lambda g: graph < g, _subgraphs)))]
 
     bad_edges = {e for e in dag.edges if is_headless(e)}
     # todo: do not filter single node graphs unless they are punctuation?
@@ -373,9 +606,11 @@ def factor_distributed_subgraphs(dag: DAG[str]) -> DAG[str]:
                   list[tuple[str, list[Edge[str]]]]]:
         def f(_set: set[str]) -> list[tuple[str, list[Edge[str]]]]:
             return [(_label, [e for e in _edges if e.label == _label]) for _label in _set]
+
         return (f(heady := (occurring := {e.label for e in _edges}) & {'hd', 'rhd', 'whd', 'cmp'}),
                 f(moddy := occurring & {'mod', 'app', 'predm'}),
                 f(occurring - heady - moddy))
+
     distributed = [(index, edge) for edge in dag.edges if (index := dag.get(edge.target, 'index')) is not None]
     by_index = {index: group_by_label({e for i, e in distributed if i == index})
                 for index in {i for i, _ in distributed}}
@@ -466,7 +701,7 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
             dag.edges |= {Edge('15', '48', 'cnj')}
             dag.remove_nodes({'45', '46', '47'})
         case 'WR-P-E-I-0000050381.p.1.s.338.xml':
-            # (het ene _ na het andere _) X case
+            # (het ene _ na het andere _) X
             dag.remove_nodes({'18', '21'})
             dag.edges -= {Edge('18', '27', 'hd'), Edge('18', '19', 'det'), Edge('18', '20', 'mod'),
                           Edge('18', '21', 'mod'), Edge('23', '26', 'hd')}
@@ -477,12 +712,80 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
                           Edge('23', '25', 'mod')}
             dag.set(conj, {'begin': dag.get('19', 'begin'), 'end': dag.get('26', 'end'), 'cat': 'conj'})
             dag.set(left, {'begin': dag.get('19', 'begin'), 'end': dag.get('20', 'end'), 'cat': 'np'})
+        case 'dpc-vla-001161-nl-sen.p.75.s.2.xml':
+            # (met een chronometer) maar ([aan de hand van] (resultaten van je impact))
+            rvje = add_fresh_node(dag)
+            dag.edges |= {Edge('39', '44', 'hd')}
+            dag.remove_nodes({'41', '42', '43', '40'})
+            dag.edges |= {Edge('31', '33', 'hd'), Edge('31', rvje, 'obj1'),
+                          Edge(rvje, '38', 'hd'), Edge(rvje, '39', 'obj1')}
+            dag.edges -= {Edge('39', '40', 'hd'), Edge('31', '39', 'cnj'),
+                          Edge('32', '38', 'obj1'), Edge('31', '32', 'cnj'), Edge('32', '33', 'hd')}
+            dag.set(rvje, {'cat': 'np', 'begin': dag.get('38', 'begin'), 'end': dag.get('47', 'end')})
+            dag.set('31', {'cat': 'pp', 'begin': dag.get('33', 'begin'), 'end': dag.get('47', 'end')})
+        case 'WR-P-E-I-0000049645.p.1.s.160.4.xml':
+            # 12.30 not a tw?
+            dag.set('14', 'pt', 'tw')
+        case 'WR-P-E-I-0000050394.p.9.s.4.xml':
+            # (noordelijke en zuidelijke) staten
+            dag.set('32', 'cat', 'np')
+            dag.set('22', 'cat', 'np')
+            dag.edges |= {Edge('22', '23', 'mod'), Edge('22', '24', 'hd'),
+                          Edge('32', '33', 'mod'), Edge('33', '34', 'hd')}
+            dag.edges -= {Edge('22', '23', 'mwp'), Edge('22', '24', 'mwp'),
+                          Edge('32', '33', 'mwp'), Edge('32', '34', 'mwp')}
+        case 'wiki-154.p.3.s.3.xml':
+            # (vlaamse gemenschap) (van Belgie)
+            van_belgie = add_fresh_node(dag)
+            dag.edges |= {Edge('9', van_belgie, 'mod'), Edge(van_belgie, '12', 'hd'), Edge(van_belgie, '13', 'obj1'),
+                          Edge('9', '10', 'mod'), Edge('9', '11', 'hd'),
+                          Edge('16', '17', 'mod'), Edge('16', '19', 'mod'), Edge('16', '18', 'hd')}
+            dag.edges -= {Edge('9', '10', 'mwp'), Edge('9', '11', 'mwp'),
+                          Edge('9', '12', 'mwp'), Edge('9', '13', 'mwp'),
+                          Edge('16', '19', 'mwp'), Edge('16', '17', 'mwp'), Edge('16', '18', 'mwp'),
+                          Edge('16', '20', 'mwp')}
+            dag.set('9', 'cat', 'np')
+            dag.set('16', 'cat', 'np')
+            dag.set(van_belgie, {'cat': 'pp',
+                                 'begin': dag.get('12', 'begin'),
+                                 'end': dag.get('13', 'end'),
+                                 'index': '2'})
+            del dag.attribs['12']['index']
+        case 'WR-P-E-I-0000108667.p.3.s.21.xml':
+            # (Boidinus_de_Barsela) of (Boudin)
+            dag.edges |= {Edge('41', '44', 'hd')}
+            dag.remove_nodes({'43', '45', '46'})
+            # (... (in 1164)) en (... (_ 1201))
+            in_copy, in_1201 = add_fresh_nodes(dag, 2)
+            dag.edges |= {Edge('49', in_1201, 'mod'), Edge(in_1201, in_copy, 'hd'), Edge(in_1201, '53', 'obj1'),}
+            dag.edges -= {Edge('49', '53', 'mod')}
+            dag.set(in_1201, {'cat': 'pp', 'begin': dag.get('39', 'begin'), 'end': dag.get('53', 'end')})
+            dag.set(in_copy, {'index': '3', 'begin': dag.get('39', 'begin'), 'end': dag.get('39', 'end')})
+            dag.set('39', 'index', '3')
+            del dag.attribs['37']['index']
+            del dag.attribs['36']['index']
+        case 'WR-P-E-I-0000000332.p.4.s.286.xml':
+            # (at is dit (voor een x)
+            dag.edges |= {Edge('35', '38', 'hd'), Edge('35', '36', 'obj1'),  Edge('36', '39', 'det'), Edge('36', '40', 'hd')}
+            dag.edges -= {Edge('35', '40', 'hd'), Edge('35', '36', 'det'), Edge('36', '38', 'mwp'), Edge('36', '39', 'mwp')}
+            dag.remove_nodes({'37'})
+            dag.set('36', {'cat': 'np', 'begin': dag.get('39', 'begin'), 'end': dag.get('40', 'end')})
+            dag.set('35', 'cat', 'pp')
+        case 'WR-P-P-I-0000000183.p.4.s.2.xml':
+            # (economy x) zoals (business x)
+            dag.edges |= {Edge('39', '40', 'mod'), Edge('39', '41', 'hd'),
+                          Edge('36', '37', 'mod'), Edge('36', '38', 'hd')}
+            dag.edges -= {Edge('39', '40', 'mwp'), Edge('39', '41', 'mwp'),
+                          Edge('36', '37', 'mwp'), Edge('36', '38', 'mwp')}
+            dag.set('39', 'cat', 'np')
+            dag.set('36', 'cat', 'np')
     return dag
 
 
 def assertions(dag: DAG[str]):
     # assert single root
-    if len(rs := dag.get_roots()) != 1:
-        raise ValueError(f'Too many roots {dag.meta["name"]}')
+    assert len(rs := dag.get_roots()) == 1
     # assert tree structure
     assert all((len(dag.incoming_edges(n)) == 1 for n in dag.nodes if n not in rs))
+    # assert no ghost multi word parts
+    assert all(not is_ghost(dag, edge.target) for edge in dag.edges if edge.label == 'mwp')
