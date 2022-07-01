@@ -240,7 +240,9 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
             dag.edges |= {Edge(node, intermediate, hd.label), Edge(intermediate, hd.target, hd.label)}
             dag.edges |= {Edge(intermediate, mod.target, mod.label) for mod in premods}
             dag.edges -= (premods | {Edge(node, hd.target, hd.label)})
-            dag.set(intermediate, {'cat': dag.get(get_material(dag, hd.target), 'pt'),
+            new_cat = (pt if (pt := dag.get(get_material(dag, hd.target), 'pt')) is not None
+                       else dag.get(get_material(dag, hd.target), 'cat'))
+            dag.set(intermediate, {'cat': new_cat,
                                    'begin': str(min(int(dag.get(n, 'begin')) for n in dag.successors(intermediate))),
                                    'end': str(max(int(dag.get(n, 'end')) for n in dag.successors(intermediate)))})
     return dag
@@ -305,6 +307,17 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     def detach_mwp(parent: str, nodes: list[str]) -> None:
         dag.remove_edges({Edge(parent, n, 'mwp') for n in nodes})
 
+    def move_obj_down(parent: str, head: str, last: str):
+        grandparent = next(dag.predecessors(parent))
+        obj = next(edge.target for edge in dag.outgoing_edges(grandparent) if edge.label == 'obj1')
+        interm = add_fresh_node(dag)
+        dag.edges |= {Edge(grandparent, interm, 'obj1'), Edge(interm, obj, 'obj1'),
+                      Edge(interm, head, 'hd')}
+        dag.remove_edges({Edge(grandparent, obj, 'obj1'), Edge(parent, head, 'mwp')})
+        dag.set(interm, {'cat': 'pp', 'begin': dag.get(head, 'begin'), 'end': dag.get(obj, 'end')})
+        dag.set(parent, 'end', dag.get(last, 'end'))
+        detach_mwp(parent, [head])
+
     def fix_complex_tw(nodes: list[str]) -> str:
         if len(nodes) == 1:
             return nodes[0]
@@ -346,17 +359,6 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
                 detach_mwp(parent, nodes)
                 return True
         return False
-
-    def move_obj_down(parent: str, head: str, last: str):
-        grandparent = next(dag.predecessors(parent))
-        obj = next(edge.target for edge in dag.outgoing_edges(grandparent) if edge.label == 'obj1')
-        interm = add_fresh_node(dag)
-        dag.edges |= {Edge(grandparent, interm, 'obj1'), Edge(interm, obj, 'obj1'),
-                      Edge(interm, head, 'hd')}
-        dag.remove_edges({Edge(grandparent, obj, 'obj1'), Edge(parent, head, 'mwp')})
-        dag.set(interm, {'cat': 'pp', 'begin': dag.get(head, 'begin'), 'end': dag.get(obj, 'end')})
-        dag.set(parent, 'end', dag.get(last, 'end'))
-        detach_mwp(parent, [head])
 
     def fix_muv(parent: str, nodes: list[str]) -> bool:
         lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
