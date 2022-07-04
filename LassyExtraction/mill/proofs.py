@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pdb
 from typing import Callable
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
@@ -35,9 +34,10 @@ class Judgement:
     def __eq__(self, other): return isinstance(other, Judgement) and judgement_eq(self, other)
 
 
-def judgement_repr(judgement: Judgement, word_repr: Callable[[int], str] = _word_repr) -> str:
-    return f'{struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, True, word_repr=word_repr))} |- ' \
-           f'{term_repr(judgement.term, False, word_repr=word_repr)}: {judgement.term.type}'
+def judgement_repr(judgement: Judgement, show_types: bool = True, word_repr: Callable[[int], str] = _word_repr) -> str:
+    antecedents = struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, show_types, word_repr))
+    conclusion = term_repr(judgement.term, False, word_repr)
+    return f'{antecedents} ⊢ {conclusion} : {judgement.term.type}'
 
 
 def judgement_eq(left: Judgement, right: Judgement) -> bool:
@@ -331,8 +331,8 @@ def constant(_type: Type, index: int) -> Proof: return Logical.Constant(Constant
 def variable(_type: Type, index: int) -> Proof: return Logical.Variable(Variable(_type, index))
 
 
-def proof_repr(proof: Proof, word_repr: Callable[[int], str] = _word_repr) -> str:
-    return judgement_repr(proof.conclusion, word_repr=word_repr)
+def proof_repr(proof: Proof, show_types: bool = True, word_repr: Callable[[int], str] = _word_repr) -> str:
+    return judgement_repr(proof.conclusion, show_types=show_types, word_repr=word_repr)
 
 
 def proof_eq(left: Proof, right: Proof) -> bool:
