@@ -1,10 +1,10 @@
 from __future__ import annotations
-from LassyExtraction.mill.types import (Proof, Type, show_term, deserialize_type, SerializedType, SerializedProof,
-                                        deserialize_proof)
+from .mill.proofs import Proof, term_repr, Type
+from .mill.serialization import (SerializedType, serialize_type, deserialize_type,
+                                 SerializedProof, serialize_proof, deserialize_proof)
 from dataclasses import dataclass
-import pickle
-
 import pathlib
+import pickle
 
 
 @dataclass(frozen=True)
@@ -28,45 +28,82 @@ class ProofBank:
 
 @dataclass(frozen=True)
 class Sample:
-    premises: list[Premise]
-    proof: Proof
-    name: str
-    subset: str
+    lexical_phrases:    tuple[LexicalPhrase, ...]
+    proof:              Proof
+    name:               str
+    subset:             str
 
-    def __len__(self) -> int: return len(self.premises)
+    def __len__(self) -> int: return len(self.lexical_phrases)
     def __repr__(self) -> str: return self.name
 
-    def show_term(self, show_decorations: bool = True, show_types: bool = True, show_words: bool = True) -> str:
-        return show_term(self.proof,
-                         show_decorations=show_decorations,
+    def show_term(self, show_types: bool = True, show_words: bool = True) -> str:
+        return term_repr(term=self.proof.term,
                          show_types=show_types,
-                         word_printer=(lambda x: self.premises[x].word) if show_words else str)
+                         word_repr=lambda x: self.lexical_phrases[x].string if show_words else None)
 
-    def save(self) -> tuple[list[tuple[str, str, str, str, SerializedType]], SerializedProof, str, str]:
-        return [premise.save() for premise in self.premises], self.proof.serialize(), self.name, self.subset
+    @property
+    def sentence(self):
+        return ' '.join(phrase.string for phrase in self.lexical_phrases)
 
-    @staticmethod
-    def load(premises: list[tuple[str, str, str, str, SerializedType]],
-             sproof: SerializedProof,
-             name: str,
-             subset: str) -> 'Sample':
-        return Sample([Premise.load(*premise) for premise in premises], deserialize_proof(sproof), name, subset)
-
-    def show_sentence(self) -> str:
-        return ' '.join([premise.word for premise in self.premises])
-
-
-@dataclass(frozen=True)
-class Premise:
-    word: str
-    pos: str | list[str]
-    pt: str | list[str]
-    lemma: str | list[str]
-    type: Type
-
-    def save(self):
-        return self.word, self.pos, self.pt, self.lemma, self.type.serialize_type()
+    def save(self) -> SerializedSample: return serialize_sample(self)
 
     @staticmethod
-    def load(word: str, pos: str, pt: str, lemma: str, stype: SerializedType) -> 'Premise':
-        return Premise(word, pos, pt, lemma, deserialize_type(stype))
+    def load(serialized: SerializedSample) -> Sample: return deserialize_sample(serialized)
+
+
+@dataclass
+class LexicalPhrase:
+    items:  tuple[LexicalItem, ...]
+    type:   Type
+
+    @property
+    def string(self): return ' '.join(item.word for item in self.items)
+
+
+@dataclass
+class LexicalItem:
+    word:   str
+    pos:    str
+    pt:     str
+    lemma:  str
+
+
+########################################################################################################################
+# Serialization
+########################################################################################################################
+
+SerializedItem = tuple[str, str, str, str]
+SerializedPhrase = tuple[tuple[SerializedItem, ...], SerializedType]
+SerializedSample = tuple[tuple[SerializedPhrase, ...], SerializedProof, str, str]
+
+
+def serialize_item(item: LexicalItem) -> SerializedItem:
+    return item.word, item.pos, item.pt, item.lemma
+
+
+def deserialize_item(item: SerializedItem) -> LexicalItem:
+    return LexicalItem(*item)
+
+
+def serialize_phrase(phrase: LexicalPhrase) -> SerializedPhrase:
+    return tuple(serialize_item(item) for item in phrase.items), serialize_type(phrase.type)
+
+
+def deserialize_phrase(phrase: SerializedPhrase) -> LexicalPhrase:
+    items, _type = phrase
+    return LexicalPhrase(items=tuple(deserialize_item(item) for item in items), type=deserialize_type(_type))
+
+
+def serialize_sample(sample: Sample) -> SerializedSample:
+    return (tuple(serialize_phrase(phrase) for phrase in sample.lexical_phrases),
+            serialize_proof(sample.proof),
+            sample.name,
+            sample.subset)
+
+
+def deserialize_sample(sample: SerializedSample) -> Sample:
+    lexical_phrases, proof, name, subset = sample
+    return Sample(lexical_phrases=tuple(deserialize_phrase(phrase) for phrase in lexical_phrases),
+                  proof=deserialize_proof(proof),
+                  name=name,
+                  subset=subset)

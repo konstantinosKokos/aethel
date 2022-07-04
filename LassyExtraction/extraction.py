@@ -1,13 +1,9 @@
 from .mill.proofs import Proof, variable, constant, Logical, make_extractable, deep_extract
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
-from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed
+from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
 from typing import Callable, Iterable
 from functools import reduce
-
-
-def is_leaf(dag: DAG[str], root: str) -> bool:
-    return dag.is_leaf(root) or all(edge.label == 'mwp' for edge in dag.outgoing_edges(root))
 
 
 class ExtractionError(Exception):
@@ -152,7 +148,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         return next(iter(abstraction_types))
 
     # terminal case
-    if is_leaf(dag, root):
+    if is_bottom(dag, root):
         material, node_id = get_material(dag, root), int(dag.get(root, 'id'))
         if hint is not None:
             return (variable if is_ghost(dag, root) else constant)(hint, node_id)
