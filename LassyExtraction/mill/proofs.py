@@ -320,11 +320,80 @@ class Proof:
                     return Structural.Extract(body, p.focus)
         return go(self)
 
+    def translate_var(self, where: int, becomes: int) -> Proof:
+        def go_focus(term_var: Variable) -> Variable:
+            return Variable(term_var.type, becomes) if term_var.index == where else term_var
+
+        def go(proof: Proof) -> Proof:
+            match proof.rule:
+                case Logical.Constant:
+                    return proof
+                case Logical.Variable:
+                    return variable(proof.type, becomes if proof.term.index == where else proof.term.index)
+                case Logical.ArrowElimination:
+                    (fn, arg) = proof.premises
+                    return go(fn)@go(arg)
+                case Logical.ArrowIntroduction:
+                    (body,) = proof.premises
+                    return go(body).abstract(go_focus(proof.focus))
+                case Logical.DiamondIntroduction:
+                    (body,) = proof.premises
+                    (struct,) = proof.structure
+                    return go(body).diamond(struct.brackets)
+                case Logical.BoxElimination:
+                    (body,) = proof.premises
+                    (struct,) = proof.structure
+                    return go(body).unbox(struct.brackets)
+                case Logical.BoxIntroduction:
+                    (body,) = proof.premises
+                    (struct,) = body.structure
+                    return go(body).box(struct.brackets)
+                case Logical.DiamondElimination:
+                    _original, _becomes = proof.premises
+                    return go(_original).undiamond(go_focus(proof.focus), go(_becomes))
+                case Structural.Extract:
+                    (body,) = proof.premises
+                    return Structural.Extract(go(body), go_focus(proof.focus))
+                case _:
+                    raise ValueError
+        return go(self)
+
+    def de_bruijn(self) -> Proof: return de_bruijn(self)
+
     def eta_norm(self) -> Proof:
         ...
 
     def beta_norm(self) -> Proof:
         ...
+
+
+def de_bruijn(proof: Proof) -> Proof:
+    def distance_to(term: TERM, var: Variable) -> int:
+        def go(_term: TERM) -> int:
+            match _term:
+                case Variable(_):
+                    assert var == _term
+                    return 0
+                case ArrowElimination(fn, arg):
+                    if var in fn.subterms():
+                        return go(fn)
+                    return go(arg)
+                case ArrowIntroduction(_, body):
+                    return 1 + go(body)
+                case (DiamondIntroduction(_, body) | BoxIntroduction(_, body)
+                      | BoxElimination(_, body) | DiamondElimination(_, body)):
+                    return go(body)
+                case _:
+                    raise ValueError
+        return go(term)
+    distances = {subterm.abstraction.index: distance_to(subterm.body, subterm.abstraction)
+                 for subterm in proof.term.subterms() if isinstance(subterm, ArrowIntroduction)}
+    while True:
+        if not distances:
+            return proof
+        (where, becomes) = next((k, v) for k, v in distances.items() if v not in distances.keys())
+        proof = proof.translate_var(where, becomes)
+        del distances[where]
 
 
 def constant(_type: Type, index: int) -> Proof: return Logical.Constant(Constant(_type, index))

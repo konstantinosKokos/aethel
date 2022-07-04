@@ -23,7 +23,7 @@ class ProofBank:
         print(f'Loading and verifying {pathlib.Path(path).name}...')
         with open(path, 'rb') as f:
             version, (train, dev, test) = pickle.load(f)
-            return ProofBank(version=version, samples=[Sample.load(*x) for x in train + dev + test])
+            return ProofBank(version=version, samples=[Sample.load(x) for x in train + dev + test])
 
 
 @dataclass(frozen=True)
