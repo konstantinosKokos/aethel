@@ -125,13 +125,15 @@ def subterms(term: Term) -> list[Term]:
 def _word_repr(idx: int) -> str: return f'c{idx}'
 
 
+def needs_par(term: Term) -> bool:
+    match term:
+        case Variable(_, _) | Constant(_, _): return False
+        case _: return True
+
+
 def term_repr(term: Term,
               show_types: bool = True,
               word_repr: Callable[[int], str] = _word_repr) -> str:
-    def needs_par(_term: Term) -> bool:
-        match _term:
-            case Variable(_, _) | Constant(_, _): return False
-            case _: return True
 
     def f(_term: Term) -> str: return term_repr(_term, show_types, word_repr)
     def v(_term: Term) -> str: return term_repr(_term, False)
