@@ -1,6 +1,6 @@
 from LassyExtraction.utils.lassy import Lassy
 from LassyExtraction.utils.graph import DAG
-from LassyExtraction.transformations import prepare_many, get_lex_nodes, sort_nodes
+from LassyExtraction.transformations import prepare_many, get_lex_nodes, sort_nodes, is_ghost
 from LassyExtraction.frontend import Sample, LexicalPhrase, LexicalItem
 from LassyExtraction.extraction import prove, ExtractionError, Proof
 import os
@@ -14,18 +14,21 @@ def get_lex_phrases(dag: DAG[str]) -> list[tuple[Proof, tuple[LexicalItem, ...]]
     def make_item(node: str) -> LexicalItem:
         word, pos, pt, lemma = (dag.get(node, attr) for attr in ('word', 'pos', 'pt', 'lemma'))
         return LexicalItem(word=word, pos=pos, pt=pt, lemma=lemma)
-    bottom_nodes = [(node, sort_nodes(dag, {e.target for e in dag.outgoing_edges(node) if e.label == 'mwp'}))
-                    for node in get_lex_nodes(dag)]
+    bottom_nodes = [(node,
+                     sort_nodes(dag, {e.target for e in dag.outgoing_edges(node)
+                                      if e.label == 'mwp' and not is_ghost(dag, e.target)}))
+                    for node in get_lex_nodes(dag) if not is_ghost(dag, node)]
     return [(dag.get(bottom, 'proof'), tuple(make_item(c) for c in children) if children else (make_item(bottom),))
             for bottom, children in bottom_nodes]
 
 
 def make_sample(dag: DAG[str]) -> Sample:
     proof = prove(dag, next(iter(dag.get_roots())), None, None)
-    lex_phrases = get_lex_phrases(dag)
-    proof = proof.translate_lex({h.term.index: i for i, (h, _) in enumerate(lex_phrases)}).de_bruijn()
+    phrasal_proofs, lex_itemss = list(zip(*get_lex_phrases(dag)))
+    lex_phrases = tuple(LexicalPhrase(type=sp.type, items=items) for sp, items in zip(phrasal_proofs, lex_itemss))
+    proof = proof.translate_lex({sp.term.index: i for i, sp in enumerate(phrasal_proofs)}).de_bruijn()
     return Sample(
-        lexical_phrases=tuple(LexicalPhrase(type=proof.type, items=items) for proof, items in lex_phrases),
+        lexical_phrases=lex_phrases,
         proof=proof,
         name=(name := dag.meta['name']),
         subset=name_to_subset[name.split('(')[0]])
