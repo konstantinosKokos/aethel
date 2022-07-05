@@ -119,35 +119,39 @@ def type_order(type_: Type) -> int:
         case _: raise ValueError(f'Unknown type: {type_}')
 
 
-def type_repr(type_: Type) -> str:
-    match type_:
+def needs_par(_type: Type) -> bool:
+    return isinstance(_type, Functor)
+
+
+def type_repr(_type: Type) -> str:
+    match _type:
         case Atom(sign): return sign
         case Functor(argument, result): return Functor.repr(argument, result)
         case Box(decoration, content): return f'□{decoration}({type_repr(content)})'
         case Diamond(decoration, content): return f'◇{decoration}({type_repr(content)})'
-        case _: raise ValueError(f'Unknown type: {type_}')
+        case _: raise ValueError(f'Unknown type: {_type}')
 
 
-def type_eq(type_: Type, other: Type) -> bool:
-    match type_:
+def type_eq(_type: Type, other: Type) -> bool:
+    match _type:
         case Atom(sign):
-            return isinstance(other, Atom) and sign == other.sign and type_.__bases__ == other.__bases__
+            return isinstance(other, Atom) and sign == other.sign and _type.__bases__ == other.__bases__
         case Functor(argument, result):
             return isinstance(other, Functor) and type_eq(argument, other.argument) and type_eq(result, other.result)
         case Box(decoration, content):
             return isinstance(other, Box) and decoration == other.decoration and type_eq(content, other.content)
         case Diamond(decoration, content):
             return isinstance(other, Diamond) and decoration == other.decoration and type_eq(content, other.content)
-        case _: raise ValueError(f'Unknown type: {type_}')
+        case _: raise ValueError(f'Unknown type: {_type}')
 
 
-def type_prefix(type_: Type) -> str:
-    match type_:
+def type_prefix(_type: Type) -> str:
+    match _type:
         case Atom(sign): return sign
         case Functor(argument, result): return f'⟶ {type_prefix(argument)} {type_prefix(result)}'
         case Box(decoration, content): return f'□{decoration} {type_prefix(content)}'
         case Diamond(decoration, content): return f'◇{decoration} {type_prefix(content)}'
-        case _: raise ValueError(f'Unknown type: {type_}')
+        case _: raise ValueError(f'Unknown type: {_type}')
 
 
 def parse_prefix(string: str) -> Type:
@@ -165,13 +169,13 @@ def parse_prefix(string: str) -> Type:
     return stack.pop()
 
 
-def type_hash(type_: Type) -> int:
-    match type_:
+def type_hash(_type: Type) -> int:
+    match _type:
         case Atom(sign): return hash((sign,))
         case Functor(argument, result): return hash((type_hash(argument), type_hash(result)))
         case Box(decoration, content): return hash((f'□{decoration}', type_hash(content)))
         case Diamond(decoration, content): return hash((f'◇{decoration}', type_hash(content)))
-        case _: raise ValueError(f'Unknown type: {type_}')
+        case _: raise ValueError(f'Unknown type: {_type}')
 
 
 ########################################################################################################################
