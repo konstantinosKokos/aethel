@@ -32,12 +32,13 @@ def term_format(x: str) -> str: return x
 
 def format_proof(proof: Proof, show_terms: bool = True) -> str:
     def go(_proof: Proof, focus: Variable | None = None, ) -> list[str]:
-        premise_lines: list[list[str]] = [[*go(p, _proof.focus), '&'] for p in _proof.premises]
+        premises: list[list[str]] = [go(p, _proof.focus) for p in _proof.premises]
+        premises = [premise + ['&'] * (i < len(premises) - 1) for i, premise in enumerate(premises)]
         return [f'\\infer[{format_rule(_proof.rule)}]',
                 '\t{' + format_judgement(_proof.conclusion, focus, show_terms) + '}',
-                '{',
-                *['\t' + line for premise in premise_lines for line in premise],
-                '}']
+                '\t{',
+                *['\t' + line for premise in premises for line in premise],
+                '\t}']
     return '\n'.join(go(proof))
 
 
