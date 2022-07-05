@@ -2,7 +2,6 @@
     Pipeline for making data graphs compatible with the proof extraction algorithm.
 """
 
-import pdb
 from .utils.graph import DAG, Edge
 from xml.etree.cElementTree import ElementTree
 from typing import Iterator
@@ -37,6 +36,7 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> lis
         _dag = raise_nouns(_dag)
         _dag = factor_distributed_subgraphs(_dag)
         _dag = coerce_conjunctions(_dag)
+        _dag = compress_ghost_trees(_dag)
         assertions(_dag)
         return _dag
 
@@ -159,7 +159,8 @@ def get_lex_nodes(dag: DAG[str], root: str | None = None) -> list[str]:
 
 def get_sentence(dag: DAG[str], root: str | None = None) -> str:
     return ' '.join([dag.get(node, 'word') if not is_mwu(dag, node)
-                     else " ".join(part for mwp in sort_nodes(dag, dag.successors(node)) if (part := dag.get(mwp, 'word')) is not None)
+                     else " ".join(part for mwp in sort_nodes(dag, dag.successors(node))
+                                   if (part := dag.get(mwp, 'word')) is not None)
                      for node in get_lex_nodes(dag, root) if not is_ghost(dag, node)])
 
 
@@ -262,6 +263,35 @@ def majority_vote(xs: list[str]) -> str | None:
     return 'np' if 'np' in xs else 'n' if ('n' in xs or 'spec' in xs) else max(xs, key=xs.count, default=None)
 
 
+def boundaries_of(dag: DAG[str], left: str, right: str) -> dict[str, str]:
+    return {'begin': dag.get(left, 'begin'), 'end': dag.get(right, 'end')}
+
+
+def compress_ghost_trees(dag: DAG[str]) -> DAG[str]:
+    ghost_trees = {n: tuple(sorted([dag.get(c, 'index') for c in cs], key=int))
+                   for n in dag.nodes if (cs := list(dag.children(n)))
+                   and all(is_ghost(dag, c) for c in cs)}
+    indexed_subtrees = tuple(ghost_trees.values())
+    ghost_parents = {k for k, vs in ghost_trees.items() if indexed_subtrees.count(vs) > 1}
+    for gp in ghost_parents:
+        # todo: what if a ghost node occurs in a different context
+        dag = reindex_complex_ghost(dag, gp, list(dag.children(gp)))
+    return dag
+
+
+def reindex_complex_ghost(dag: DAG[str], parent: str, children: list[str]) -> DAG[str]:
+    material = dag.first_common_predecessor(*[get_material(dag, n) for n in children])
+    if (idx := dag.get(material, 'index')) is not None:
+        dag.set(parent, 'index', idx)
+    else:
+        idx = str(max(int(node_idx) for n in dag.nodes
+                  if (node_idx := dag.get(n, 'index')) is not None) + 1)
+        dag.set(material, 'index', idx)
+        dag.set(parent, 'index', idx)
+    dag.remove_nodes(set(children))
+    return dag
+
+
 def structure_mwu(dag: DAG[str]) -> DAG[str]:
     # heuristics for structuring some MWU expressions
 
@@ -269,29 +299,35 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
               'augustus', 'september', 'oktober', 'november', 'december'}
     currencies = {'eur', 'euro', 'usd', '$', '£', '€', '¥'}
     measurements = {'duizend', 'honderd', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
+    directions = {'westen', 'zuiden', 'noorden', 'oosten'}
 
-    def is_tw(node: str) -> bool: return dag.get(get_material(dag, node), 'pt') == 'tw'
+    def tw(node: str) -> bool: return dag.get(get_material(dag, node), 'pt') == 'tw'
+    def ghost(node: str) -> bool: return is_ghost(dag, node)
+    def year_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').isnumeric()
+    def month_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in months
+    def currency_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in currencies
+    def measurement_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in measurements
+    def uur_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() == 'uur'
+    def direction_like(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in directions
 
-    def is_year(node: str) -> bool:
-        return (lemma := dag.get(get_material(dag, node), 'lemma')).isnumeric() and 999 < int(lemma) < 2999
+    def complex_tw(nodes: list[str]) -> bool:
+        return all(map(lambda n: tw(n) or dag.get(get_material(dag, n), 'lemma') in {'en', 'of', 'tot', 'met', '-'},
+                       nodes))
 
-    def is_month(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in months
+    def get_lemmas(nodes: list[str]) -> list[str]: return [dag.get(get_material(dag, n), 'lemma') for n in nodes]
 
-    def is_currency(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() in currencies
+    def maybe_set_attrs(ghostly: bool, node: str, attrs: dict[str, str]):
+        dag.set(node, {k: v for k, v in attrs.items() if (not ghostly) or k not in {'cat', 'pt', 'pos'}})
 
-    def is_complex_tw(nodes: list[str]) -> bool:
-        return all((is_tw(n)
-                    or dag.get(get_material(dag, n), 'lemma') in {'en', 'of', 'tot', 'met', '-'})
-                   for n in nodes)
-
-    def is_uur(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma').lower() == 'uur'
+    def ghosts(nodes: list[str]) -> bool: return all(map(ghost, nodes))
 
     def find_crd(nodes: list[str]) -> str:
-        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        lemmas = get_lemmas(nodes)
         if ('tot', 'en', 'met') in tuple(zip(lemmas, lemmas[1:], lemmas[2:])):
             tot, en, met = nodes[lemmas.index('tot')], nodes[lemmas.index('en')], nodes[lemmas.index('met')]
-            crd = add_fresh_node(dag)
-            dag.set(crd, {'cat': 'mwu', 'begin': dag.get(tot, 'begin'), 'end': dag.get(met, 'end')})
+            maybe_set_attrs(ghosts([tot, en, met]),
+                            crd := add_fresh_node(dag),
+                            {'cat': 'mwu', **boundaries_of(dag, tot, met)})
             dag.edges |= {Edge(crd, tot, 'mwp'), Edge(crd, en, 'mwp'), Edge(crd, met, 'mwp')}
             return crd
         elif 'en' in lemmas:
@@ -301,62 +337,55 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
         else:
             raise TransformationError(f'No crd in {lemmas}')
 
-    def cast_to_mod(_parent: str, _mod: str, _head: str) -> None:
-        dag.edges |= {Edge(_parent, _mod, 'mod'), Edge(_parent, _head, 'hd')}
+    def cast_to_mod(parent: str, mod: str, head: str) -> None:
+        dag.edges |= {Edge(parent, mod, 'mod'), Edge(parent, head, 'hd')}
 
-    def detach_mwp(parent: str, nodes: list[str]) -> None:
-        dag.remove_edges({Edge(parent, n, 'mwp') for n in nodes})
+    def detach_mwps(parent: str, mwps: list[str]) -> None:
+        dag.remove_edges({Edge(parent, mwp, 'mwp') for mwp in mwps})
 
-    def move_obj_down(parent: str, head: str, last: str):
-        grandparent = next(dag.predecessors(parent))
-        obj = next(edge.target for edge in dag.outgoing_edges(grandparent) if edge.label == 'obj1')
-        interm = add_fresh_node(dag)
-        dag.edges |= {Edge(grandparent, interm, 'obj1'), Edge(interm, obj, 'obj1'),
-                      Edge(interm, head, 'hd')}
-        dag.remove_edges({Edge(grandparent, obj, 'obj1'), Edge(parent, head, 'mwp')})
-        dag.set(interm, {'cat': 'pp', 'begin': dag.get(head, 'begin'), 'end': dag.get(obj, 'end')})
+    def move_obj_down(parent: str, head: str, last: str) -> None:
+        gp = next(iter(dag.parents(parent)))
+        obj = next(edge.target for edge in dag.outgoing_edges(gp) if edge.label == 'obj1')
+        intermediate = add_fresh_node(dag)
+        dag.edges |= {Edge(gp, intermediate, 'obj1'), Edge(intermediate, obj, 'obj1'), Edge(intermediate, head, 'hd')}
+        dag.remove_edges({Edge(gp, obj, 'obj1'), Edge(parent, head, 'mwp')})
+        maybe_set_attrs(ghosts([obj, head]), intermediate, {'cat': 'pp', **boundaries_of(dag, head, obj)})
         dag.set(parent, 'end', dag.get(last, 'end'))
-        detach_mwp(parent, [head])
+        detach_mwps(parent, [head])
 
     def fix_complex_tw(nodes: list[str]) -> str:
         if len(nodes) == 1:
             return nodes[0]
         crd = find_crd(nodes)
-        top_node = add_fresh_node(dag)
-        dag.edges |= {Edge(top_node, n, 'cnj') for n in nodes if n != crd}
-        dag.edges.add(Edge(top_node, crd, 'crd'))
-        dag.set(top_node, {'cat': 'cnj', 'begin': dag.get(nodes[0], 'begin'), 'end': dag.get(nodes[-1], 'end')})
-        return top_node
+        top = add_fresh_node(dag)
+        dag.edges |= {Edge(top, crd, 'crd'), *{Edge(top, n, 'cnj') for n in nodes if n != crd}}
+        maybe_set_attrs(ghosts(nodes), top, {'cat': 'cnj', **boundaries_of(dag, nodes[0], nodes[-1])})
+        return top
 
-    def is_direction(node: str) -> bool:
-        return dag.get(get_material(dag, node), 'lemma') in {'westen', 'zuiden', 'noorden', 'oosten'}
-
-    def is_countable(node: str) -> bool: return dag.get(get_material(dag, node), 'lemma') in measurements
-
-    def fix_countable(parent: str, nodes: list[str]) -> bool:
+    def fix_measurable(parent: str, nodes: list[str]) -> bool:
         match nodes[::-1]:
             case [second, first]:
-                if is_tw(first) and is_countable(second):
-                    dag.set(parent, 'cat', 'str')
+                if tw(first) and measurement_like(second):
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, first, second)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
             case [last, *first]:
-                if is_complex_tw(first[::-1]) and is_countable(last):
+                if complex_tw(first[::-1]) and measurement_like(last):
                     tw_node = fix_complex_tw(first[::-1])
-                    dag.set(parent, 'cat', 'str')
+                    maybe_set_attrs(ghosts([last, *first]), parent, {'cat': 'np'})
                     cast_to_mod(parent, tw_node, last)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
         return False
 
     def fix_watvoor(parent: str, nodes: list[str]) -> bool:
-        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        lemmas = get_lemmas(nodes)
         match lemmas:
             case ['wat', 'voor']:
                 dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'mod')}
-                dag.set(parent, 'cat', 'pp')
-                detach_mwp(parent, nodes)
+                maybe_set_attrs(ghosts(nodes), parent, {'cat': 'pp'})
+                detach_mwps(parent, nodes)
                 return True
         return False
 
@@ -372,45 +401,44 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
         match nodes[::-1]:
             case [second, first]:
                 if (
-                        (is_tw(first) and is_month(second))
-                        or (is_month(first) and is_year(second))
-                        or (is_tw(first) and is_uur(second))):
-                    dag.set(parent, 'cat', 'np')
+                        (tw(first) and month_like(second))
+                        or (month_like(first) and year_like(second))
+                        or (tw(first) and uur_like(second))
+                ):
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, first, second)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
             case [last, prev, *first]:
-                if is_year(last) and is_month(prev) and is_complex_tw(cs := first[::-1]):
+                if year_like(last) and month_like(prev) and complex_tw(cs := first[::-1]):
                     tw_node = fix_complex_tw(cs)
-                    interm_node = add_fresh_node(dag)
-                    dag.set(parent, 'cat', 'np')
-                    dag.set(interm_node, {'cat': 'np',
-                                          'begin': dag.get(tw_node, 'begin'),
-                                          'end': dag.get(tw_node, 'end')})
-                    cast_to_mod(parent, interm_node, last)
-                    cast_to_mod(interm_node, tw_node, prev)
-                    detach_mwp(parent, nodes)
+                    intermediate = add_fresh_node(dag)
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
+                    maybe_set_attrs(ghosts(cs), intermediate, {'cat': 'np', **boundaries_of(dag, tw_node, tw_node)})
+                    cast_to_mod(parent, intermediate, last)
+                    cast_to_mod(intermediate, tw_node, prev)
+                    detach_mwps(parent, nodes)
                     return True
-                elif (is_month(last) or is_uur(last)) and is_complex_tw(cs := [prev, *first][::-1]):
+                elif (month_like(last) or uur_like(last)) and complex_tw(cs := [prev, *first][::-1]):
                     tw_node = fix_complex_tw(cs)
-                    dag.set(parent, 'cat', 'np')
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, tw_node, last)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
         return False
 
     def fix_currency(parent: str, nodes: list[str]) -> bool:
         match nodes:
             case [left, right]:
-                if is_tw(left) and is_currency(right):
-                    dag.set(parent, 'cat', 'np')
+                if tw(left) and currency_like(right):
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, left, right)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
-                elif is_currency(left) and is_tw(right):
-                    dag.set(parent, 'cat', 'np')
+                elif currency_like(left) and tw(right):
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, right, left)
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
         return False
 
@@ -418,13 +446,13 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
         match nodes:
             case [ten, direction, van]:
                 if (dag.get(get_material(dag, ten), 'lemma') == 'te'
-                        and is_direction(direction) and dag.get(get_material(dag, van), 'lemma') == 'van'):
+                        and direction_like(direction) and dag.get(get_material(dag, van), 'lemma') == 'van'):
                     move_obj_down(parent, van, direction)
                     return True
         return False
 
     def fix_nationality(parent: str, nodes: list[str]) -> bool:
-        lemmas = [dag.get(get_material(dag, node), 'lemma').lower() for node in nodes]
+        lemmas = get_lemmas(nodes)
 
         region_words = {'afrikaans', 'amsterdams', 'antwerps', 'armeens', 'belgish-nederlands',
                         'binnenlands', 'brits', 'brussels', 'duits', 'europees', 'ex_vlaams',
@@ -440,9 +468,9 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
                 if ((first.endswith('se') or first.endswith('sche') or first in region_words)
                         and first.lower() not in exceptions
                         and second not in frans_surnames):
-                    dag.set(parent, 'cat', 'np')
+                    maybe_set_attrs(ghosts(nodes), parent, {'cat': 'np'})
                     cast_to_mod(parent, nodes[0], nodes[1])
-                    detach_mwp(parent, nodes)
+                    detach_mwps(parent, nodes)
                     return True
         return False
 
@@ -461,7 +489,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     for mwu in successors:
         puncts, rest = split_puncts(successors[mwu])
         if any(map(lambda fn: fn(mwu, rest),
-                   (fix_currency, fix_countable, fix_muv, fix_watvoor, fix_direction, fix_datetime, fix_nationality))):
+                   (fix_currency, fix_measurable, fix_muv, fix_watvoor, fix_direction, fix_datetime, fix_nationality))):
             reattach_puncts(mwu, puncts)
     return dag
 
@@ -480,15 +508,7 @@ def collapse_mwu(dag: DAG[str]) -> DAG[str]:
     successors = {n: sort_nodes(dag, set(dag.successors(n))) for n in dag.nodes if is_mwu(dag, n)}
     for mwu, parts in successors.items():
         if all(is_ghost(dag, n) for n in parts):
-            material = dag.first_common_predecessor(*[get_material(dag, n) for n in parts])
-            if (idx := dag.get(material, 'index')) is not None:
-                dag.set(mwu, 'index', idx)
-            else:
-                idx = str(max(int(node_idx) for n in dag.nodes
-                              if (node_idx := dag.get(n, 'index')) is not None) + 1)
-                dag.set(material, 'index', idx)
-                dag.set(mwu, 'index', idx)
-            dag.remove_nodes(set(parts))
+            reindex_complex_ghost(dag, mwu, parts)
         else:
             dag.set(mwu, propagate_mwu_info(parts))
     return dag
