@@ -317,7 +317,7 @@ class Proof:
                     return go(original).undiamond(p.focus, go(becomes))
                 case Structural.Extract:
                     (body,) = p.premises
-                    return Structural.Extract(body, p.focus)
+                    return Structural.Extract(go(body), p.focus)
         return go(self)
 
     def translate_var(self, where: int, becomes: int) -> Proof:
