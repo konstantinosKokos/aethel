@@ -14,4 +14,4 @@ def parse_alpino_file(path: str) -> list[Proof]:
     etree = parse(path)
     name = etree.find('sentence').attrib['sentid']
     trees = prepare_for_extraction(etree, name)
-    return [prove(tree) for tree in trees]
+    return [prove(tree, next(iter(tree.get_roots())), None, None) for tree in trees]
