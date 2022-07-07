@@ -132,22 +132,26 @@ def needs_par(term: Term) -> bool:
 
 
 def term_repr(term: Term,
-              show_types: bool = True,
+              show_type: bool = True,
+              show_intermediate_types: bool = False,
               word_repr: Callable[[int], str] = _word_repr) -> str:
 
-    def f(_term: Term) -> str: return term_repr(_term, show_types, word_repr)
-    def v(_term: Term) -> str: return term_repr(_term, False)
+    def f(_term: Term) -> str: return term_repr(_term, False, show_intermediate_types, word_repr)
+    def v(_term: Term) -> str: return term_repr(_term, False, False)
+
+    def wrap(s: str) -> str: return f'({s}) : {term.type}' if show_type ^ show_intermediate_types else s
 
     match term:
-        case Variable(_type, index): return f'x{index}' + f': {_type}' * show_types
-        case Constant(_type, index): return f'{word_repr(index)}' + f': {_type}' * show_types
-        case ArrowElimination(fn, arg): return f'{f(fn)} ({f(arg)})' if needs_par(arg) else f'{f(fn)} {f(arg)}'
-        case ArrowIntroduction(var, body): return f'λ{v(var)}.({f(body)})'
-        case DiamondIntroduction(decoration, body): return f'▵{decoration}({f(body)})'
-        case BoxElimination(decoration, body): return f'▾{decoration}({f(body)})'
-        case BoxIntroduction(decoration, body): return f'▴{decoration}({f(body)})'
-        case DiamondElimination(decoration, body): return f'▿{decoration}({f(body)})'
+        case Variable(_type, index): ret = f'x{index}'
+        case Constant(_type, index): ret = f'{word_repr(index)}'
+        case ArrowElimination(fn, arg): ret = f'{f(fn)} ({f(arg)})' if needs_par(arg) else f'{f(fn)} {f(arg)}'
+        case ArrowIntroduction(var, body): ret = f'λ{v(var)}.({f(body)})'
+        case DiamondIntroduction(decoration, body): ret = f'▵{decoration}({f(body)})'
+        case BoxElimination(decoration, body): ret = f'▾{decoration}({f(body)})'
+        case BoxIntroduction(decoration, body): ret = f'▴{decoration}({f(body)})'
+        case DiamondElimination(decoration, body): ret = f'▿{decoration}({f(body)})'
         case _: raise NotImplementedError
+    return wrap(ret)
 
 
 def term_vars(term: Term) -> Iterable[Variable]:

@@ -35,9 +35,9 @@ class Judgement:
 
 
 def judgement_repr(judgement: Judgement, show_types: bool = True, word_repr: Callable[[int], str] = _word_repr) -> str:
-    antecedents = struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, show_types, word_repr))
-    conclusion = term_repr(judgement.term, False, word_repr)
-    return f'{antecedents} ⊢ {conclusion} : {judgement.term.type}'
+    antecedents = struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, show_types, False, word_repr))
+    conclusion = term_repr(judgement.term, True, False, word_repr)
+    return f'{antecedents} ⊢ {conclusion}'
 
 
 def judgement_eq(left: Judgement, right: Judgement) -> bool:

@@ -38,7 +38,8 @@ class Sample:
 
     def show_term(self, show_types: bool = True, show_words: bool = True) -> str:
         return term_repr(term=self.proof.term,
-                         show_types=show_types,
+                         show_type=show_types,
+                         show_intermediate_types=False,
                          word_repr=lambda x: self.lexical_phrases[x].string if show_words else None)
 
     @property
