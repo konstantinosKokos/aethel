@@ -28,6 +28,7 @@ prelude = '\\documentclass[preview=true,border={20pt 20pt 20pt 20pt}]{standalone
           '\\usepackage{proof}\n' \
           '\\usepackage{amssymb}\n' \
           '\\usepackage[utf8]{inputenc}' \
+          '\\usepackage[T1]{fontenc}' \
           '\\begin{document}\n\n'
 closure = '\\end{document}\n'
 
@@ -189,7 +190,7 @@ def sample_to_tex(sample: Sample,
     return wrap(format_sample(sample, show_intermediate_terms, show_words_at_leaves, show_sentence, show_final_term))
 
 
-def samples_to_dir(samples: list[Sample], output_dir: str):
-    for sample in samples:
-        with open(os.path.join(output_dir, sample.name + '.tex'), 'w') as f:
-            f.write(sample_to_tex(sample))
+def compile_tex(tex: str) -> None:
+    with open('./tmp.tex', 'w') as f:
+        f.write(tex)
+    subprocess.run(['pdflatex', 'tmp.tex'])
