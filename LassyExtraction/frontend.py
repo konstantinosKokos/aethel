@@ -58,6 +58,8 @@ class LexicalPhrase:
 
     @property
     def string(self): return ' '.join(item.word for item in self.items)
+    def __repr__(self) -> str: return f'LexicalPhrase(string={self.string}, type={self.type}, len={len(self)})'
+    def __len__(self) -> int: return len(self.items)
 
 
 @dataclass
