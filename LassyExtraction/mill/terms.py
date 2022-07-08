@@ -16,6 +16,7 @@ class Term(ABC):
     def vars(self) -> Iterable[Variable]: return term_vars(self)
     def constants(self) -> Iterable[Constant]: return term_constants(self)
     def __eq__(self, other) -> bool: return isinstance(other, Term) and term_eq(self, other)
+    def eta_norm(self) -> Term: return term_eta_norm(self)
 
 
 TERM = TypeVar('TERM', bound=Term)
@@ -139,7 +140,7 @@ def term_repr(term: Term,
     def f(_term: Term) -> str: return term_repr(_term, False, show_intermediate_types, word_repr)
     def v(_term: Term) -> str: return term_repr(_term, False, False)
 
-    def wrap(s: str) -> str: return f'({s}) : {term.type}' if show_type ^ show_intermediate_types else s
+    def type_hint(s: str) -> str: return f'{s} : {term.type}' if show_type ^ show_intermediate_types else s
 
     match term:
         case Variable(_type, index): ret = f'x{index}'
@@ -151,7 +152,7 @@ def term_repr(term: Term,
         case BoxIntroduction(decoration, body): ret = f'▴{decoration}({f(body)})'
         case DiamondElimination(decoration, body): ret = f'▿{decoration}({f(body)})'
         case _: raise NotImplementedError
-    return wrap(ret)
+    return type_hint(f'({ret})' if needs_par(term) else ret)
 
 
 def term_vars(term: Term) -> Iterable[Variable]:
@@ -196,3 +197,37 @@ def term_eq(left: Term, right: Term) -> bool:
             return left_decoration == right_decoration and left_body == right_body
         case _:
             return False
+
+
+# def term_eta_norm(term: Term) -> Term:
+#     match term:
+#         case Variable(_, _) | Constant(_, _): return term
+#         case ArrowIntroduction(var, body):
+        # case ArrowIntroduction(var, ArrowElimination(fn, arg)):
+        #     if var == arg:
+        #         return term_eta_norm(fn)
+        #     return ArrowIntroduction(var, ArrowElimination(term_eta_norm(fn), arg))
+        # case ArrowIntroduction(var, body): return ArrowIntroduction(var, term_eta_norm(body))
+        # case ArrowElimination(fn, arg): return ArrowElimination(term_eta_norm(fn), term_eta_norm(arg))
+        # case DiamondIntroduction(outer, DiamondElimination(inner, body)):
+        #     if outer == inner:
+        #         return term_eta_norm(body)
+        #     return DiamondIntroduction(outer, DiamondElimination(inner, term_eta_norm(body)))
+        # case DiamondIntroduction(outer, body): return DiamondIntroduction(outer, term_eta_norm(body))
+        # case BoxElimination(outer, BoxIntroduction(inner, body)):
+        #     if outer == inner:
+        #         return term_eta_norm(body)
+        #     return BoxElimination(outer, BoxIntroduction(inner, term_eta_norm(body)))
+        # case BoxElimination(outer, body): return BoxElimination(outer, term_eta_norm(body))
+        # case BoxIntroduction(outer, BoxElimination(inner, body)):
+        #     if outer == inner:
+        #         return term_eta_norm(body)
+        #     return BoxIntroduction(outer, BoxElimination(inner, term_eta_norm(body)))
+        # case BoxIntroduction(outer, body): return BoxIntroduction(outer, term_eta_norm(body))
+        # case DiamondElimination(outer, DiamondIntroduction(inner, body)):
+        #     if outer == inner:
+        #         return term_eta_norm(body)
+        #     return DiamondElimination(outer, DiamondIntroduction(inner, term_eta_norm(body)))
+        # case DiamondElimination(outer, body): return DiamondElimination(outer, term_eta_norm(body))
+        # case _: raise NotImplementedError
+        #
