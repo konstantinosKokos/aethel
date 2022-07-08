@@ -18,8 +18,8 @@ diamond = '\\diamondsuit '
 box = '\\Box '
 boxelim = '\\blacktriangledown '
 boxintro = '\\blacktriangle '
-diaelim = '\\vartriangle '
-diaintro = '\\triangledown '
+diaelim = '\\triangledown '
+diaintro = '\\vartriangle '
 lam = '\\lambda '
 
 prelude = '\\documentclass[preview=true,border={20pt 20pt 20pt 20pt}]{standalone}\n' \
