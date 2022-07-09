@@ -128,8 +128,8 @@ def _word_repr(idx: int) -> str: return f'c{idx}'
 
 def needs_par(term: Term) -> bool:
     match term:
-        case Variable(_, _) | Constant(_, _): return False
-        case _: return True
+        case ArrowElimination(_, _): return True
+        case _: return False
 
 
 def term_repr(term: Term,
@@ -152,7 +152,7 @@ def term_repr(term: Term,
         case BoxIntroduction(decoration, body): ret = f'▴{decoration}({f(body)})'
         case DiamondElimination(decoration, body): ret = f'▿{decoration}({f(body)})'
         case _: raise NotImplementedError
-    return type_hint(f'({ret})' if needs_par(term) else ret)
+    return type_hint(ret)
 
 
 def term_vars(term: Term) -> Iterable[Variable]:
