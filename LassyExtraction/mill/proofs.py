@@ -34,7 +34,7 @@ class Judgement:
     def __eq__(self, other): return isinstance(other, Judgement) and judgement_eq(self, other)
 
 
-def judgement_repr(judgement: Judgement, show_types: bool = True, word_repr: Callable[[int], str] = _word_repr) -> str:
+def judgement_repr(judgement: Judgement, show_types: bool = False, word_repr: Callable[[int], str] = _word_repr) -> str:
     antecedents = struct_repr(judgement.assumptions, item_repr=lambda _t: term_repr(_t, show_types, False, word_repr))
     conclusion = term_repr(judgement.term, True, False, word_repr)
     return f'{antecedents} ⊢ {conclusion}'
@@ -400,7 +400,7 @@ def constant(_type: Type, index: int) -> Proof: return Logical.Constant(Constant
 def variable(_type: Type, index: int) -> Proof: return Logical.Variable(Variable(_type, index))
 
 
-def proof_repr(proof: Proof, show_types: bool = True, word_repr: Callable[[int], str] = _word_repr) -> str:
+def proof_repr(proof: Proof, show_types: bool = False, word_repr: Callable[[int], str] = _word_repr) -> str:
     return judgement_repr(proof.conclusion, show_types=show_types, word_repr=word_repr)
 
 
