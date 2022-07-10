@@ -286,14 +286,14 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
     atom_to_var = {atom_idx: var_idx for var_idx, tree in var_trees.items()
                    for atom_idx in reachable_positives(tree)}
 
-    def go(f):
-        def g(*args):
-            print('=' * 80)
-            print(f'Called with {args}')
-            ret = f(*args)
-            print(f'Returned {ret} for {args}\n')
-            return ret
-        return g
+    # def printy(f):
+    #     def g(*args):
+    #         print('=' * 80)
+    #         print(f'Called with {args}')
+    #         ret = f(*args)
+    #         print(f'Returned {ret} for {args}\n')
+    #         return ret
+    #     return g
 
     def go_neg(tree: FormulaTree) -> Proof:
         assert not tree.polarity
@@ -302,18 +302,18 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
             case UnaryFT('box', content, decoration, _): return go_neg(content).box(decoration)
             case UnaryFT('diamond', content, decoration, _): return go_neg(content).diamond(decoration)
             case BinaryFT(left, right, _):
+                body = go_neg(right)
                 var_type = tree_to_type(left)
                 if isinstance(var_type, Diamond) and var_type.decoration == 'x':
+                    # deferred diamond elimination
                     var_type = var_type.content
-                abstraction = Variable(var_type, abs(next(k for k in var_trees if var_trees[k] == left)))
-                body = go_neg(right)
-                match left:
-                    case UnaryFT('diamond', UnaryFT('box', _, inner, _), outer, _):
-                        if inner == outer:
-                            body, abstraction = deep_extract(body, abstraction)
+                    abstraction = Variable(var_type, abs(next(k for k in var_trees if var_trees[k] == left)))
+                    body, abstraction = deep_extract(body, abstraction)
+                else:
+                    abstraction = Variable(var_type, abs(next(k for k in var_trees if var_trees[k] == left)))
                 return body.abstract(abstraction)
 
-    @go
+    # @printy
     def go_pos(tree: FormulaTree, grounding: tuple[int, FormulaTree] | None = None) -> Proof:
         assert tree.polarity
 
@@ -322,7 +322,6 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
             atom_idx = tree.index
             index = atom_to_word[atom_idx] if atom_idx in atom_to_word else atom_to_var[atom_idx]
             container = (lex_trees if index >= 0 else var_trees)[index]
-            print(f'{container=}')
             grounding = (index, container)
         else:
             index, container = grounding
@@ -331,7 +330,6 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
             out_type = tree_to_type(tree)
             return (constant if index >= 0 else variable)(out_type, abs(index))
         rooted_in = rooting_branch(container, tree)
-        print(f'{rooted_in=}')
         match rooted_in:
             case UnaryFT('box', _, decoration, _):
                 future = go_pos(rooted_in, grounding)
@@ -342,63 +340,14 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
                 return future.unbox(decoration)
             case UnaryFT('diamond', UnaryFT('box', nested, inner, _), outer, _):
                 assert inner == outer
-                print('*' * 80)
                 body = go_pos(nested, (index, UnaryFT('box', nested, inner)))
-                becomes = go_pos(rooted_in, (index, rooting_branch(container, rooted_in)))
+                if outer == 'x':
+                    assert rooted_in == container   # assert this is the bottom
+                    return body                     # defer the elimination until X-rule
+                becomes = go_pos(rooted_in, (index, container))
                 _where = Variable(Box(inner, tree_to_type(nested)), abs(index))
                 return body.undiamond(_where, becomes)
             case BinaryFT(left, _, True): return go_pos(rooted_in, grounding) @ go_neg(left)
             case BinaryFT(_, right, False): return go_pos(rooted_in, grounding) @ go_neg(right)
             case _: raise ValueError(f'{rooted_in} must be a formula Tree')
-    return go_neg(conclusion)
-
-
-    # pdb.set_trace()
-# def links_to_term(
-#         links: dict[LeafFT, LeafFT], formula_assignments: dict[int, FormulaTree]) -> Term:
-#     i = -1
-#     hypotheses = {(i := i-1): par for key in sorted(formula_assignments)
-#                   for par in par_trees(formula_assignments[key], False)}
-#     atom_to_word = {atom_idx: w_idx for w_idx, tree in formula_assignments.items()
-#                     for atom_idx in reachable_positives(tree)}
-#     atom_to_var = {atom_idx: var_idx for var_idx, tree in hypotheses.items()
-#                    for atom_idx in reachable_positives(tree)}
-#
-#     def go_neg(negative_tree: FormulaTree) -> Term:
-#         assert not negative_tree.polarity
-#         match negative_tree:
-#             case LeafFT(_, _, _): return go_pos(links[negative_tree])  # type: ignore
-#             case UnaryFT('box', content, decoration, _): return BoxIntroduction(decoration, go_neg(content))
-#             case UnaryFT('diamond', content, decoration, _): return DiamondIntroduction(decoration, go_neg(content))
-#             case BinaryFT(left, right, _):
-#                 abstraction = Variable(tree_to_type(left), abs(next(k for k in hypotheses if hypotheses[k] == left)))
-#                 return ArrowIntroduction(abstraction, go_neg(right))
-#
-#     def go_pos(positive_tree: FormulaTree, grounding: tuple[int, FormulaTree] | None = None) -> Term:
-#         assert positive_tree.polarity
-#
-#         if grounding is None:
-#             atom_idx = positive_tree.index
-#             index = atom_to_word[atom_idx] if atom_idx in atom_to_word else atom_to_var[atom_idx]
-#             container = formula_assignments[index] if index >= 0 else hypotheses[index]
-#             grounding = (index, container)
-#         else:
-#             index, container = grounding
-#
-#         if positive_tree == container:
-#             out_type = tree_to_type(positive_tree)
-#             return Constant(out_type, index) if index >= 0 else Variable(out_type, abs(index))
-#         rooted_in = rooting_branch(container, positive_tree)
-#         match rooted_in:
-#             case UnaryFT('box', _, decoration, _):
-#                 return BoxElimination(decoration, go_pos(rooted_in, grounding))
-#             case UnaryFT('diamond', _, decoration, _):
-#                 return DiamondElimination(decoration, go_pos(rooted_in, grounding))
-#             case BinaryFT(left, _, True):
-#                 return ArrowElimination(go_pos(rooted_in, grounding), go_neg(left))
-#             case BinaryFT(_, right, False):
-#                 return ArrowElimination(go_pos(rooted_in, grounding), go_neg(right))
-#             case None:
-#                 pdb.set_trace()
-#                 raise NotImplementedError
-#     return go_neg(next(iter(leaf for leaf in links if leaf.index == 0)))
+    return go_neg(conclusion).eta_norm()
