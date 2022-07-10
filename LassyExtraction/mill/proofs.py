@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pdb
 from typing import Callable
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
@@ -360,11 +361,9 @@ class Proof:
 
     def de_bruijn(self) -> Proof: return de_bruijn(self)
 
-    def eta_norm(self) -> Proof:
-        ...
+    def eta_norm(self) -> Proof: return eta_norm(self)
 
-    def beta_norm(self) -> Proof:
-        ...
+    def beta_norm(self) -> Proof: return beta_norm(self)
 
 
 def de_bruijn(proof: Proof) -> Proof:
@@ -394,6 +393,92 @@ def de_bruijn(proof: Proof) -> Proof:
         (where, becomes) = next((k, v) for k, v in distances.items() if v not in distances.keys())
         proof = proof.translate_var(where, becomes)
         del distances[where]
+
+
+def _fixpoint(proof_op: Callable[[Proof], Proof]) -> Callable[[Proof], Proof]:
+    def inner(proof: Proof) -> Proof: return step if (step := proof_op(proof)) == proof else inner(step)
+    return inner
+
+
+@_fixpoint
+def eta_norm(proof: Proof) -> Proof:
+    match proof.rule:
+        case Logical.Variable | Logical.Constant:
+            return proof
+        case Logical.ArrowIntroduction:
+            (body,) = proof.premises
+            if body.rule == Logical.ArrowElimination:
+                (fn, arg) = body.premises
+                if arg.term == proof.focus:
+                        return fn
+            return eta_norm(body).abstract(proof.focus)
+        case Logical.ArrowElimination:
+            (fn, arg) = proof.premises
+            return eta_norm(fn) @ eta_norm(arg)
+        case Logical.DiamondIntroduction:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            if body.rule == Logical.DiamondElimination:
+                raise NotImplementedError
+            return eta_norm(body).diamond(struct.brackets)
+        case Logical.DiamondElimination:
+            (original, becomes) = proof.premises
+            return eta_norm(original).undiamond(proof.focus, eta_norm(becomes))
+        case Logical.BoxIntroduction:
+            (body,) = proof.premises
+            if body.rule ==  Logical.BoxElimination:
+                (nested,) = body.premises
+                (struct,) = body.structure
+                if struct.brackets == proof.type.decoration:  # type: ignore
+                    return eta_norm(nested)
+            return eta_norm(body).box(proof.type.decoration)  # type: ignore
+        case Logical.BoxElimination:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            return eta_norm(body).unbox(struct.brackets)
+        case Structural.Extract:
+            (body,) = proof.premises
+            return eta_norm(body).extract(proof.focus)
+
+
+@_fixpoint
+def beta_norm(proof: Proof) -> Proof:
+    match proof.rule:
+        case Logical.Variable | Logical.Constant:
+            return proof
+        case Logical.ArrowIntroduction:
+            (body,) = proof.premises
+            return beta_norm(body).abstract(proof.focus)
+        case Logical.ArrowElimination:
+            (fn, arg) = proof.premises
+            if fn.rule == Logical.ArrowIntroduction:
+                (fn_body,) = fn.premises
+                return beta_norm(fn_body) @ beta_norm(arg)
+            return beta_norm(fn) @ beta_norm(arg)
+        case Logical.DiamondIntroduction:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            return beta_norm(body).diamond(struct.brackets)
+        case Logical.DiamondElimination:
+            # todo.
+            (original, becomes) = proof.premises
+            return beta_norm(original).undiamond(proof.focus, beta_norm(becomes))
+        case Logical.BoxIntroduction:
+            (body,) = proof.premises
+            return beta_norm(body).box(proof.type.decoration)  # type: ignore
+        case Logical.BoxElimination:
+            (body,) = proof.premises
+            (struct,) = proof.structure
+            if body.rule == Logical.BoxIntroduction:
+                (nested,) = body.premises
+                if struct.brackets == body.type.decoration:  # type: ignore
+                    return beta_norm(nested)
+            return beta_norm(body).unbox(struct.brackets)
+        case Structural.Extract:
+            (body,) = proof.premises
+            return beta_norm(body).extract(proof.focus)
+        case _:
+            pdb.set_trace()
 
 
 def constant(_type: Type, index: int) -> Proof: return Logical.Constant(Constant(_type, index))
