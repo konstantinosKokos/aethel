@@ -321,16 +321,18 @@ class Proof:
                     return Structural.Extract(go(body), p.focus)
         return go(self)
 
-    def translate_var(self, where: int, becomes: int) -> Proof:
+    def translate_var(self, trans: dict[int, int]) -> Proof:
         def go_focus(term_var: Variable) -> Variable:
-            return Variable(term_var.type, becomes) if term_var.index == where else term_var
+            index = term_var.index
+            return Variable(term_var.type, trans[index]) if index in trans.keys() else index
 
         def go(proof: Proof) -> Proof:
             match proof.rule:
                 case Logical.Constant:
                     return proof
                 case Logical.Variable:
-                    return variable(proof.type, becomes if proof.term.index == where else proof.term.index)
+                    index = proof.term.index
+                    return variable(proof.type, trans[index] if index in trans.keys() else index)
                 case Logical.ArrowElimination:
                     (fn, arg) = proof.premises
                     return go(fn)@go(arg)
@@ -387,12 +389,21 @@ def de_bruijn(proof: Proof) -> Proof:
         return go(term)
     distances = {subterm.abstraction.index: distance_to(subterm.body, subterm.abstraction)
                  for subterm in proof.term.subterms() if isinstance(subterm, ArrowIntroduction)}
-    while True:
-        if not distances:
-            return proof
-        (where, becomes) = next((k, v) for k, v in distances.items() if v not in distances.keys())
-        proof = proof.translate_var(where, becomes)
-        del distances[where]
+    return proof.translate_var(distances)
+    # while True:
+    #     if not distances:
+    #         return proof
+    #     swap = next(((k, v) for k, v in distances.items() if v not in distances.keys()), None)
+    #     if swap is None:
+    #         print(distances)
+    #         pdb.set_trace()
+    #         where, becomes = next((k, v) for k, v in distances.items() if tuple(distances.values()).count(v) == 2)
+    #         proof = proof.translate_var(where, -1)
+    #         distances[-1] = becomes
+    #     else:
+    #         where, becomes = swap
+    #         proof = proof.translate_var(where, becomes)
+    #         del distances[where]
 
 
 def _fixpoint(proof_op: Callable[[Proof], Proof]) -> Callable[[Proof], Proof]:
