@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Iterable, Iterator, Self, Generic, TypeVar, Callable
+from typing import Iterable, Iterator, Generic, TypeVar, Callable
 from typing import Sequence as SequenceType
 from abc import ABC, abstractmethod
 
@@ -35,7 +35,7 @@ class Unary(Structure[_T]):
         self.brackets = brackets
 
     def __contains__(self, item) -> bool: return struct_eq(self, item)
-    def __iter__(self) -> Iterator[Self]: yield self
+    def __iter__(self) -> Iterator[Unary[Structure[_T]]]: yield self
 
     def units(self) -> Iterable[tuple[tuple[str, ...], _T]]:
         for (ctx, item) in self.content.units():
