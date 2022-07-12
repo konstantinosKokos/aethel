@@ -410,7 +410,7 @@ def eta_norm(proof: Proof) -> Proof:
             if body.rule == Logical.ArrowElimination:
                 (fn, arg) = body.premises
                 if arg.term == proof.focus:
-                        return fn
+                    return fn
             return eta_norm(body).abstract(proof.focus)
         case Logical.ArrowElimination:
             (fn, arg) = proof.premises
@@ -418,7 +418,7 @@ def eta_norm(proof: Proof) -> Proof:
         case Logical.DiamondIntroduction:
             (body,) = proof.premises
             (struct,) = proof.structure
-            if body.rule == Logical.DiamondElimination:
+            if body.rule == Logical.DiamondElimination and struct.brackets == body.premises[1].type.decoration:
                 raise NotImplementedError
             return eta_norm(body).diamond(struct.brackets)
         case Logical.DiamondElimination:
@@ -426,7 +426,7 @@ def eta_norm(proof: Proof) -> Proof:
             return eta_norm(original).undiamond(proof.focus, eta_norm(becomes))
         case Logical.BoxIntroduction:
             (body,) = proof.premises
-            if body.rule ==  Logical.BoxElimination:
+            if body.rule == Logical.BoxElimination:
                 (nested,) = body.premises
                 (struct,) = body.structure
                 if struct.brackets == proof.type.decoration:  # type: ignore
