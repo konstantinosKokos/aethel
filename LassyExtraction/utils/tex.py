@@ -158,7 +158,7 @@ def format_type(_type: Type) -> str:
         case _: raise ValueError
 
 
-def proof_to_tex(proof: Proof, show_terms: bool) -> str:
+def proof_to_tex(proof: Proof, show_terms: bool = False) -> str:
     return wrap(format_proof(proof, show_intermediate_terms=show_terms))
 
 
