@@ -369,41 +369,59 @@ class Proof:
 
 
 def de_bruijn(proof: Proof) -> Proof:
-    def distance_to(term: TERM, var: Variable) -> int:
-        def go(_term: TERM) -> int:
-            match _term:
-                case Variable(_):
-                    assert var == _term
-                    return 0
-                case ArrowElimination(fn, arg):
-                    if var in fn.subterms():
-                        return go(fn)
-                    return go(arg)
-                case ArrowIntroduction(_, body):
-                    return 1 + go(body)
-                case (DiamondIntroduction(_, body) | BoxIntroduction(_, body)
-                      | BoxElimination(_, body) | DiamondElimination(_, body)):
-                    return go(body)
-                case _:
-                    raise ValueError
-        return go(term)
-    distances = {subterm.abstraction.index: distance_to(subterm.body, subterm.abstraction)
-                 for subterm in proof.term.subterms() if isinstance(subterm, ArrowIntroduction)}
-    return proof.translate_var(distances)
-    # while True:
-    #     if not distances:
-    #         return proof
-    #     swap = next(((k, v) for k, v in distances.items() if v not in distances.keys()), None)
-    #     if swap is None:
-    #         print(distances)
-    #         pdb.set_trace()
-    #         where, becomes = next((k, v) for k, v in distances.items() if tuple(distances.values()).count(v) == 2)
-    #         proof = proof.translate_var(where, -1)
-    #         distances[-1] = becomes
-    #     else:
-    #         where, becomes = swap
-    #         proof = proof.translate_var(where, becomes)
-    #         del distances[where]
+    def go(_proof: Proof, trans: dict[int, int]) -> tuple[Proof, dict[int, int]]:
+        match _proof.rule:
+            case Logical.Variable:
+                index = _proof.term.index
+                if index in trans:
+                    return variable(_proof.type, trans[index]), {index: trans[index]}
+                return _proof, {}
+            case Logical.Constant:
+                return _proof, {}
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                index = _proof.focus.index
+                trans = {k: v + 1 for k, v in trans.items()}
+                trans[index] = 0
+                body, resolved = go(body, trans)
+                return (body.abstract(Variable(_proof.focus.type, resolved[index])),
+                        {k: v for k, v in resolved.items() if k != index})
+            case Logical.ArrowElimination:
+                (fn, arg) = _proof.premises
+                fn, res_fn = go(fn, trans)
+                arg, res_arg = go(arg, trans)
+                return fn @ arg, res_fn | res_arg
+            case Logical.DiamondIntroduction:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, res = go(body, trans)
+                return body.diamond(struct.brackets), res
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                index = _proof.focus.index
+                original, res_original = go(original, trans)
+                focus = Variable(_proof.focus.type, res_original[index]) if index in res_original else _proof.focus
+                becomes, _ = go(becomes, res_original)
+                return original.undiamond(focus, becomes), res_original
+            case Logical.BoxElimination:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, res = go(body, trans)
+                return body.unbox(struct.brackets), res
+            case Logical.BoxIntroduction:
+                (body,) = _proof.premises
+                (struct,) = body.structure
+                body, res = go(body, trans)
+                return body.box(struct.brackets), res
+            case Structural.Extract:
+                (body,) = _proof.premises
+                index = _proof.focus.index
+                body, res = go(body, trans)
+                focus = _proof.focus if index not in res else Variable(_proof.focus.type, res[index])
+                return body.extract(focus), res
+            case _:
+                raise ValueError
+    return go(proof, {})[0]
 
 
 def _fixpoint(proof_op: Callable[[Proof], Proof]) -> Callable[[Proof], Proof]:
