@@ -6,9 +6,8 @@ from .types import Type, Atom, Functor, Box, Diamond
 from .proofs import Proof, Rule, Structural, Logical, constant, variable, deep_extract
 from .terms import Variable
 from ..utils.tex import proof_to_tex, compile_tex
-from typing import Literal, Iterable
+from typing import Literal
 from abc import ABC, abstractmethod
-from itertools import product
 from LassyExtraction.utils.tex import *
 
 
@@ -63,6 +62,7 @@ class LeafFT(FormulaTree):
 
 
 Modality = Literal['box', 'diamond']
+AxiomLinks = dict[LeafFT, LeafFT]
 
 
 def modality_to_str(modality: Modality) -> str:
@@ -120,6 +120,27 @@ class BinaryFT(FormulaTree):
     def __hash__(self) -> int: return hash((self.left, self.right, self.polarity))
 
 
+def leaves(tree: FormulaTree) -> tuple[list[LeafFT], list[LeafFT]]:
+    match tree:
+        case LeafFT(_, _, polarity):
+            return ([tree], []) if polarity else ([], [tree])
+        case UnaryFT(_, content, _, _):
+            return leaves(content)
+        case BinaryFT(left, right, _):
+            lp, ln = leaves(left)
+            rp, rn = leaves(right)
+            return lp + rp, ln + rn
+
+
+def contains(tree: FormulaTree, content: FormulaTree) -> bool:
+    if tree == content:
+        return True
+    match tree:
+        case BinaryFT(left, right, _): return contains(left, content) or contains(right, content)
+        case UnaryFT(_, nested, _, _): return contains(nested, content)
+        case _: return False
+
+
 def tree_to_type(tree: FormulaTree) -> Type:
     match tree:
         case LeafFT(a, _, _): return Atom(a)
@@ -145,7 +166,7 @@ def type_to_tree(_type: Type, polarity: bool = True,  index: int = 0, step: int 
         case _: raise ValueError(f'{_type} is not a type')
 
 
-def match(left: FormulaTree, right: FormulaTree) -> dict[LeafFT, LeafFT]:
+def match(left: FormulaTree, right: FormulaTree) -> AxiomLinks:
     match left, right:
         case LeafFT(l_atom, _, l_polarity), LeafFT(r_atom, _, r_polarity):
             assert l_atom == r_atom and l_polarity == (not r_polarity)
@@ -159,6 +180,19 @@ def match(left: FormulaTree, right: FormulaTree) -> dict[LeafFT, LeafFT]:
             raise ValueError
 
 
+def mirrors(negative: FormulaTree, positive: FormulaTree, links: AxiomLinks) -> bool:
+    assert not negative.polarity
+    match negative, positive:
+        case LeafFT(_, _, _), LeafFT(_, _, _):
+            return links[negative] == positive  # type: ignore
+        case UnaryFT(l_mod, l_content, l_deco, _), UnaryFT(r_mod, r_content, r_deco, _):
+            return l_mod == r_mod and l_deco == r_deco and mirrors(l_content, r_content, links)
+        case BinaryFT(l_left, l_right, False), BinaryFT(r_left, r_right, True):
+            return mirrors(r_left, l_left, links) and mirrors(l_right, r_right, links)
+        case _:
+            return False
+
+
 def flip(tree: FormulaTree) -> FormulaTree:
     match tree:
         case LeafFT(atom, index, polarity): return LeafFT(atom, index, not polarity)
@@ -166,18 +200,15 @@ def flip(tree: FormulaTree) -> FormulaTree:
         case BinaryFT(left, right, _): return BinaryFT(flip(left), flip(right))
 
 
-def beta_norm_links(_links: dict[LeafFT, LeafFT]) -> dict[LeafFT, LeafFT]:
-    detours = {(x, y) for x, y in product(_links.items(), _links.items())
-               if x[0].index == y[1].index and x[0].index < 0}
-    if not detours:
-        return _links
-    long_links = {x for x, _ in detours} | {y for _, y in detours}
-    norm_links = {y[0]: x[1] for x, y in detours}
-    next_round = {x: y for x, y in _links.items() if (x, y) not in long_links} | norm_links
-    return beta_norm_links(next_round)
+def beta_norm_links(links: AxiomLinks) -> AxiomLinks:
+    def follow_link(positive: LeafFT):
+        if positive.index >= 0:
+            return positive
+        return follow_link(links[LeafFT(positive.atom, positive.index, False)])
+    return {k: follow_link(v) for k, v in links.items() if k.index >= 0}
 
 
-def proof_to_links(proof: Proof) -> tuple[dict[LeafFT, LeafFT], dict[int, FormulaTree], FormulaTree]:
+def proof_to_links(proof: Proof) -> tuple[AxiomLinks, dict[int, FormulaTree], FormulaTree]:
     lex_trees, index = {}, 0
     for _constant in sorted(proof.term.constants(), key=lambda t: t.index):
         formula_tree, index = type_to_tree(_constant.type, True, index)
@@ -186,7 +217,7 @@ def proof_to_links(proof: Proof) -> tuple[dict[LeafFT, LeafFT], dict[int, Formul
 
     def go(_proof: Proof,
            var_trees: dict[int, FormulaTree],
-           _index: int) -> tuple[dict[LeafFT, LeafFT], FormulaTree, int, dict[int, FormulaTree]]:
+           _index: int) -> tuple[AxiomLinks, FormulaTree, int, dict[int, FormulaTree]]:
         match _proof.rule:
             case Logical.Variable:
                 var_tree = var_trees[_proof.term.index]
@@ -274,8 +305,8 @@ def rooting_branch(container: FormulaTree, subtree: FormulaTree) -> FormulaTree 
             return None
 
 
-def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree], conclusion: FormulaTree) -> Proof:
-    i = -1
+def links_to_proof(links: AxiomLinks, lex_trees: dict[int, FormulaTree], conclusion: FormulaTree) -> Proof:
+    i = 0
     var_trees = {(i := i - 1): par
                  for _, tree in [*sorted(lex_trees.items(), key=lambda x: x[0]), (None, conclusion)]
                  for par in par_trees(tree, False)}
@@ -286,19 +317,28 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
 
     def go_neg(tree: FormulaTree) -> Proof:
         assert not tree.polarity
+
+        absolute_match = next(((k, v) for k, v in (lex_trees | var_trees).items() if mirrors(tree, v, links)), None)
+        if absolute_match is not None:
+            index, pos_tree = absolute_match
+            return (constant if index >= 0 else variable)(tree_to_type(pos_tree), abs(index))
+        return step_neg(tree)
+
+    def step_neg(tree: FormulaTree) -> Proof:
         match tree:
             case LeafFT(_, _):
                 assert isinstance(tree, LeafFT)
                 return go_pos(links[tree])
             case UnaryFT('box', content, decoration, _):
-                return go_neg(content).box(decoration)
+                return step_neg(content).box(decoration)
             case UnaryFT('diamond', content, decoration, _):
-                ret = go_neg(content)
+                ret = step_neg(content)
+                # todo: tidy this up
                 if ret.rule == Logical.Variable or (ret.rule == Logical.BoxElimination and ret.premises[0].rule == Logical.Variable):
                     return ret
                 return ret.diamond(decoration)
             case BinaryFT(left, right, _):
-                body = go_neg(right)
+                body = step_neg(right)
                 var_type = tree_to_type(left)
                 if isinstance(var_type, Diamond) and var_type.decoration == 'x':
                     # deferred diamond elimination
@@ -320,7 +360,10 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
         ground = (variable if is_var else constant)(tree_to_type(tree), abs(index))
         return step_pos(tree, ground, abs(index))
 
-    def step_pos(tree: FormulaTree, context: Proof, index: int, cut: tuple[Variable, Proof] | None = None) -> Proof:
+    def step_pos(tree: FormulaTree,
+                 context: Proof,
+                 index: int,
+                 cut: tuple[Variable, Proof] | None = None) -> Proof:
         match tree:
             case LeafFT(_, _, _):
                 return context
@@ -330,54 +373,17 @@ def links_to_proof(links: dict[LeafFT, LeafFT], lex_trees: dict[int, FormulaTree
                 match content:
                     case LeafFT(_, _, _):
                         return context
-                    case UnaryFT('box', nested, inner, _):
+                    case UnaryFT('box', _, inner, _):
                         assert inner == outer
                         focus = Variable(tree_to_type(content), index)
                         becomes = context
                         return step_pos(content, variable(tree_to_type(content), index), index, (focus, becomes))
-                    case BinaryFT(left, right, _):
-                        pdb.set_trace()
-                        # return step_pos(right, context @ go_neg(left) )
-                        # deep =content.left.content.content
-                        go_neg(left)
-
-                        return step_pos(right, context, index)
+                    case BinaryFT(_, _, _):
+                        # this should never happen
+                        raise NotImplementedError
             case BinaryFT(left, right, _):
                 if cut is not None:
                     focus, becomes = cut
                     context = context.undiamond(focus, becomes)
                 return step_pos(right, context @ go_neg(left), index)
     return go_neg(conclusion).beta_norm().eta_norm().de_bruijn()
-
-    # def go_pos(tree: FormulaTree,
-    #            grounding: tuple[int, FormulaTree] | None = None,
-    #            entry: FormulaTree | None = None) -> tuple[Proof, bool]:
-    #     assert tree.polarity
-    #
-    #     if grounding is None:
-    #         assert isinstance(tree, LeafFT)
-    #         atom_idx = tree.index
-    #         index = atom_to_word[atom_idx] if atom_idx in atom_to_word else atom_to_var[atom_idx]
-    #         container = (lex_trees if index >= 0 else var_trees)[index]
-    #         grounding = (index, container)
-    #         entry = tree
-    #     else:
-    #         index, container = grounding
-    #
-    #     if tree == container:
-    #         out_type = tree_to_type(tree)
-    #         return (constant if index >= 0 else variable)(out_type, abs(index)), False
-    #     rooted_in = rooting_branch(container, tree)
-    #     match rooted_in:
-    #         case UnaryFT('diamond', content, decoration):
-    #
-    #         case UnaryFT('box', _, decoration):
-    #             ret, skip = go_pos(rooted_in, grounding, entry)
-    #             return (ret, True) if skip else (ret.unbox(decoration), False)
-    #         case BinaryFT(left, _, True):
-    #             ret, skip = go_pos(rooted_in, grounding, entry)
-    #             return (ret, True) if skip else (ret @ go_neg(left), False)
-    #         case BinaryFT(_, right, False):
-    #             ret, skip = go_pos(rooted_in, grounding, entry)
-    #             return (ret, True) if skip else (ret @ go_neg(right), False)
-    # return go_neg(conclusion).eta_norm().beta_norm().de_bruijn()
