@@ -188,7 +188,7 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
                 cat == 'conj' and any(infinitival(p) for p in dag.parents(_node)))
 
     def sentential(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart'} or
+        return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart', 'np'} or
                 (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
 
     def candidate(label: str) -> bool:
