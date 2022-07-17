@@ -2,7 +2,7 @@ from LassyExtraction.utils.lassy import Lassy
 from LassyExtraction.utils.graph import DAG
 from LassyExtraction.transformations import prepare_many, get_lex_nodes, sort_nodes, is_ghost
 from LassyExtraction.frontend import Sample, LexicalPhrase, LexicalItem
-from LassyExtraction.extraction import prove, ExtractionError, Proof
+from LassyExtraction.extraction import prove_dag, ExtractionError, Proof
 import os
 
 
@@ -23,10 +23,10 @@ def get_lex_phrases(dag: DAG[str]) -> list[tuple[Proof, tuple[LexicalItem, ...]]
 
 
 def make_sample(dag: DAG[str]) -> Sample:
-    proof = prove(dag, next(iter(dag.get_roots())), None, None)
+    proof = prove_dag(dag)
     phrasal_proofs, lex_itemss = list(zip(*get_lex_phrases(dag)))
     lex_phrases = tuple(LexicalPhrase(type=sp.type, items=items) for sp, items in zip(phrasal_proofs, lex_itemss))
-    proof = proof.translate_lex({sp.term.index: i for i, sp in enumerate(phrasal_proofs)}).de_bruijn()
+    proof = proof.translate_lex({sp.term.index: i for i, sp in enumerate(phrasal_proofs)}).eta_norm().standardize_vars()
     return Sample(
         lexical_phrases=lex_phrases,
         proof=proof,
@@ -70,4 +70,4 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel('1.0.0a0', save_intermediate=True)
+    store_aethel('1.0.0a1', save_intermediate=False)

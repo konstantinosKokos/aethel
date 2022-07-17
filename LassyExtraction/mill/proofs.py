@@ -197,7 +197,6 @@ def make_extractable(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
             (deep, var) = make_extractable(body, var)
             return deep.extract(proof.focus), var
         case _:
-            print(proof.rule)
             raise NotImplementedError
 
 
@@ -321,47 +320,7 @@ class Proof:
                     return Structural.Extract(go(body), p.focus)
         return go(self)
 
-    def translate_var(self, trans: dict[int, int]) -> Proof:
-        def go_focus(term_var: Variable) -> Variable:
-            index = term_var.index
-            return Variable(term_var.type, trans[index]) if index in trans.keys() else index
-
-        def go(proof: Proof) -> Proof:
-            match proof.rule:
-                case Logical.Constant:
-                    return proof
-                case Logical.Variable:
-                    index = proof.term.index
-                    return variable(proof.type, trans[index] if index in trans.keys() else index)
-                case Logical.ArrowElimination:
-                    (fn, arg) = proof.premises
-                    return go(fn)@go(arg)
-                case Logical.ArrowIntroduction:
-                    (body,) = proof.premises
-                    return go(body).abstract(go_focus(proof.focus))
-                case Logical.DiamondIntroduction:
-                    (body,) = proof.premises
-                    (struct,) = proof.structure
-                    return go(body).diamond(struct.brackets)
-                case Logical.BoxElimination:
-                    (body,) = proof.premises
-                    (struct,) = proof.structure
-                    return go(body).unbox(struct.brackets)
-                case Logical.BoxIntroduction:
-                    (body,) = proof.premises
-                    (struct,) = body.structure
-                    return go(body).box(struct.brackets)
-                case Logical.DiamondElimination:
-                    _original, _becomes = proof.premises
-                    return go(_original).undiamond(go_focus(proof.focus), go(_becomes))
-                case Structural.Extract:
-                    (body,) = proof.premises
-                    return Structural.Extract(go(body), go_focus(proof.focus))
-                case _:
-                    raise ValueError
-        return go(self)
-
-    def de_bruijn(self) -> Proof: return de_bruijn(self)
+    def standardize_vars(self) -> Proof: return standardize_vars(self)
 
     def eta_norm(self) -> Proof: return eta_norm(self)
 
@@ -414,7 +373,6 @@ def de_bruijn(proof: Proof) -> Proof:
 
     def go(_proof: Proof,
            context: dict[int, int]) -> tuple[Proof, dict[int, int]]:
-
         nonlocal detours
         nonlocal cuts
 
@@ -472,6 +430,71 @@ def de_bruijn(proof: Proof) -> Proof:
             case _:
                 raise ValueError
     return go(proof, {})[0]
+
+
+def standardize_vars(proof: Proof) -> Proof:
+    detours: dict[int, list[Proof]] = {}
+    cuts: dict[int, list[Proof]] = {}
+
+    def go(_proof: Proof,
+           counter: int,
+           trans: dict[int, int]) -> tuple[Proof, int, dict[int, int]]:
+
+        match _proof.rule:
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                trans[focus.index] = (counter := counter + 1)
+                body, counter, trans = go(body, counter, trans)
+                return body.abstract(Variable(focus.type, trans[focus.index])), counter, trans
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                focus = _proof.focus
+                detours[focus.index] = detours.get(focus.index, []) + [becomes]
+                original, counter, trans = go(original, counter, trans)
+                becomes = cuts[focus.index].pop()
+                return (original.undiamond(Variable(focus.type, trans[focus.index]), becomes),
+                        counter,
+                        trans)
+            case Logical.Variable:
+                index = _proof.term.index
+                if index in detours:
+                    if index in detours.keys() and len(detours[index]):
+                        cut, counter, trans = go(detours[index].pop(), counter, trans)
+                        cuts[index] = cuts.get(index, []) + [cut]
+                return variable(_proof.type, trans[index]), counter, trans
+            case Logical.Constant:
+                return _proof, counter, trans
+            case Logical.ArrowElimination:
+                (fn, arg) = _proof.premises
+                fn, counter, trans = go(fn, counter, trans)
+                arg, counter, trans = go(arg, counter, trans)
+                return fn @ arg, counter, trans
+            case Logical.DiamondIntroduction:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.diamond(struct.brackets), counter, trans
+            case Logical.BoxElimination:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.unbox(struct.brackets), counter, trans
+            case Logical.BoxIntroduction:
+                (body,) = _proof.premises
+                (struct,) = body.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.box(struct.brackets), counter, trans
+            case Structural.Extract:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                body, counter, trans = go(body, counter, trans)
+                return body.extract(Variable(focus.type, trans[focus.index])), counter, trans
+            case _:
+                raise ValueError
+
+    _proof, _, _ = go(proof, -1, {})
+    return _proof
 
 
 def _fixpoint(proof_op: Callable[[Proof], Proof]) -> Callable[[Proof], Proof]:
