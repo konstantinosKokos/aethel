@@ -1,4 +1,6 @@
-from .mill.proofs import Proof, variable, constant, Logical, make_extractable, deep_extract
+import pdb
+
+from .mill.proofs import Proof, ProofError, variable, constant, Logical, make_extractable, deep_extract
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
@@ -97,6 +99,13 @@ def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
             proof, var = make_extractable(proof, var)
             proof, var = deep_extract(proof, var)
         proof = proof.abstract(var)
+    return proof
+
+
+def prove_dag(dag: DAG) -> Proof:
+    proof = prove(dag, next(iter(dag.get_roots())), None, None)
+    if not proof.is_linear():
+        raise ExtractionError('Proof is not linear')
     return proof
 
 

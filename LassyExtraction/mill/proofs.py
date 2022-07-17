@@ -367,58 +367,108 @@ class Proof:
 
     def beta_norm(self) -> Proof: return beta_norm(self)
 
+    def is_linear(self) -> bool: return is_linear(self)
 
-def de_bruijn(proof: Proof) -> Proof:
-    def go(_proof: Proof, trans: dict[int, int]) -> tuple[Proof, dict[int, int]]:
+
+def is_linear(proof: Proof) -> bool:
+    def go(_proof: Proof, free: set[int]) -> tuple[set[int], bool]:
         match _proof.rule:
-            case Logical.Variable:
-                index = _proof.term.index
-                if index in trans:
-                    return variable(_proof.type, trans[index]), {index: trans[index]}
-                return _proof, {}
             case Logical.Constant:
-                return _proof, {}
-            case Logical.ArrowIntroduction:
-                (body,) = _proof.premises
-                index = _proof.focus.index
-                trans = {k: v + 1 for k, v in trans.items()}
-                trans[index] = 0
-                body, resolved = go(body, trans)
-                return (body.abstract(Variable(_proof.focus.type, resolved[index])),
-                        {k: v for k, v in resolved.items() if k != index})
+                return free, True
+            case Logical.Variable:
+                return free - {_proof.term.index}, _proof.term.index in free
             case Logical.ArrowElimination:
                 (fn, arg) = _proof.premises
-                fn, res_fn = go(fn, trans)
-                arg, res_arg = go(arg, trans)
+                (free_fn, linear_fn) = go(fn, free)
+                (free_arg, linear_arg) = go(arg, free_fn)
+                return free_arg, linear_fn and linear_arg
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                return go(body, free | {_proof.focus.index})
+            case Logical.DiamondIntroduction:
+                (body,) = _proof.premises
+                return go(body, free)
+            case Logical.BoxElimination:
+                (body,) = _proof.premises
+                return go(body, free)
+            case Logical.BoxIntroduction:
+                (body,) = _proof.premises
+                return go(body, free)
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                (free_original, linear_original) = go(original, free)
+                (free_becomes, linear_becomes) = go(becomes, free_original | {_proof.focus.index})
+                return free_becomes, linear_original and linear_becomes
+            case Structural.Extract:
+                (body,) = _proof.premises
+                return go(body, free)
+            case _:
+                raise ValueError
+    free, linear = go(proof, set())
+    return free == set() and linear
+
+
+def de_bruijn(proof: Proof) -> Proof:
+    detours: dict[int, list[Proof]] = {}
+    cuts: dict[int, list[Proof]] = {}
+
+    def go(_proof: Proof,
+           context: dict[int, int]) -> tuple[Proof, dict[int, int]]:
+
+        nonlocal detours
+        nonlocal cuts
+
+        match _proof.rule:
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                focus = _proof.focus
+                detours[focus.index] = detours.get(focus.index, []) + [becomes]
+                original, resolved = go(original, context)
+                becomes = cuts[focus.index].pop()
+                return original.undiamond(Variable(focus.type, resolved[focus.index]), becomes), resolved
+            case Logical.ArrowElimination:
+                (fn, arg) = _proof.premises
+                fn, res_fn = go(fn, context)
+                arg, res_arg = go(arg, context)
                 return fn @ arg, res_fn | res_arg
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                context = {k: v + 1 for k, v in context.items()}
+                context[focus.index] = 0
+                body, resolved = go(body, context)
+                return (body.abstract(Variable(focus.type, resolved[focus.index])),
+                        {k: v for k, v in resolved.items() if k != focus.index})
+            case Logical.Variable:
+                index = _proof.term.index
+                if index in detours.keys() and len(detours[index]):
+                    cut, resolved = go(detours[index].pop(), context)
+                    cuts[index] = cuts.get(index, []) + [cut]
+                else:
+                    resolved = {index: context[index]}
+                return variable(_proof.type, context[index]), resolved
+            case Logical.Constant:
+                return constant(_proof.type, _proof.term.index), {}
             case Logical.DiamondIntroduction:
                 (body,) = _proof.premises
                 (struct,) = _proof.structure
-                body, res = go(body, trans)
-                return body.diamond(struct.brackets), res
-            case Logical.DiamondElimination:
-                (original, becomes) = _proof.premises
-                index = _proof.focus.index
-                original, res_original = go(original, trans)
-                focus = Variable(_proof.focus.type, res_original[index]) if index in res_original else _proof.focus
-                becomes, _ = go(becomes, res_original)
-                return original.undiamond(focus, becomes), res_original
+                body, resolved = go(body, context)
+                return body.diamond(struct.brackets), resolved
             case Logical.BoxElimination:
                 (body,) = _proof.premises
                 (struct,) = _proof.structure
-                body, res = go(body, trans)
-                return body.unbox(struct.brackets), res
+                body, resolved = go(body, context)
+                return body.unbox(struct.brackets), resolved
             case Logical.BoxIntroduction:
                 (body,) = _proof.premises
                 (struct,) = body.structure
-                body, res = go(body, trans)
-                return body.box(struct.brackets), res
+                body, resolved = go(body, context)
+                return body.box(struct.brackets), resolved
             case Structural.Extract:
                 (body,) = _proof.premises
-                index = _proof.focus.index
-                body, res = go(body, trans)
-                focus = _proof.focus if index not in res else Variable(_proof.focus.type, res[index])
-                return body.extract(focus), res
+                focus = _proof.focus
+                body, resolved = go(body, context)
+                return body.extract(Variable(focus.type, resolved[focus.index])), resolved
             case _:
                 raise ValueError
     return go(proof, {})[0]
