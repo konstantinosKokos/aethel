@@ -1,6 +1,4 @@
-import pdb
-
-from .mill.proofs import Proof, ProofError, variable, constant, Logical, make_extractable, deep_extract
+from .mill.proofs import Proof, variable, constant, Logical, make_extractable, deep_extract
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
