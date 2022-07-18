@@ -30,52 +30,50 @@ aethel = LassyExtraction.ProofBank.load_data(PATH_TO_DUMP_FILE)
 Please refer to `examples/` for some hands-on guides on how to use the module.
 
 
-## Changelogs
+## Major Changelog
 Different major versions are not backward compatible. 
 Train/dev/test segmentation is respected to the largest extent possible. 
 If looking for older versions, take a look at other branches of this repository.
 
 
-### 1.0.0a (08/2022)
->  >Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more 
+### 1.0.0a (06/2022) 
+> Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more 
 complicated but all proofs are now sound wrt. to the underlying logic.
->
->
-> * **Adjunction**: diamonds and boxes are no longer treated as ad-hoc type constructors, and their adjoint nature is
-> made explicit (i.e. ◇□A⇒A⇒□◇A). The diamond elimination and arrow introduction rules are now explicit to which
-> variable is being abstracted or replaced.
-> * **Bracketing Structure**: brackets are now explicated to regulate the applicability of diamond eliminations 
-> and box introductions. 
-> * **Structural Rules**: rules are now split between logical and structural. For the purpose of allowing 
-> **extraction** of hypotheses nested within unary structures, we now use an extraction modality reserved for the
-> higher-order types that supply them. The modality is paired to a single structural rule which permits outwards movement:
-> `<Χ>!, <Γ, Δ> → <Γ, <Χ>!, Δ>`
-> * **Proofs & Terms**: Due to the presence of term-neutral structural rules (and the ambiguity inherent to the implicit
-> cut of the diamond elimination rule) proofs are now defined separately from syntactically valid terms.
-> * **Multi-word Phrases**: Multi-word phrases are heuristically fixed to the extent possible; this permits the 
-> extraction of correct proofs when (previously unstructured) constituents are elided under a conjunction. Coverage is
-> slightly increased.
+> >* **Adjunction**: diamonds and boxes are no longer treated as ad-hoc type constructors, and their adjoint nature is
+>> made explicit (i.e. ◇□A⇒A⇒□◇A). The diamond elimination and arrow introduction rules are now explicit to which
+>> variable is being abstracted or replaced.
+>> * **Bracketing Structure**: brackets are now explicated to regulate the applicability of diamond eliminations 
+>> and box introductions. 
+>> * **Structural Rules**: rules are now split between logical and structural. For the purpose of allowing 
+>> **extraction** of hypotheses nested within unary structures, we now use an extraction modality reserved for the
+>> higher-order types that supply them. The modality is paired to a single structural rule which permits outwards movement:
+>> `<Χ>!, <Γ, Δ> → <Γ, <Χ>!, Δ>`
+>> * **Proofs & Terms**: Due to the presence of term-neutral structural rules (and the ambiguity inherent to the implicit
+>> cut of the diamond elimination rule) proofs are now defined separately from syntactically valid terms.
+>> * **Multi-word Phrases**: Multi-word phrases are heuristically fixed to the extent possible; this permits the 
+>> extraction of correct proofs when (previously unstructured) constituents are elided under a conjunction. Coverage is
+>> slightly increased.
 > ---
-> * **1.0.0a1 (09/2022)**
->   * Proofs are delivered in η-normal form, and variables are assigned unique names.
->   * Natural deduction is back-and-forth compatible with proof nets again.
->   * A few leftover proofs failing the linearity criterion are removed. 
-> ---
+> ### Minor Changelog
+> #### 1.0.0a1 (07/2022)
+> * Proofs are delivered in η-normal form, and variables are assigned unique names.
+> * Natural deduction is back-and-forth compatible with proof nets again.
+> * A few leftover proofs failing the linearity criterion are removed. 
  
-### **0.9.\* (01/2022)**
+### **0.9 (01/2022)**
 
-> > Big changes to the extraction algorithm and data representation.
-> * Proofs are now constructed and delivered in natural-deduction (≡ λ-term) format. This ensures type-safety during 
-> extraction and loading, and allows inspection of proofs at a sub-sentential level.
-> * Proofs are now instances of both the `Proof` protocol and an actual type metaclass (itself an instance of the abstract 
-> metaclass `Type`), allowing pythonic access to a proof's type and its attributes.
-> * **Punctuation handling**: punctuation marks are now retained and contained in æthel samples.  
-> Punctuations are assigned dummy types, and their terms do not participate in the derivation, unless 
-> dependency annotated.
-> * **Fewer but longer sentences**: sentence splitting is now reserved only for non-functional branches.
-> Some previously problematic cases are now handled by duplicating the missing material from the source 
-> sentence into all of the independent generated samples, maintaining grammaticality and increasing average  
-> sentence length.
+> Big changes to the extraction algorithm and data representation.
+>> * Proofs are now constructed and delivered in natural-deduction (≡ λ-term) format. This ensures type-safety during 
+>> extraction and loading, and allows inspection of proofs at a sub-sentential level.
+>> * Proofs are now instances of both the `Proof` protocol and an actual type metaclass (itself an instance of the abstract 
+>> metaclass `Type`), allowing pythonic access to a proof's type and its attributes.
+>> * **Punctuation handling**: punctuation marks are now retained and contained in æthel samples.  
+>> Punctuations are assigned dummy types, and their terms do not participate in the derivation, unless 
+>> dependency annotated.
+>> * **Fewer but longer sentences**: sentence splitting is now reserved only for non-functional branches.
+>> Some previously problematic cases are now handled by duplicating the missing material from the source 
+>> sentence into all of the independent generated samples, maintaining grammaticality and increasing average  
+>> sentence length.
 ---
 
 ## Project Structure
