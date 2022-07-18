@@ -81,8 +81,10 @@ complicated but all proofs are now sound wrt. to the underlying logic.
 * `LassyExtraction.mill` contains an implementation of the grammar's type system, namely 
  Implication-Only Multiplicative Intuitionistic Linear Logic with unary Modalities.
 Each of the following modules provide implementations for specific aspects of the logic:
-  * `LassyExtraction.mill.proofs` - classes for the representation and manipulation of 
-  judgements, rules and proofs.
+  * `LassyExtraction.mill.proofs` - classes & methods for the representation and manipulation of 
+  judgements, rules and proofs in natural deduction format.
+  * `LassyExtraction.mill.nets` - ditto for decomposition formulas, axiom links and proof nets,
+  and conversion to and from natural deduction.
   * `LassyExtraction.mill.terms` - a rudimentary implementation of the term calculus.
   * `LassyExtraction.mill.types` - a metacass-based implementation of logical formulas.
   * `LassyExtraction.mill.structures` - a handy abstraction over the antecedent structure of logical judgements.
