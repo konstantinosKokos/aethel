@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from .types import Type, Atom, Functor, Box, Diamond
 from .proofs import Proof, Structural, Logical, constant, variable, deep_extract
 from .terms import Variable
-from ..utils.tex import proof_to_tex, compile_tex
 from typing import Literal
 from abc import ABC, abstractmethod
 
@@ -326,7 +326,8 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
                     # resolve deferred diamond elimination
                     var_type = var_type.content
                     abstraction = Variable(var_type, abs(tree_to_var[left]))
-                    body, abstraction = deep_extract(body, abstraction)
+                    # eta-norm here ensures minimal bracketing
+                    body, abstraction = deep_extract(body.eta_norm(), abstraction)
                 else:
                     abstraction = Variable(var_type, abs(tree_to_var[left]))
                 return body.abstract(abstraction)
