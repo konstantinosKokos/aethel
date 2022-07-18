@@ -168,6 +168,44 @@ def flip(tree: FormulaTree) -> FormulaTree:
         case BinaryFT(left, right, _): return BinaryFT(flip(left), flip(right))
 
 
+def reachable_positives(tree: FormulaTree) -> set[int]:
+    match tree:
+        case LeafFT(_, index, _): return {index}
+        case UnaryFT(_, content, _, _): return reachable_positives(content)
+        case BinaryFT(_, right, True): return reachable_positives(right)
+        case BinaryFT(_, _, False): return set()
+        case _: raise ValueError(f'{tree} must be a formula Tree')
+
+
+def par_trees(tree: FormulaTree, par: bool) -> list[FormulaTree]:
+    match tree:
+        case LeafFT(_, _, _):
+            return [tree] * par
+        case UnaryFT(_, content, _, _):
+            return [tree] * par + par_trees(content, False)
+        case BinaryFT(left, right, polarity):
+            return [tree] * par + par_trees(left, not polarity) + par_trees(right, False)
+        case _:
+            raise ValueError
+
+
+def rooting_branch(container: FormulaTree, subtree: FormulaTree) -> FormulaTree | None:
+    match container:
+        case UnaryFT(_, content, _, _):
+            return container if content == subtree else rooting_branch(content, subtree)
+        case BinaryFT(left, right, _):
+            return (container if left == subtree or right == subtree
+                    else
+                    rooting_branch(left, subtree) or rooting_branch(right, subtree))
+        case _:
+            return None
+
+
+########################################################################################################################
+# N.D. <---> Proof Net
+########################################################################################################################
+
+
 def beta_norm_links(links: AxiomLinks) -> AxiomLinks:
     def follow_link(positive: LeafFT):
         if positive.index >= 0:
@@ -239,39 +277,6 @@ def proof_to_links(proof: Proof) -> tuple[AxiomLinks, dict[int, FormulaTree], Fo
     return beta_norm_links(axiom_links), lex_trees, conclusion
 
 
-def reachable_positives(tree: FormulaTree) -> set[int]:
-    match tree:
-        case LeafFT(_, index, _): return {index}
-        case UnaryFT(_, content, _, _): return reachable_positives(content)
-        case BinaryFT(_, right, True): return reachable_positives(right)
-        case BinaryFT(_, _, False): return set()
-        case _: raise ValueError(f'{tree} must be a formula Tree')
-
-
-def par_trees(tree: FormulaTree, par: bool) -> list[FormulaTree]:
-    match tree:
-        case LeafFT(_, _, _):
-            return [tree] * par
-        case UnaryFT(_, content, _, _):
-            return [tree] * par + par_trees(content, False)
-        case BinaryFT(left, right, polarity):
-            return [tree] * par + par_trees(left, not polarity) + par_trees(right, False)
-        case _:
-            raise ValueError
-
-
-def rooting_branch(container: FormulaTree, subtree: FormulaTree) -> FormulaTree | None:
-    match container:
-        case UnaryFT(_, content, _, _):
-            return container if content == subtree else rooting_branch(content, subtree)
-        case BinaryFT(left, right, _):
-            return (container if left == subtree or right == subtree
-                    else
-                    rooting_branch(left, subtree) or rooting_branch(right, subtree))
-        case _:
-            return None
-
-
 def single_var_proof(proof: Proof) -> bool:
     return proof.rule == Logical.Variable or (len(proof.premises) == 1 and single_var_proof(proof.premises[0]))
 
@@ -304,22 +309,19 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
         if tree in tree_to_var:
             return variable(tree_to_type(tree), abs(tree_to_var[tree]))
 
-    # @printy
     def go_neg(tree: FormulaTree) -> Proof:
         assert not tree.polarity
         mirror_image = mirror(tree)
         return step_neg(tree, mirror_image)
 
     def step_neg(tree: FormulaTree, mirror_image: FormulaTree) -> Proof:
-        nonlocal var_to_tree, tree_to_var
-
         if (direct_match := try_direct_match(mirror_image)) is not None:
             return direct_match
 
         if isinstance(tree, LeafFT):
             return go_pos(links[tree])
         match tree, mirror_image:
-            case BinaryFT(left, right, _), BinaryFT(mirror_left, mirror_right, _):
+            case BinaryFT(left, right, _), BinaryFT(_, mirror_right, _):
                 body = step_neg(right, mirror_right)
                 var_type = tree_to_type(left)
                 if isinstance(var_type, Diamond) and var_type.decoration == 'x':

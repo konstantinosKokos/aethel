@@ -12,7 +12,8 @@ name_to_subset = {name: subset for name, subset in
 
 def get_lex_phrases(dag: DAG[str]) -> list[tuple[Proof, tuple[LexicalItem, ...]]]:
     def make_item(node: str) -> LexicalItem:
-        word, pos, pt, lemma = (dag.get(node, attr) for attr in ('word', 'pos', 'pt', 'lemma'))
+        word, pos, pt,  lemma = (dag.get(node, attr) for attr in ('word', 'pos', 'pt', 'lemma'))
+        assert not any(x is None for x in (word, pos, pt, lemma))
         return LexicalItem(word=word, pos=pos, pt=pt, lemma=lemma)
     bottom_nodes = [(node,
                      sort_nodes(dag, {e.target for e in dag.outgoing_edges(node)

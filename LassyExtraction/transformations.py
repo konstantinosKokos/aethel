@@ -36,6 +36,7 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> lis
         _dag = raise_nouns(_dag)
         _dag = factor_distributed_subgraphs(_dag)
         _dag = coerce_conjunctions(_dag)
+        _dag = flatten_unaries(_dag)
         _dag = compress_ghost_trees(_dag)
         assertions(_dag)
         return _dag
@@ -267,6 +268,20 @@ def boundaries_of(dag: DAG[str], left: str, right: str) -> dict[str, str]:
     return {'begin': dag.get(left, 'begin'), 'end': dag.get(right, 'end')}
 
 
+def flatten_unaries(dag: DAG[str]) -> DAG[str]:
+    # todo: this wont work in the presence of a sequence of unaries
+    unary_trees = {(n, next(iter(es))) for n in dag.nodes if len(es := dag.outgoing_edges(n)) == 1}
+    to_add = set()
+    to_remove = set()
+    for intermediate, outgoing in unary_trees:
+        incoming = next(iter(dag.incoming_edges(intermediate)))
+        to_add.add(Edge(incoming.source, outgoing.target, incoming.label))
+        to_remove.add(intermediate)
+    dag.edges |= to_add
+    dag.remove_nodes(to_remove)
+    return dag
+
+
 def compress_ghost_trees(dag: DAG[str]) -> DAG[str]:
     ghost_trees = {n: tuple(sorted([dag.get(c, 'index') for c in cs], key=int))
                    for n in dag.nodes if (cs := list(dag.children(n)))
@@ -288,6 +303,7 @@ def reindex_complex_ghost(dag: DAG[str], parent: str, children: list[str]) -> DA
                   if (node_idx := dag.get(n, 'index')) is not None) + 1)
         dag.set(material, 'index', idx)
         dag.set(parent, 'index', idx)
+    dag.attribs[parent] = {k: v for k, v in dag.get(parent).items() if k != 'cat'}
     dag.remove_nodes(set(children))
     return dag
 
@@ -541,7 +557,7 @@ def cnj_to_mod(dag: DAG[str]) -> DAG[str]:
     conjunctions = {node: cnjs for node in dag.nodes if dag.get(node, 'cat') == 'conj'
                     if modding(cnjs := [edge.target for edge in dag.outgoing_edges(node) if edge.label == 'cnj'])}
     if conjunctions:
-        pdb.set_trace()
+        raise ValueError
     return dag
 
 
@@ -754,7 +770,7 @@ def ad_hoc_fixes(dag: DAG[str]) -> DAG[str]:
             dag.set('32', 'cat', 'np')
             dag.set('22', 'cat', 'np')
             dag.edges |= {Edge('22', '23', 'mod'), Edge('22', '24', 'hd'),
-                          Edge('32', '33', 'mod'), Edge('33', '34', 'hd')}
+                          Edge('32', '33', 'mod'), Edge('32', '34', 'hd')}
             dag.edges -= {Edge('22', '23', 'mwp'), Edge('22', '24', 'mwp'),
                           Edge('32', '33', 'mwp'), Edge('32', '34', 'mwp')}
         case 'wiki-154.p.3.s.3.xml':

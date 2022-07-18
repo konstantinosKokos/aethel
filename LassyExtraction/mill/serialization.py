@@ -149,4 +149,3 @@ def deserialize_proof(serialized: SerializedProof) -> Proof:
             return rule(deserialize_proof(body), deserialize_term(focus))
         case _:
             raise NotImplementedError
-
