@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pdb
-from typing import Callable
+from typing import Callable, Iterator
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
 from .types import Type, Atom, Diamond, Box
@@ -328,6 +328,18 @@ class Proof:
 
     def is_linear(self) -> bool: return is_linear(self)
 
+    def subproofs(self) -> Iterator[Proof]: return subproofs(self)
+
+
+def subproofs(proof: Proof) -> Iterator[Proof]:
+    match proof.rule:
+        case Logical.Constant | Logical.Variable:
+            yield proof
+        case _:
+            yield proof
+            for premise in proof.premises:
+                yield from subproofs(premise)
+
 
 def is_linear(proof: Proof) -> bool:
     def go(_proof: Proof, free: set[int]) -> tuple[set[int], bool]:
@@ -593,6 +605,7 @@ def proof_repr(proof: Proof, show_types: bool = False, word_repr: Callable[[int]
 
 def proof_eq(left: Proof, right: Proof) -> bool:
     return all((left.premises == right.premises, left.conclusion == right.conclusion, left.rule == right.rule))
+
 
 
 ########################################################################################################################
