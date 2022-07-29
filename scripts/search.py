@@ -1,12 +1,14 @@
 from __future__ import annotations
-from LassyExtraction.frontend import ProofBank, Sample
-from LassyExtraction.mill.proofs import Rule, Logical, Structural, Type
+from LassyExtraction.frontend import Sample
+from LassyExtraction.mill.proofs import Rule, Type
 from LassyExtraction.extraction import Atoms
-from typing import Callable
+from typing import Callable, Iterator, Iterable
+from itertools import takewhile
 
 
-def search(bank: ProofBank, query: Query) -> list[Sample]:
-    return [sample for sample in bank if query(sample)]
+def search(bank: Iterable[Sample], query: Callable[[Sample], bool], num_hits: int | None = None) -> Iterator[Sample]:
+    f = filter(query, bank)
+    return f if num_hits is None else map(lambda x: x[1], takewhile(lambda x: x[0] < num_hits, enumerate(f)))
 
 
 class Query:
@@ -14,25 +16,19 @@ class Query:
         self.fn = fn
 
     def __and__(self, other: Query) -> Query:
-        def f(sample: Sample) -> bool:
-            g = self.fn
-            h = other.fn
-            return g(sample) and h(sample)
+        def f(sample: Sample) -> bool: return self.fn(sample) and other.fn(sample)
         return Query(f)
 
     def __or__(self, other) -> Query:
-        def f(sample: Sample) -> bool:
-            return self.fn(sample) or other.fn(sample)
+        def f(sample: Sample) -> bool: return self.fn(sample) or other.fn(sample)
         return Query(f)
 
     def __invert__(self) -> Query:
-        def f(sample: Sample) -> bool:
-            return not self.fn(sample)
+        def f(sample: Sample) -> bool: return not self.fn(sample)
         return Query(f)
 
     def __xor__(self, other) -> Query:
-        def f(sample: Sample) -> bool:
-            return self.fn(sample) ^ other.fn(sample)
+        def f(sample: Sample) -> bool: return self.fn(sample) ^ other.fn(sample)
         return Query(f)
 
     def __call__(self, sample: Sample) -> bool:
