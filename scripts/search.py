@@ -47,6 +47,12 @@ def contains_word(word: str) -> Query:
     return Query(f)
 
 
+def contains_lemma(lemma: str) -> Query:
+    def f(sample: Sample) -> bool:
+        return any(lemma == item.lemma for phrase in sample.lexical_phrases for item in phrase.items)
+    return Query(f)
+
+
 def of_type(_type: Type) -> Query:
     def f(sample: Sample) -> bool:
         return sample.proof.type == _type
