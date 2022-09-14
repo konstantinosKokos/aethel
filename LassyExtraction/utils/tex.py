@@ -190,7 +190,7 @@ def sample_to_tex(sample: Sample,
     return wrap(format_sample(sample, show_intermediate_terms, show_words_at_leaves, show_sentence, show_final_term))
 
 
-def compile_tex(tex: str, name: str = 'tmp') -> None:
+def compile_tex(tex: str, name: str = 'tmp', verbose: bool = False) -> None:
     with open(f'./{name}.tex', 'w') as f:
         f.write(tex)
-    subprocess.run(['pdflatex', f'{name}.tex'])
+    subprocess.run(['pdflatex', f'{name}.tex'], stdout=subprocess.STDOUT if verbose else subprocess.DEVNULL)
