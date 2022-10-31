@@ -71,4 +71,4 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel('1.0.0a1', save_intermediate=False)
+    store_aethel('1.0.0a2', save_intermediate=False)

@@ -12,11 +12,9 @@ class Term(ABC):
     type:   Type
     def __repr__(self) -> str: return term_repr(self)
     def __matmul__(self, other) -> ArrowElimination: return ArrowElimination(self, other)
-    def subterms(self) -> list[Term]: return subterms(self)
     def vars(self) -> Iterable[Variable]: return term_vars(self)
     def constants(self) -> Iterable[Constant]: return term_constants(self)
     def __eq__(self, other) -> bool: return isinstance(other, Term) and term_eq(self, other)
-    def eta_norm(self) -> Term: return term_eta_norm(self)
 
 
 TERM = TypeVar('TERM', bound=Term)
@@ -90,39 +88,19 @@ class DiamondElimination(Term):
         self.body = body
 
 
+class CaseOf(Term):
+    __match_args__ = ('becomes', 'where', 'original')
+
+    def __init__(self, becomes: Term, where: Term, original: Term):
+        self.type = original.type
+        self.becomes = becomes
+        self.where = where
+        self.original = original
+
+
 ########################################################################################################################
 # Meta-Rules and Term Rewrites
 ########################################################################################################################
-def substitute(term: Term, replace: Term, with_: Term) -> Term:
-    TypeInference.assert_equal(replace.type, with_.type)
-    if (c := term.subterms().count(replace)) != 1:
-        raise TypeInference.TypeCheckError(f"Expected exactly one occurrence of {replace} in {term}, but found {c}")
-
-    def go(_term: Term) -> Term:
-        if _term == replace:
-            return with_
-        match _term:
-            case Variable(_, _) | Constant(_, _): return _term
-            case ArrowElimination(fn, arg): return ArrowElimination(go(fn), go(arg))
-            case ArrowIntroduction(abst, body): return ArrowIntroduction(go(abst), go(body))
-            case DiamondIntroduction(dia, body): return DiamondIntroduction(dia, go(body))
-            case BoxElimination(box, body): return BoxElimination(box, go(body))
-            case BoxIntroduction(box, body): return BoxIntroduction(box, go(body))
-            case DiamondElimination(dia, body): return DiamondElimination(dia, go(body))
-    return go(term)
-
-
-def subterms(term: Term) -> list[Term]:
-    match term:
-        case Variable(_, _) | Constant(_, _): return [term]
-        case ArrowElimination(fn, arg): return [term, *fn.subterms(), *arg.subterms()]
-        case ArrowIntroduction(_, body): return [term, *body.subterms()]
-        case DiamondIntroduction(_, body): return [term, *body.subterms()]
-        case BoxElimination(_, body): return [term, *body.subterms()]
-        case BoxIntroduction(_, body): return [term, *body.subterms()]
-        case DiamondElimination(_, body): return [term, *body.subterms()]
-
-
 def _word_repr(idx: int) -> str: return f'c{idx}'
 
 
@@ -139,18 +117,22 @@ def term_repr(term: Term,
 
     def f(_term: Term) -> str: return term_repr(_term, False, show_intermediate_types, word_repr)
     def v(_term: Term) -> str: return term_repr(_term, False, False)
-
     def type_hint(s: str) -> str: return f'{s} : {term.type}' if show_type ^ show_intermediate_types else s
+
+    def par(_term: Term) -> str:
+        p = f(_term)
+        return f'({p})' if needs_par(_term) else p
 
     match term:
         case Variable(_type, index): ret = f'x{index}'
         case Constant(_type, index): ret = f'{word_repr(index)}'
-        case ArrowElimination(fn, arg): ret = f'{f(fn)} ({f(arg)})' if needs_par(arg) else f'{f(fn)} {f(arg)}'
-        case ArrowIntroduction(var, body): ret = f'λ{v(var)}.({f(body)})'
+        case ArrowElimination(fn, arg): ret = f'{f(fn)} {par(arg)}'
+        case ArrowIntroduction(var, body): ret = f'(λ{v(var)}.{f(body)})'
         case DiamondIntroduction(decoration, body): ret = f'▵{decoration}({f(body)})'
         case BoxElimination(decoration, body): ret = f'▾{decoration}({f(body)})'
         case BoxIntroduction(decoration, body): ret = f'▴{decoration}({f(body)})'
         case DiamondElimination(decoration, body): ret = f'▿{decoration}({f(body)})'
+        case CaseOf(becomes, where, original): ret = f'case {f(becomes)} of {v(where)} in {par(original)}'
         case _: raise NotImplementedError
     return type_hint(ret)
 
@@ -195,39 +177,7 @@ def term_eq(left: Term, right: Term) -> bool:
             return left_decoration == right_decoration and left_body == right_body
         case DiamondElimination(left_decoration, left_body), DiamondElimination(right_decoration, right_body):
             return left_decoration == right_decoration and left_body == right_body
+        case CaseOf(left_becomes, left_where, left_original), CaseOf(right_becomes, right_where, right_original):
+            return left_becomes == right_becomes and left_where == right_where and left_original == right_original
         case _:
             return False
-
-
-# def term_eta_norm(term: Term) -> Term:
-#     match term:
-#         case Variable(_, _) | Constant(_, _): return term
-#         case ArrowIntroduction(var, body):
-        # case ArrowIntroduction(var, ArrowElimination(fn, arg)):
-        #     if var == arg:
-        #         return term_eta_norm(fn)
-        #     return ArrowIntroduction(var, ArrowElimination(term_eta_norm(fn), arg))
-        # case ArrowIntroduction(var, body): return ArrowIntroduction(var, term_eta_norm(body))
-        # case ArrowElimination(fn, arg): return ArrowElimination(term_eta_norm(fn), term_eta_norm(arg))
-        # case DiamondIntroduction(outer, DiamondElimination(inner, body)):
-        #     if outer == inner:
-        #         return term_eta_norm(body)
-        #     return DiamondIntroduction(outer, DiamondElimination(inner, term_eta_norm(body)))
-        # case DiamondIntroduction(outer, body): return DiamondIntroduction(outer, term_eta_norm(body))
-        # case BoxElimination(outer, BoxIntroduction(inner, body)):
-        #     if outer == inner:
-        #         return term_eta_norm(body)
-        #     return BoxElimination(outer, BoxIntroduction(inner, term_eta_norm(body)))
-        # case BoxElimination(outer, body): return BoxElimination(outer, term_eta_norm(body))
-        # case BoxIntroduction(outer, BoxElimination(inner, body)):
-        #     if outer == inner:
-        #         return term_eta_norm(body)
-        #     return BoxIntroduction(outer, BoxElimination(inner, term_eta_norm(body)))
-        # case BoxIntroduction(outer, body): return BoxIntroduction(outer, term_eta_norm(body))
-        # case DiamondElimination(outer, DiamondIntroduction(inner, body)):
-        #     if outer == inner:
-        #         return term_eta_norm(body)
-        #     return DiamondElimination(outer, DiamondIntroduction(inner, term_eta_norm(body)))
-        # case DiamondElimination(outer, body): return DiamondElimination(outer, term_eta_norm(body))
-        # case _: raise NotImplementedError
-        #

@@ -7,7 +7,7 @@ Lassy-style dependency graphs.
 
 
 **Cool things to look out for**:
-* an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert constituency graphs to λ-terms and annoy your informal linguist friends!
+* an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert dependency graphs to λ-terms and annoy your informal linguist friends!
 * a faithful implementation of modal linear logic proofs and its terms -- almost as good as doing it on paper!
 ---
 
@@ -15,13 +15,13 @@ Lassy-style dependency graphs.
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
 You will need to download the most recent binarized version of the dataset
-([1.0.0a1](https://surfdrive.surf.nl/files/index.php/s/xfJfVLNPNTUXQpf)). 
+([1.0.1a0]()). 
 Begin by cloning the project locally and placing the dump file in `data/` (remember to unzip).
 You can then load the dump by running:
 
 ```python
 import LassyExtraction
-aethel = LassyExtraction.ProofBank.load_data(PATH_TO_DUMP_FILE)
+aethel = LassyExtraction.ProofBank.load_data("PATH_TO_DUMP_FILE")
 ```
 
 *Note that loading might take a short while, as proofs are reconstructed bottom up and type-checked along the way.*
@@ -34,7 +34,6 @@ Please refer to `examples/` for some hands-on guides on how to use the module.
 Different major versions are not backward compatible. 
 Train/dev/test segmentation is respected to the largest extent possible. 
 If looking for older versions, take a look at other branches of this repository.
-
 
 ### 1.0.0a (06/2022) 
 > Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more 
@@ -59,6 +58,12 @@ complicated but all proofs are now sound wrt. to the underlying logic.
 > * Proofs are delivered in η-normal form, and variables are assigned unique names.
 > * Natural deduction is back-and-forth compatible with proof nets again.
 > * A few leftover proofs failing the linearity criterion are removed. 
+> #### 1.0.0a2 (10/2022)
+> * Diamond elimination terms now act as variable binders that explicate their position via 
+> the `case [τ:term] of [x:variable] in [σ:term]` term constructor (meaning "replace any occurrence of x in σ with τ").
+> * To ease comprehension, the left and right side occurrences of the "same" variable in diamond eliminations are no
+> longer identified, i.e. the substitute and substituted variables have unique names.
+
  
 ### **0.9 (01/2022)**
 

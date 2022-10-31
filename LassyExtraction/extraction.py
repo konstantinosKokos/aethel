@@ -1,4 +1,4 @@
-from .mill.proofs import Proof, variable, constant, Logical, make_extractable, deep_extract
+from .mill.proofs import Proof, variable, constant, Logical, Structural, make_extractable, deep_extract
 from .mill.types import Atom, Type, Functor, Diamond, Box
 from .mill.terms import Variable
 from .transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
@@ -101,10 +101,7 @@ def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
 
 
 def prove_dag(dag: DAG) -> Proof:
-    proof = prove(dag, next(iter(dag.get_roots())), None, None)
-    if not proof.is_linear():
-        raise ExtractionError('Proof is not linear')
-    return proof
+    return rename_duplicates(prove(dag, next(iter(dag.get_roots())), None, None))
 
 
 def prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
@@ -240,3 +237,63 @@ def split_children(dag: DAG[str], root: str) -> tuple[list[tuple[str, str]], ...
     cors = {(label, child) for label, child in outgoing if label == 'cor'}
     dependents = outgoing - conjuncts - adjuncts - heads - dets - cors
     return nodesort(conjuncts), nodesort(dets), depsort(heads), nodesort(adjuncts), depsort(dependents), nodesort(cors)
+
+
+def rename_duplicates(proof: Proof) -> Proof:
+    def go(_proof: Proof, counter: int, trans: dict[int, int]) -> tuple[Proof, int, dict[int, int]]:
+        match _proof.rule:
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                trans[focus.index] = (counter := counter + 1)
+                body, counter, trans = go(body, counter, trans)
+                return body.abstract(Variable(focus.type, trans[focus.index])), counter, trans
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                focus = _proof.focus
+                ye_ole_trans = trans[focus.index]
+                becomes, counter, trans = go(becomes, counter, trans)
+                trans[focus.index] = (counter := counter + 1)
+                original, counter, trans = go(original, counter, trans)
+                ye_new_trans = trans[focus.index]
+                trans[focus.index] = ye_ole_trans
+                return original.undiamond(Variable(focus.type, ye_new_trans), becomes), counter, trans
+            case Logical.Variable:
+                index = _proof.term.index
+                return variable(_proof.type, trans[index]), counter, trans
+            case Logical.Constant:
+                return _proof, counter, trans
+            case Logical.ArrowElimination:
+                (fn, arg) = _proof.premises
+                fn, counter, trans = go(fn, counter, trans)
+                arg, counter, trans = go(arg, counter, trans)
+                return fn @ arg, counter, trans
+            case Logical.DiamondIntroduction:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.diamond(struct.brackets), counter, trans
+            case Logical.BoxElimination:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.unbox(struct.brackets), counter, trans
+            case Logical.BoxIntroduction:
+                (body,) = _proof.premises
+                (struct,) = body.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.box(struct.brackets), counter, trans
+            case Structural.Extract:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                body, counter, trans = go(body, counter, trans)
+                return body.extract(Variable(focus.type, trans[focus.index])), counter, trans
+            case _:
+                raise ValueError
+    try:
+        _proof, _, _ = go(proof, -1, {})
+    except KeyError:
+        raise ExtractionError('Proof is not linear')
+    if not _proof.is_linear():
+        raise ExtractionError('Proof is not linear')
+    return _proof
