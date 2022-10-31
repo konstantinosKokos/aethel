@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import pdb
 from typing import Callable, Iterator
 from typing import Optional as Maybe
 from .structures import Sequence, Unary, struct_repr
 from .types import Type, Atom, Diamond, Box
 from .terms import (TERM, Variable, Constant, ArrowElimination, ArrowIntroduction,
                     DiamondIntroduction, BoxElimination, BoxIntroduction, DiamondElimination,
-                    substitute, term_repr, _word_repr)
+                    term_repr, _word_repr, CaseOf)
 from enum import Enum
 from functools import partial
 
@@ -97,7 +96,7 @@ class Logical(Rule):
         return Proof(rule=Logical.DiamondElimination,
                      premises=(original, becomes),
                      conclusion=Judgement(Sequence(original.structure.substitute(struct, becomes.structure)),
-                                          substitute(original.term, where, replacement)),
+                                          CaseOf(replacement, where, original.term)),
                      focus=where)
 
     @staticmethod
@@ -321,13 +320,9 @@ class Proof:
         return go(self)
 
     def standardize_vars(self) -> Proof: return standardize_vars(self)
-
     def eta_norm(self) -> Proof: return eta_norm(self)
-
     def beta_norm(self) -> Proof: return beta_norm(self)
-
     def is_linear(self) -> bool: return is_linear(self)
-
     def subproofs(self) -> Iterator[Proof]: return subproofs(self)
 
 
@@ -367,8 +362,8 @@ def is_linear(proof: Proof) -> bool:
                 return go(body, free)
             case Logical.DiamondElimination:
                 (original, becomes) = _proof.premises
-                (free_original, linear_original) = go(original, free)
-                (free_becomes, linear_becomes) = go(becomes, free_original | {_proof.focus.index})
+                (free_original, linear_original) = go(original, free | {_proof.focus.index})
+                (free_becomes, linear_becomes) = go(becomes, free_original)
                 return free_becomes, linear_original and linear_becomes
             case Structural.Extract:
                 (body,) = _proof.premises
@@ -377,136 +372,6 @@ def is_linear(proof: Proof) -> bool:
                 raise ValueError
     free, linear = go(proof, set())
     return free == set() and linear
-
-
-def de_bruijn(proof: Proof) -> Proof:
-    detours: dict[int, list[Proof]] = {}
-    cuts: dict[int, list[Proof]] = {}
-
-    def go(_proof: Proof,
-           context: dict[int, int]) -> tuple[Proof, dict[int, int]]:
-        nonlocal detours
-        nonlocal cuts
-
-        match _proof.rule:
-            case Logical.DiamondElimination:
-                (original, becomes) = _proof.premises
-                focus = _proof.focus
-                detours[focus.index] = detours.get(focus.index, []) + [becomes]
-                original, resolved = go(original, context)
-                becomes = cuts[focus.index].pop()
-                return original.undiamond(Variable(focus.type, resolved[focus.index]), becomes), resolved
-            case Logical.ArrowElimination:
-                (fn, arg) = _proof.premises
-                fn, res_fn = go(fn, context)
-                arg, res_arg = go(arg, context)
-                return fn @ arg, res_fn | res_arg
-            case Logical.ArrowIntroduction:
-                (body,) = _proof.premises
-                focus = _proof.focus
-                context = {k: v + 1 for k, v in context.items()}
-                context[focus.index] = 0
-                body, resolved = go(body, context)
-                return (body.abstract(Variable(focus.type, resolved[focus.index])),
-                        {k: v for k, v in resolved.items() if k != focus.index})
-            case Logical.Variable:
-                index = _proof.term.index
-                if index in detours.keys() and len(detours[index]):
-                    cut, resolved = go(detours[index].pop(), context)
-                    cuts[index] = cuts.get(index, []) + [cut]
-                else:
-                    resolved = {index: context[index]}
-                return variable(_proof.type, context[index]), resolved
-            case Logical.Constant:
-                return constant(_proof.type, _proof.term.index), {}
-            case Logical.DiamondIntroduction:
-                (body,) = _proof.premises
-                (struct,) = _proof.structure
-                body, resolved = go(body, context)
-                return body.diamond(struct.brackets), resolved
-            case Logical.BoxElimination:
-                (body,) = _proof.premises
-                (struct,) = _proof.structure
-                body, resolved = go(body, context)
-                return body.unbox(struct.brackets), resolved
-            case Logical.BoxIntroduction:
-                (body,) = _proof.premises
-                (struct,) = body.structure
-                body, resolved = go(body, context)
-                return body.box(struct.brackets), resolved
-            case Structural.Extract:
-                (body,) = _proof.premises
-                focus = _proof.focus
-                body, resolved = go(body, context)
-                return body.extract(Variable(focus.type, resolved[focus.index])), resolved
-            case _:
-                raise ValueError
-    return go(proof, {})[0]
-
-
-def standardize_vars(proof: Proof) -> Proof:
-    detours: dict[int, list[Proof]] = {}
-    cuts: dict[int, list[Proof]] = {}
-
-    def go(_proof: Proof,
-           counter: int,
-           trans: dict[int, int]) -> tuple[Proof, int, dict[int, int]]:
-
-        match _proof.rule:
-            case Logical.ArrowIntroduction:
-                (body,) = _proof.premises
-                focus = _proof.focus
-                trans[focus.index] = (counter := counter + 1)
-                body, counter, trans = go(body, counter, trans)
-                return body.abstract(Variable(focus.type, trans[focus.index])), counter, trans
-            case Logical.DiamondElimination:
-                (original, becomes) = _proof.premises
-                focus = _proof.focus
-                detours[focus.index] = detours.get(focus.index, []) + [becomes]
-                original, counter, trans = go(original, counter, trans)
-                becomes = cuts[focus.index].pop()
-                return (original.undiamond(Variable(focus.type, trans[focus.index]), becomes),
-                        counter,
-                        trans)
-            case Logical.Variable:
-                index = _proof.term.index
-                if index in detours:
-                    if index in detours.keys() and len(detours[index]):
-                        cut, counter, trans = go(detours[index].pop(), counter, trans)
-                        cuts[index] = cuts.get(index, []) + [cut]
-                return variable(_proof.type, trans[index]), counter, trans
-            case Logical.Constant:
-                return _proof, counter, trans
-            case Logical.ArrowElimination:
-                (fn, arg) = _proof.premises
-                fn, counter, trans = go(fn, counter, trans)
-                arg, counter, trans = go(arg, counter, trans)
-                return fn @ arg, counter, trans
-            case Logical.DiamondIntroduction:
-                (body,) = _proof.premises
-                (struct,) = _proof.structure
-                body, counter, trans = go(body, counter, trans)
-                return body.diamond(struct.brackets), counter, trans
-            case Logical.BoxElimination:
-                (body,) = _proof.premises
-                (struct,) = _proof.structure
-                body, counter, trans = go(body, counter, trans)
-                return body.unbox(struct.brackets), counter, trans
-            case Logical.BoxIntroduction:
-                (body,) = _proof.premises
-                (struct,) = body.structure
-                body, counter, trans = go(body, counter, trans)
-                return body.box(struct.brackets), counter, trans
-            case Structural.Extract:
-                (body,) = _proof.premises
-                focus = _proof.focus
-                body, counter, trans = go(body, counter, trans)
-                return body.extract(Variable(focus.type, trans[focus.index])), counter, trans
-            case _:
-                raise ValueError
-
-    _proof, _, _ = go(proof, -1, {})
-    return _proof
 
 
 def _fixpoint(proof_op: Callable[[Proof], Proof]) -> Callable[[Proof], Proof]:
@@ -532,11 +397,13 @@ def eta_norm(proof: Proof) -> Proof:
         case Logical.DiamondIntroduction:
             (body,) = proof.premises
             (struct,) = proof.structure
-            if body.rule == Logical.DiamondElimination and struct.brackets == body.premises[1].type.decoration:
-                raise NotImplementedError
             return eta_norm(body).diamond(struct.brackets)
         case Logical.DiamondElimination:
             (original, becomes) = proof.premises
+            if original.rule == Logical.DiamondIntroduction:
+                (nested,) = original.premises
+                if nested.rule == Logical.Variable:
+                    return becomes
             return eta_norm(original).undiamond(proof.focus, eta_norm(becomes))
         case Logical.BoxIntroduction:
             (body,) = proof.premises
@@ -574,9 +441,16 @@ def beta_norm(proof: Proof) -> Proof:
             (struct,) = proof.structure
             return beta_norm(body).diamond(struct.brackets)
         case Logical.DiamondElimination:
-            # todo.
             (original, becomes) = proof.premises
-            return beta_norm(original).undiamond(proof.focus, beta_norm(becomes))
+            original = beta_norm(original)
+            becomes = beta_norm(becomes)
+            if becomes.rule == Logical.DiamondIntroduction:
+                (nested,) = becomes.premises
+                (struct) = becomes.structure
+                if struct.brackets == becomes.type.decoration:          # type: ignore
+                    # todo: actually substitute where with (nested,)
+                    raise NotImplementedError
+            return original.undiamond(proof.focus, becomes)
         case Logical.BoxIntroduction:
             (body,) = proof.premises
             return beta_norm(body).box(proof.type.decoration)  # type: ignore
@@ -592,7 +466,59 @@ def beta_norm(proof: Proof) -> Proof:
             (body,) = proof.premises
             return beta_norm(body).extract(proof.focus)
         case _:
-            pdb.set_trace()
+            raise ValueError
+
+
+def standardize_vars(proof: Proof) -> Proof:
+    def go(_proof: Proof, counter: int, trans: dict[int, int]) -> tuple[Proof, int, dict[int, int]]:
+        match _proof.rule:
+            case Logical.ArrowIntroduction:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                trans[focus.index] = (counter := counter + 1)
+                body, counter, trans = go(body, counter, trans)
+                return body.abstract(Variable(focus.type, trans[focus.index])), counter, trans
+            case Logical.DiamondElimination:
+                (original, becomes) = _proof.premises
+                focus = _proof.focus
+                trans[focus.index] = (counter := counter + 1)
+                becomes, counter, trans = go(becomes, counter, trans)
+                original, counter, trans = go(original, counter, trans)
+                return original.undiamond(Variable(focus.type, trans[focus.index]), becomes), counter, trans
+            case Logical.Variable:
+                index = _proof.term.index
+                return variable(_proof.type, trans[index]), counter, trans
+            case Logical.Constant:
+                return _proof, counter, trans
+            case Logical.ArrowElimination:
+                (fn, arg) = _proof.premises
+                fn, counter, trans = go(fn, counter, trans)
+                arg, counter, trans = go(arg, counter, trans)
+                return fn @ arg, counter, trans
+            case Logical.DiamondIntroduction:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.diamond(struct.brackets), counter, trans
+            case Logical.BoxElimination:
+                (body,) = _proof.premises
+                (struct,) = _proof.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.unbox(struct.brackets), counter, trans
+            case Logical.BoxIntroduction:
+                (body,) = _proof.premises
+                (struct,) = body.structure
+                body, counter, trans = go(body, counter, trans)
+                return body.box(struct.brackets), counter, trans
+            case Structural.Extract:
+                (body,) = _proof.premises
+                focus = _proof.focus
+                body, counter, trans = go(body, counter, trans)
+                return body.extract(Variable(focus.type, trans[focus.index])), counter, trans
+            case _:
+                raise ValueError
+    proof, _, _ = go(proof, -1, {})
+    return proof
 
 
 def constant(_type: Type, index: int) -> Proof: return Logical.Constant(Constant(_type, index))
@@ -607,7 +533,6 @@ def proof_eq(left: Proof, right: Proof) -> bool:
     return all((left.premises == right.premises, left.conclusion == right.conclusion, left.rule == right.rule))
 
 
-
 ########################################################################################################################
 # Examples / Tests
 ########################################################################################################################
@@ -617,7 +542,7 @@ A = Atom('A')
 
 # ◇ □ A |- A
 p0 = (x := variable(Box('a', A), 0)).unbox()
-y = variable(Diamond('a', Box('a', A)), 0)
+y = variable(Diamond('a', Box('a', A)), 1)
 p0 = p0.undiamond(where=x.term, becomes=y).abstract(y.term)
 
 # A |- □ ◇ A
@@ -628,15 +553,15 @@ p2 = (x := variable(Box('a', A), 0)).diamond('a').box('a').abstract(x.term)
 
 # ◇ A |- ◇ □ ◇ A
 p3 = (x := variable(A, 0)).diamond('a').box('a').diamond('a')
-y = variable(Diamond('a', A), 0)
+y = variable(Diamond('a', A), 1)
 p3 = p3.undiamond(where=x.term, becomes=y).abstract(y.term)
 
 # ◇ □ ◇ A |- ◇ A
 p4 = (x := variable(Box('a', Diamond('a', A)), 0)).unbox()
-y = variable(Diamond('a', Box('a', Diamond('a', A))), 0)
+y = variable(Diamond('a', Box('a', Diamond('a', A))), 1)
 p4 = p4.undiamond(where=x.term, becomes=y).abstract(y.term)
 
 # □ ◇ □ A |- □ A
 p5 = (x := variable(Box('a', A), 0)).unbox()
-y = variable(Box('a', Diamond('a', Box('a', A))), 0)
+y = variable(Box('a', Diamond('a', Box('a', A))), 1)
 p5 = (p5.undiamond(where=x.term, becomes=y.unbox()).box('a')).abstract(y.term)

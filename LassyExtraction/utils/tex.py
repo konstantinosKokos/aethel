@@ -1,10 +1,9 @@
 from typing import Callable
 import subprocess
-import os
 
 from ..mill.types import Type, Atom, Diamond, Box, Functor
 from ..mill.types import needs_par as needs_par_type
-from ..mill.terms import (TERM, Variable, Constant, ArrowElimination, ArrowIntroduction,
+from ..mill.terms import (TERM, Variable, Constant, ArrowElimination, ArrowIntroduction, CaseOf,
                           DiamondIntroduction, DiamondElimination, BoxIntroduction, BoxElimination,)
 from ..mill.terms import needs_par as needs_par_term
 from ..mill.proofs import Proof, Judgement, Rule, Logical, Structural
@@ -129,18 +128,22 @@ def format_term(term: TERM,
                 constant_formatter: Callable[[int], str] = format_constant) -> str:
     def par(_term: TERM) -> str:
         ret = go(_term)
-        return '(' + ret + ')' if needs_par_term(_term) else ret
+        return f'({ret})' if needs_par_term(_term) else ret
+
+    def cof(becomes, where, original):
+        return text('case ') + go(becomes) + text(' of ') + go(where) + text(' in ') + par(original)
 
     def go(_term: TERM) -> str:
         match _term:
             case Variable(_, i): return stylize_term('x_{' + str(i) + '}')
             case Constant(_, i): return constant_formatter(i)
             case ArrowElimination(fn, arg): return f'{go(fn)}~{par(arg)}'
-            case ArrowIntroduction(abstraction, body): return lam + go(abstraction) + '.' + par(body)
+            case ArrowIntroduction(abstraction, body): return f'({lam + go(abstraction) + "." + go(body)})'
             case DiamondElimination(decoration, body): return diaelim + '^{' + decoration + '}' + par(body)
             case DiamondIntroduction(decoration, body): return diaintro + '^{' + decoration + '}' + par(body)
             case BoxElimination(decoration, body): return boxelim + '^{' + decoration + '}' + par(body)
             case BoxIntroduction(decoration, body): return boxintro + '^{' + decoration + '}' + par(body)
+            case CaseOf(becomes, where, original): return cof(becomes, where, original)
             case _: raise ValueError
     return go(term) + (':' + format_type(term.type)) * show_types
 
