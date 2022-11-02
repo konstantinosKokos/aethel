@@ -288,7 +288,7 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
                                                            (None, conclusion)]
                                            for par in par_trees(tree, False)}
     tree_to_var: dict[FormulaTree, int] = {v: k for k, v in var_to_tree.items()}
-    atom_to_var: dict[int, int] = {k: index for index in var_to_tree for k in reachable_positives(var_to_tree[index])}
+    atom_to_var = {k: index for index in var_to_tree for k in reachable_positives(var_to_tree[index])}
     atom_to_lex: dict[int, int] = {k: index for index in lex_to_tree for k in reachable_positives(lex_to_tree[index])}
     inv_links = {k: v for v, k in links.items()}
 
@@ -314,7 +314,19 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
         mirror_image = mirror(tree)
         return step_neg(tree, mirror_image)
 
+    def go_pos(tree: FormulaTree) -> Proof:
+        assert tree.polarity and isinstance(tree, LeafFT)
+        atom_index = tree.index
+        is_var = atom_index in atom_to_var
+        index = (atom_to_var if is_var else atom_to_lex)[atom_index]
+        tree = (var_to_tree if is_var else lex_to_tree)[index]
+        if isinstance(tree, UnaryFT) and tree.modality == 'diamond' and tree.decoration == 'x':
+            tree = tree.content
+        ground = (variable if is_var else constant)(tree_to_type(tree), abs(index))
+        return step_pos(tree, ground)
+
     def step_neg(tree: FormulaTree, mirror_image: FormulaTree) -> Proof:
+        nonlocal i
         if (direct_match := try_direct_match(mirror_image)) is not None:
             return direct_match
 
@@ -325,11 +337,9 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
                 body = step_neg(right, mirror_right)
                 var_type = tree_to_type(left)
                 if isinstance(var_type, Diamond) and var_type.decoration == 'x':
-                    # resolve deferred diamond elimination
                     var_type = var_type.content
                     abstraction = Variable(var_type, abs(tree_to_var[left]))
-                    # eta-norm here ensures minimal bracketing
-                    body, abstraction = deep_extract(body.eta_norm(), abstraction)
+                    body, abstraction = deep_extract(body.eta_norm(), abstraction, renaming=abs(i := i - 1))
                 else:
                     abstraction = Variable(var_type, abs(tree_to_var[left]))
                 return body.abstract(abstraction)
@@ -341,22 +351,10 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
             case _:
                 raise ValueError
 
-    def go_pos(leaf: FormulaTree) -> Proof:
-        assert leaf.polarity and isinstance(leaf, LeafFT)
-        atom_index = leaf.index
-        is_var = atom_index in atom_to_var
-        index = (atom_to_var if is_var else atom_to_lex)[atom_index]
-        tree = (var_to_tree if is_var else lex_to_tree)[index]
-        if isinstance(tree, UnaryFT) and tree.modality == 'diamond' and tree.decoration == 'x':
-            # defer diamond elimination until X
-            tree = tree.content
-        ground = (variable if is_var else constant)(tree_to_type(tree), abs(index))
-        return step_pos(tree, ground, abs(index))
-
     def step_pos(tree: FormulaTree,
                  context: Proof,
-                 index: int,
                  cut: tuple[Variable, Proof] | None = None) -> Proof:
+        nonlocal i
         match tree:
             case LeafFT(_, _, _):
                 return context
@@ -364,8 +362,9 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
                 match content:
                     case UnaryFT('box', _, inner, _):
                         assert inner == decoration
-                        cut = (Variable(tree_to_type(content), abs(index)), context)
-                        return step_pos(content, variable(tree_to_type(content), abs(index)), abs(index), cut)
+                        nested_var = Variable(tree_to_type(content), abs(i := i - 1))
+                        nested_proof = Logical.Variable(nested_var)
+                        return step_pos(content, nested_proof, (nested_var, context))
                     case LeafFT(_, _, _):
                         return context
                     case _:
@@ -373,13 +372,13 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
                         assert ret is not None
                         return ret
             case UnaryFT('box', content, decoration, _):
-                return step_pos(content, context.unbox(decoration), index, cut)
+                return step_pos(content, context.unbox(decoration), cut)
             case BinaryFT(left, right, _):
                 if cut is not None:
                     focus, becomes = cut
                     context = context.undiamond(focus, becomes)
-                return step_pos(right, context @ go_neg(left), index)
+                return step_pos(right, context @ go_neg(left))
             case _:
                 raise ValueError
 
-    return go_neg(conclusion).beta_norm().eta_norm().standardize_vars()
+    return go_neg(conclusion)
