@@ -381,4 +381,4 @@ def links_to_proof(links: AxiomLinks, lex_to_tree: dict[int, FormulaTree], concl
             case _:
                 raise ValueError
 
-    return go_neg(conclusion)
+    return go_neg(conclusion).beta_norm().eta_norm().standardize_vars()
