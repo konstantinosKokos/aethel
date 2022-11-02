@@ -15,7 +15,7 @@ Lassy-style dependency graphs.
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
 You will need to download the most recent binarized version of the dataset
-([1.0.0a2](https://surfdrive.surf.nl/files/index.php/s/o3Pi2wqd0p1dHiY)). 
+([1.0.0a3](https://surfdrive.surf.nl/files/index.php/s/b4vDgwjLYSlMFxk)). 
 Begin by cloning the project locally and placing the dump file in `data/` (remember to unzip).
 You can then load the dump by running:
 
@@ -63,7 +63,8 @@ complicated but all proofs are now sound wrt. to the underlying logic.
 > the `case [τ:term] of [x:variable] in [σ:term]` term constructor (meaning "replace any occurrence of x in σ with τ").
 > * To ease comprehension, the left and right side occurrences of the "same" variable in diamond eliminations are no
 > longer identified, i.e. the substitute and substituted variables have unique names.
-
+> #### 1.0.0a3 (10/2022)
+> * Structural extraction now properly renames variables.
  
 ### **0.9 (01/2022)**
 
