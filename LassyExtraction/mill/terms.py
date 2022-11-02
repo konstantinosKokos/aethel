@@ -155,6 +155,9 @@ def term_constants(term: Term) -> Iterable[Constant]:
         case ArrowElimination(fn, arg):
             yield from fn.constants()
             yield from arg.constants()
+        case CaseOf(becomes, _, original):
+            yield from term_constants(becomes)
+            yield from term_constants(original)
         case _:
             yield from term.body.constants()  # type: ignore
 

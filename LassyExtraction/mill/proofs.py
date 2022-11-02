@@ -200,7 +200,7 @@ def make_extractable(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
 
 
 # fixpoint iteration of the nested version
-def deep_extract(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
+def deep_extract(proof: Proof, var: Variable, renaming: int | None = None) -> tuple[Proof, Variable]:
     def go(_proof: Proof, recurse: bool = True) -> Proof:
         if (substructure := Structural.extractable(_proof, var)) is not None:
             return Structural.Extract(_proof, var, substructure)
@@ -225,8 +225,9 @@ def deep_extract(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
                     (function, argument) = _proof.premises
                     if var in (v for _, v in function.vars()):
                         return go(function) @ argument
-                    else:
+                    elif var in (v for _, v in argument.vars()):
                         return function @ go(argument)
+                    raise ValueError
                 case Logical.ArrowIntroduction:
                     (body,) = _proof.premises
                     return go(body).abstract(_proof.focus)
@@ -236,8 +237,8 @@ def deep_extract(proof: Proof, var: Variable) -> tuple[Proof, Variable]:
                 case _:
                     raise ValueError
         return _proof
-    renamed = variable(Diamond('x', var.type), var.index)
-    return go(proof).undiamond(where=var, becomes=renamed), renamed.term
+    renamed = variable(Diamond('x', var.type), renaming if renaming is not None else var.index)
+    return go(proof).undiamond(var, renamed), renamed.term
 
 
 ########################################################################################################################
