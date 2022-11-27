@@ -1,6 +1,6 @@
 from __future__ import annotations
 from LassyExtraction.frontend import Sample
-from LassyExtraction.mill.proofs import Rule, Type
+from LassyExtraction.mill.proofs import Rule, Type, Logical, Structural
 from LassyExtraction.extraction import Atoms
 from typing import Callable, Iterator, Iterable
 from itertools import takewhile
