@@ -67,7 +67,8 @@ def may_only_contain_rules(rules: set[Rule]) -> Query:
 
 def must_contain_rules(rules: set[Rule]) -> Query:
     def f(sample: Sample) -> bool:
-        return any(proof.rule in rules for proof in sample.proof.subproofs())
+        proof_rules = {proof.rule for proof in sample.proof.subproofs()}
+        return all(rule in proof_rules for rule in rules)
     return Query(f)
 
 
