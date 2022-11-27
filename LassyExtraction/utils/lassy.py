@@ -10,8 +10,7 @@ from builtins import slice
 
 
 class Lassy:
-    def __init__(
-            self, treebank_dir: str = '/home/kokos/Projects/Lassy 6.0/Treebank') -> None:
+    def __init__(self, treebank_dir: str) -> None:
         if path.isdir(treebank_dir):
             self.treebank_dir = treebank_dir
         else:
@@ -19,7 +18,7 @@ class Lassy:
 
         self.filelist = [y for x in walk(self.treebank_dir) for y in glob(path.join(x[0], '*.xml'))
                          if not y.split('/')[-1] in IGNORED_FILES]
-        print(f'Read {len(self)} files.')
+        print(f'Found {len(self)} files.')
 
     def __len__(self) -> int:
         return len(self.filelist)
