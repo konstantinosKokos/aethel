@@ -401,14 +401,6 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     def fix_watvoor(parent: str, nodes: list[str]) -> bool:
         lemmas = get_lemmas(nodes)
 
-        # def f() -> bool:
-        #     from LassyExtraction.utils.viz import render
-        #     nonlocal deep
-        #     render(dag)
-        #     pdb.set_trace()
-        #
-        #     return True
-
         match lemmas:
             case ['wat', 'voor']:
                 dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'hd')}
