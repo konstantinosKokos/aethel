@@ -184,16 +184,11 @@ def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
 
 
 def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
-    def infinitival(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'inf', 'ti', 'ppart', 'ssub', } or
-                cat == 'conj' and any(infinitival(p) for p in dag.parents(_node)))
-
     def sentential(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart', 'np'} or
+        return ((cat := dag.get(_node, 'cat')) in {'smain', 'sv1', 'ssub', 'inf', 'ti', 'ahi', 'ppart', 'np'} or
                 (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
 
     def candidate(label: str) -> bool:
-        # todo: should I actually be removing obj edges
         return label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
 
     def is_understood(edge: Edge[str]) -> bool:
@@ -209,7 +204,7 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
 def relabel_determiners(dag: DAG[str]) -> DAG[str]:
     possessives = {'mij', 'mijn', 'mijn', 'je', 'jouw', 'uw', 'zijn', 'zijne', 'haar', 'ons', 'onze', 'hun', 'wier',
                    'wien', 'wiens', 'hum', 'z\'n', 'z´n', 'm\'n', 'm´n', 'zin', 'huin', 'onst', 'welks'}
-    determiners = {'welke', 'die', 'deze', 'dit', 'dat', 'zo\'n', 'zo´n', 'wat', 'wélke', 'zo`n', 'díe', 'dát', 'déze'}
+    determiners = {'welke', 'die', 'deze', 'dit', 'dat', 'zo\'n', 'zo´n', 'wélke', 'zo`n', 'díe', 'dát', 'déze'}
     edges = {edge for edge in dag.edges
              if edge.label == 'det' or (edge.label == 'mod' and dag.get(edge.source, 'cat') == 'np')}
     for edge in edges:
@@ -238,6 +233,11 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
                    if int(dag.get(det.target, 'end')) <= int(dag.get(mod.target, 'begin'))
                    and int(dag.get(mod.target, 'end')) <= int(dag.get(hd.target, 'begin'))}
         if premods:
+            if len(dag.nodes) < 10:
+                # dag.edges |= {Edge(hd.source, hd.target, 'hd')}
+                # dag.remove_edge(hd)
+                render(dag)
+                pdb.set_trace()
             intermediate = add_fresh_node(dag)
             dag.edges |= {Edge(node, intermediate, hd.label), Edge(intermediate, hd.target, hd.label)}
             dag.edges |= {Edge(intermediate, mod.target, mod.label) for mod in premods}
@@ -247,6 +247,9 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
             dag.set(intermediate, {'cat': new_cat,
                                    'begin': str(min(int(dag.get(n, 'begin')) for n in dag.successors(intermediate))),
                                    'end': str(max(int(dag.get(n, 'end')) for n in dag.successors(intermediate)))})
+            if len(dag.nodes) < 10:
+                render(dag)
+                pdb.set_trace()
     return dag
 
 
@@ -314,7 +317,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     months = {'januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli',
               'augustus', 'september', 'oktober', 'november', 'december'}
     currencies = {'eur', 'euro', 'usd', '$', '£', '€', '¥'}
-    measurements = {'duizend', 'honderd', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
+    measurements = {'honderd', 'paar', 'duizend', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
     directions = {'westen', 'zuiden', 'noorden', 'oosten'}
 
     def tw(node: str) -> bool: return dag.get(get_material(dag, node), 'pt') == 'tw'
@@ -397,9 +400,18 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
 
     def fix_watvoor(parent: str, nodes: list[str]) -> bool:
         lemmas = get_lemmas(nodes)
+
+        # def f() -> bool:
+        #     from LassyExtraction.utils.viz import render
+        #     nonlocal deep
+        #     render(dag)
+        #     pdb.set_trace()
+        #
+        #     return True
+
         match lemmas:
             case ['wat', 'voor']:
-                dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'mod')}
+                dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'hd')}
                 maybe_set_attrs(ghosts(nodes), parent, {'cat': 'pp'})
                 detach_mwps(parent, nodes)
                 return True
@@ -622,7 +634,8 @@ def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
         return insert_punct(_subgraph, root) if len(puncts) > 0 else _subgraph
 
     def rename(_subgraph: DAG[str], root: str) -> DAG[str]:
-        _subgraph.meta['name'] += f'({root})'
+        fn = _subgraph.meta['name'].split('.xml')[0]
+        _subgraph.meta['name'] = fn + f'({root}).xml'
         return _subgraph
 
     def f(_subgraph: DAG[str], root: str) -> DAG[str]:
@@ -680,7 +693,6 @@ def _factor_group(dag: DAG[str], index: str, label: str, edges: list[Edge[str]])
         raise TransformationError(f'Cannot redistribute edges over a non-conjunction ancestor')
     material = find_coindex(dag, index)
     fresh_node = add_ghost_of(dag, material)
-    common_ancestor = dag.first_common_predecessor(*{edge.target for edge in edges})
 
     material_src = next((edge.source for edge in edges if edge.target == material))
     dag.edges |= {Edge(material_src, fresh_node, label), Edge(common_ancestor, material, label)}
