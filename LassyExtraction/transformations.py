@@ -37,12 +37,11 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> lis
         _dag = factor_distributed_subgraphs(_dag)
         _dag = coerce_conjunctions(_dag)
         _dag = flatten_unaries(_dag)
-        _dag = compress_ghost_trees(_dag)
         assertions(_dag)
         return _dag
 
     return sorted([f(dag) for dag in salvage_headless(ad_hoc_fixes(etree_to_dag(etree, name)))],
-                  key=lambda dag: int(dag.meta['name'].split('(')[1].rstrip(')')))
+                  key=lambda dag: int(dag.meta['name'].split('(')[1].split(')')[0]))
 
 
 def etree_to_dag(etree: ElementTree, name: str | None) -> DAG[str]:
@@ -233,11 +232,6 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
                    if int(dag.get(det.target, 'end')) <= int(dag.get(mod.target, 'begin'))
                    and int(dag.get(mod.target, 'end')) <= int(dag.get(hd.target, 'begin'))}
         if premods:
-            if len(dag.nodes) < 10:
-                # dag.edges |= {Edge(hd.source, hd.target, 'hd')}
-                # dag.remove_edge(hd)
-                render(dag)
-                pdb.set_trace()
             intermediate = add_fresh_node(dag)
             dag.edges |= {Edge(node, intermediate, hd.label), Edge(intermediate, hd.target, hd.label)}
             dag.edges |= {Edge(intermediate, mod.target, mod.label) for mod in premods}
@@ -247,9 +241,6 @@ def relocate_nominal_modifiers(dag: DAG[str]) -> DAG[str]:
             dag.set(intermediate, {'cat': new_cat,
                                    'begin': str(min(int(dag.get(n, 'begin')) for n in dag.successors(intermediate))),
                                    'end': str(max(int(dag.get(n, 'end')) for n in dag.successors(intermediate)))})
-            if len(dag.nodes) < 10:
-                render(dag)
-                pdb.set_trace()
     return dag
 
 
@@ -282,18 +273,6 @@ def flatten_unaries(dag: DAG[str]) -> DAG[str]:
         to_remove.add(intermediate)
     dag.edges |= to_add
     dag.remove_nodes(to_remove)
-    return dag
-
-
-def compress_ghost_trees(dag: DAG[str]) -> DAG[str]:
-    ghost_trees = {n: tuple(sorted([dag.get(c, 'index') for c in cs], key=int))
-                   for n in dag.nodes if (cs := list(dag.children(n)))
-                   and all(is_ghost(dag, c) for c in cs)}
-    indexed_subtrees = tuple(ghost_trees.values())
-    ghost_parents = {k for k, vs in ghost_trees.items() if indexed_subtrees.count(vs) > 1}
-    for gp in ghost_parents:
-        # todo: what if a ghost node occurs in a different context
-        dag = reindex_complex_ghost(dag, gp, list(dag.children(gp)))
     return dag
 
 
@@ -336,7 +315,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     def get_lemmas(nodes: list[str]) -> list[str]: return [dag.get(get_material(dag, n), 'lemma') for n in nodes]
 
     def maybe_set_attrs(ghostly: bool, node: str, attrs: dict[str, str]):
-        dag.set(node, {k: v for k, v in attrs.items() if (not ghostly) or k not in {'cat', 'pt', 'pos'}})
+        dag.set(node, {k: v for k, v in attrs.items() if (not ghostly) or k not in {'pt', 'pos'}})
 
     def ghosts(nodes: list[str]) -> bool: return all(map(ghost, nodes))
 
