@@ -26,9 +26,9 @@ class Renderer:
 
     @staticmethod
     def render(dag: DAG, **kwargs) -> None:
-        graph = gv.Digraph()
-        for node in dag.nodes:
-            graph.node(node, label=Renderer.make_node_label(dag.attribs[node]),
+        graph = gv.Digraph(graph_attr={'ordering': 'in'})
+        for node in sorted(dag.nodes, key=int):
+            graph.node(node, label=Renderer.make_html_label(dag.attribs[node]),
                        _attributes={'shape': 'rectangle', 'color': 'gray'})
         for edge in dag.edges:
             graph.edge(edge.source, edge.target, label=edge.label)
