@@ -22,12 +22,12 @@ Atoms = {'adj':     (ADJ    := Atom('ADJ')),
          'tw':      (TW     := Atom('TW')),
          'vg':      (VG     := Atom('VG')),
          'vz':      (VZ     := Atom('VZ')),
-         'ww':      (INF    := Atom('INF')),
+         'ww':      (WW    := Atom('WW')),
          'advp':    (ADV    := Atom('ADV')),
          'ahi':     (AHI    := Atom('AHI')),
          'ap':      (AP     := Atom('AdjP')),
          'cp':      (CP     := Atom('CP')),
-         'inf':     INF,
+         'inf':     (INF    := Atom('INF')),
          'detp':    (DETP   := Atom('DETP')),
          'oti':     (OTI    := Atom('OTI')),
          'ti':      (TI     := Atom('TI')),
@@ -88,9 +88,14 @@ def endo(of: Type) -> Type: return Functor(of, of)
 
 
 def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
+    def var_to_key(_var: Variable) -> int:
+        return dep_to_key(_var.type.decoration) if isinstance(_var.type, (Diamond, Box)) else -1
+
     if proof.rule == Logical.Variable:
         return proof
-    variables = [(ctx, v) for ctx, v in proof.vars() if condition(v)]
+    variables = sorted([(ctx, v) for ctx, v in proof.vars() if condition(v)],
+                       key=lambda pair: var_to_key(pair[1]))
+
     for ctx, var in variables:
         if ctx:
             proof, var = make_extractable(proof, var)
