@@ -12,7 +12,7 @@ def render(dag: DAG[str], **kwargs) -> None:
 
 
 class Renderer:
-    properties = ('id', 'word', 'pos', 'cat', 'index', 'type', 'pt', 'proof')
+    properties = ('id', 'word', 'cat', 'index', 'type', 'pt', 'proof')
 
     @staticmethod
     def make_node_label(node: dict) -> str:
@@ -21,7 +21,7 @@ class Renderer:
 
     @staticmethod
     def make_html_label(node: dict) -> str:
-        return '<' + '<br/>'.join(f'<b>{k}</b>: {node[k] if k != "proof" else node[k].type}'
+        return '<' + '<br/>'.join(f'<b>{k if k != "proof" else "type"}</b>: <i>{node[k] if k != "proof" else node[k].type}</i>'
                                   for k in Renderer.properties if k in node.keys()) + '>'
 
     @staticmethod
@@ -29,7 +29,8 @@ class Renderer:
         graph = gv.Digraph(graph_attr={'ordering': 'in'})
         for node in sorted(dag.nodes, key=int):
             graph.node(node, label=Renderer.make_html_label(dag.attribs[node]),
-                       _attributes={'shape': 'rectangle', 'color': 'gray'})
+                       _attributes={'shape': 'none'})
         for edge in dag.edges:
-            graph.edge(edge.source, edge.target, label=edge.label)
+            graph.edge(edge.source, edge.target, label=edge.label,
+                       _attributes={'arrowhead': 'none'})
         graph.render(view=True, **kwargs)
