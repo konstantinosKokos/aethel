@@ -534,6 +534,40 @@ def proof_eq(left: Proof, right: Proof) -> bool:
     return all((left.premises == right.premises, left.conclusion == right.conclusion, left.rule == right.rule))
 
 
+def decolor_proof(proof: Proof, ) -> Proof:
+    def go(p: Proof, replacing: dict[int, Proof]) -> tuple[Proof, dict[int, Proof]]:
+        match p.rule:
+            case Logical.Constant:
+                return constant(abs(p.type), p.term.index), replacing
+            case Logical.Variable:
+                if p.term.index in replacing:
+                    ret = replacing.pop(p.term.index)
+                    return ret, replacing
+                return variable(abs(p.type), p.term.index), replacing
+            case Logical.ArrowElimination:
+                (fn, arg) = p.premises
+                fn, replacing = go(fn, replacing)
+                arg, replacing = go(arg, replacing)
+                return fn @ arg, replacing
+            case Logical.ArrowIntroduction:
+                (body,) = p.premises
+                focus = p.focus
+                ret, replacing = go(body, replacing)
+                return ret.abstract(Variable(abs(focus.type), focus.index)), replacing
+            case Structural.Extract | Logical.DiamondIntroduction | Logical.BoxIntroduction | Logical.BoxElimination:
+                (body,) = p.premises
+                return go(body, replacing)
+            case Logical.DiamondElimination:
+                (where, becomes) = p.premises
+                focus = p.focus
+                becomes, replacing = go(becomes, replacing)
+                replacing[focus.index] = becomes
+                return go(where, replacing)
+            case _:
+                raise ValueError
+    return go(proof, dict())[0]
+
+
 ########################################################################################################################
 # Examples / Tests
 ########################################################################################################################

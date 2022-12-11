@@ -169,3 +169,10 @@ class TypeInference:
         if dia is not None and dia != wrapped.decoration:
             raise TypeInference.TypeCheckError(f'{wrapped} is not a {dia}-diamond')
         return wrapped.content, wrapped.decoration
+
+
+def decolor_type(_type: Type) -> Type:
+    match _type:
+        case Atom(_): return _type
+        case Functor(arg, res): return Functor(decolor_type(arg), decolor_type(res))
+        case Modal(_, content): return decolor_type(content)
