@@ -36,7 +36,6 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> lis
         _dag = raise_nouns(_dag)
         _dag = factor_distributed_subgraphs(_dag)
         _dag = coerce_conjunctions(_dag)
-        _dag = flatten_unaries(_dag)
         assertions(_dag)
         return _dag
 
@@ -183,19 +182,27 @@ def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
 
 
 def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
-    def sentential(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'smain', 'sv1', 'ssub', 'inf', 'ti', 'ahi', 'ppart', 'np'} or
-                (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
+    def find_auxilliary_head(phrases: Iterator[str], index: str) -> str | None:
+        def sentential(node: str) -> bool:
+            return ((cat := dag.get(node, 'cat')) in {'smain', 'sv1', 'ssub'} or
+                    (cat == 'conj' and any(map(sentential, dag.parents(node)))))
 
-    def candidate(label: str) -> bool:
-        return label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
+        def sentential_branch(p: str) -> bool:
+            return any(all((dag.get(c, 'index') == index,
+                            not is_ghost(dag, c),
+                            dag.get(c, )))
+                       for c in dag.children(p))
+
+        def get_head(p: str) -> str | None:
+            return next((edge.target for edge in dag.outgoing_edges(p) if edge.label == 'hd'), None)
+
+        return next((get_head(p) for p in phrases if sentential_branch(p)), None)
 
     def is_understood(edge: Edge[str]) -> bool:
-        if is_ghost(dag, edge.target) and candidate(edge.label):
-            index = dag.get(edge.target, 'index')
-            return any(sentential(p) and any(dag.get(c, 'index') == index for c in dag.children(p))
-                       for p in dag.predecessors(edge.source))
-        return False
+        return all((is_ghost(dag, edge.target),
+                   edge.label == 'su',
+                    find_auxilliary_head(dag.predecessors(edge.source), dag.get(edge.target, 'index')) is not None,
+                    ))
 
     return dag.remove_edges(is_understood)
 
@@ -260,20 +267,6 @@ def majority_vote(xs: list[str]) -> str | None:
 
 def boundaries_of(dag: DAG[str], left: str, right: str) -> dict[str, str]:
     return {'begin': dag.get(left, 'begin'), 'end': dag.get(right, 'end')}
-
-
-def flatten_unaries(dag: DAG[str]) -> DAG[str]:
-    # todo: this wont work in the presence of a sequence of unaries
-    unary_trees = {(n, next(iter(es))) for n in dag.nodes if len(es := dag.outgoing_edges(n)) == 1}
-    to_add = set()
-    to_remove = set()
-    for intermediate, outgoing in unary_trees:
-        incoming = next(iter(dag.incoming_edges(intermediate)))
-        to_add.add(Edge(incoming.source, outgoing.target, incoming.label))
-        to_remove.add(intermediate)
-    dag.edges |= to_add
-    dag.remove_nodes(to_remove)
-    return dag
 
 
 def reindex_complex_ghost(dag: DAG[str], parent: str, children: list[str]) -> DAG[str]:
