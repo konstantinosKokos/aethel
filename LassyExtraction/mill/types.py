@@ -16,6 +16,7 @@ class Type(ABC):
     def __eq__(self, other) -> bool: return type_eq(self, other)
     def __hash__(self) -> int: return type_hash(self)
     def prefix(self) -> str: return type_prefix(self)
+    def __abs__(self) -> Type: return decolor_type(self)
 
     @staticmethod
     def parse_prefix(prefix: str) -> Type: return parse_prefix(prefix)
