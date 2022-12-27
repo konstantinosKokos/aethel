@@ -15,7 +15,7 @@ Lassy-style dependency graphs.
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
 You will need to download the most recent binarized version of the dataset
-([1.0.0a3](https://surfdrive.surf.nl/files/index.php/s/b4vDgwjLYSlMFxk)). 
+([1.0.0a4](https://surfdrive.surf.nl/files/index.php/s/t2DQucnwcdmMcd2)).
 Begin by cloning the project locally and placing the dump file in `data/` (remember to unzip).
 You can then load the dump by running:
 
@@ -36,8 +36,8 @@ Train/dev/test segmentation is respected to the largest extent possible.
 If looking for older versions, take a look at other branches of this repository.
 
 ### 1.0.0a (06/2022) 
-> Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more 
-complicated but all proofs are now sound wrt. to the underlying logic.
+> Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more
+> complicated but all proofs are now sound wrt. to the underlying logic.
 > >* **Adjunction**: diamonds and boxes are no longer treated as ad-hoc type constructors, and their adjoint nature is
 >> made explicit (i.e. ◇□A⇒A⇒□◇A). The diamond elimination and arrow introduction rules are now explicit to which
 >> variable is being abstracted or replaced.
@@ -54,33 +54,19 @@ complicated but all proofs are now sound wrt. to the underlying logic.
 >> slightly increased.
 > ---
 > ### Minor Changelog
-> #### 1.0.0a1 (07/2022)
-> * Proofs are delivered in η-normal form, and variables are assigned unique names.
-> * Natural deduction is back-and-forth compatible with proof nets again.
-> * A few leftover proofs failing the linearity criterion are removed. 
+> #### 1.0.0a4 (12/2022)
+> * Past participles now have explicit objects.
+> #### 1.0.0a3 (10/2022)
+> * Structural extraction now properly renames variables.
 > #### 1.0.0a2 (10/2022)
 > * Diamond elimination terms now act as variable binders that explicate their position via 
 > the `case [τ:term] of [x:variable] in [σ:term]` term constructor (meaning "replace any occurrence of x in σ with τ").
 > * To ease comprehension, the left and right side occurrences of the "same" variable in diamond eliminations are no
 > longer identified, i.e. the substitute and substituted variables have unique names.
-> #### 1.0.0a3 (10/2022)
-> * Structural extraction now properly renames variables.
- 
-### **0.9 (01/2022)**
-
-> Big changes to the extraction algorithm and data representation.
->> * Proofs are now constructed and delivered in natural-deduction (≡ λ-term) format. This ensures type-safety during 
->> extraction and loading, and allows inspection of proofs at a sub-sentential level.
->> * Proofs are now instances of both the `Proof` protocol and an actual type metaclass (itself an instance of the abstract 
->> metaclass `Type`), allowing pythonic access to a proof's type and its attributes.
->> * **Punctuation handling**: punctuation marks are now retained and contained in æthel samples.  
->> Punctuations are assigned dummy types, and their terms do not participate in the derivation, unless 
->> dependency annotated.
->> * **Fewer but longer sentences**: sentence splitting is now reserved only for non-functional branches.
->> Some previously problematic cases are now handled by duplicating the missing material from the source 
->> sentence into all of the independent generated samples, maintaining grammaticality and increasing average  
->> sentence length.
----
+> #### 1.0.0a1 (07/2022)
+> * Proofs are delivered in η-normal form, and variables are assigned unique names.
+> * Natural deduction is back-and-forth compatible with proof nets again.
+> * A few leftover proofs failing the linearity criterion are removed.
 
 ## Project Structure
 * `LassyExtraction.frontend` is the high-level interface that allows user access to the processed corpus.
