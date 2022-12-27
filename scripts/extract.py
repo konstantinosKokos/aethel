@@ -54,7 +54,7 @@ def store_aethel(version: str,
         with open(transform_path, 'rb') as f:
             print('Loading transformed trees...')
             transformed = pickle.load(f)
-            print('Loaded.')
+            print(f'Loaded {len(transformed)} trees.')
 
     print('Proving transformed trees...')
     train, dev, test = [], [], []
@@ -72,7 +72,7 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel(version := '1.0.0a4.dev0',
+    store_aethel(version := '1.0.0a4',
                  transform_path=f'../data/transformed_{version}.pickle',
                  output_path=f'../data/aethel_{version}.pickle',
                  save_intermediate=True)
