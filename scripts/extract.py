@@ -38,10 +38,11 @@ def make_sample(dag: DAG[str]) -> Sample:
 def store_aethel(version: str,
                  transform_path: str = '../data/transformed.pickle',
                  save_intermediate: bool = False,
-                 output_path: str = f'../data/aethel.pickle') -> None:
+                 output_path: str = f'../data/aethel.pickle',
+                 lassy_path: str = '/home/kokos/Projects/Lassy 6.0/Treebank') -> None:
     import pickle
     if save_intermediate or not os.path.exists(transform_path):
-        lassy = Lassy()
+        lassy = Lassy(lassy_path)
         print('Transforming LASSY trees...')
         transformed = prepare_many(lassy)
         if save_intermediate:
@@ -53,7 +54,7 @@ def store_aethel(version: str,
         with open(transform_path, 'rb') as f:
             print('Loading transformed trees...')
             transformed = pickle.load(f)
-            print('Loaded.')
+            print(f'Loaded {len(transformed)} trees.')
 
     print('Proving transformed trees...')
     train, dev, test = [], [], []
@@ -71,4 +72,7 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel('1.0.0a3', save_intermediate=False)
+    store_aethel(version := '1.0.0a4',
+                 transform_path=f'../data/transformed_{version}.pickle',
+                 output_path=f'../data/aethel_{version}.pickle',
+                 save_intermediate=True)

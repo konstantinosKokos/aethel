@@ -15,19 +15,19 @@ Atoms = {'adj':     (ADJ    := Atom('ADJ')),
          'let':     (PUNCT  := Atom('PUNCT')),
          'lid':     (LID    := Atom('LID')),
          'n':       (N      := Atom('N')),
-         'spec':    N,
-         'vnw':     (VNW    := Atom('VNW', (N,))),
-         'np':      (NP     := Atom('NP', (N,))),
+         'np':      (NP     := Atom('NP')),
+         'spec':    NP,
+         'vnw':     (VNW    := Atom('VNW')),
          'tsw':     (TSW    := Atom('TSW')),
          'tw':      (TW     := Atom('TW')),
          'vg':      (VG     := Atom('VG')),
          'vz':      (VZ     := Atom('VZ')),
-         'ww':      (INF     := Atom('INF')),
+         'ww':      (WW    := Atom('WW')),
          'advp':    (ADV    := Atom('ADV')),
          'ahi':     (AHI    := Atom('AHI')),
          'ap':      (AP     := Atom('AdjP')),
          'cp':      (CP     := Atom('CP')),
-         'inf':     INF,
+         'inf':     (INF    := Atom('INF')),
          'detp':    (DETP   := Atom('DETP')),
          'oti':     (OTI    := Atom('OTI')),
          'ti':      (TI     := Atom('TI')),
@@ -36,14 +36,13 @@ Atoms = {'adj':     (ADJ    := Atom('ADJ')),
          'ppres':   (PPRES  := Atom('PPRES')),
          'rel':     (REL    := Atom('REL')),
          # sentential types
-         's':       (S      := Atom('S')),
-         'smain':   (Smain  := Atom('SMAIN', (S,))),
-         'ssub':    (Ssub   := Atom('SSUB', (S,))),
-         'sv1':     (Sv1    := Atom('SV1', (S,))),
-         'svan':    (Svan   := Atom('SVAN', (S,))),
-         'whq':     (WHq    := Atom('WHQ', (S,))),
-         'whrel':   (WHrel  := Atom('WHREL', (S,))),
-         'whsub':   (WHsub  := Atom('WHSUB', (S,)))}
+         'smain':   (Smain  := Atom('SMAIN')),
+         'ssub':    (Ssub   := Atom('SSUB')),
+         'sv1':     (Sv1    := Atom('SV1')),
+         'svan':    (Svan   := Atom('SVAN')),
+         'whq':     (WHq    := Atom('WHQ')),
+         'whrel':   (WHrel  := Atom('WHREL')),
+         'whsub':   (WHsub  := Atom('WHSUB'))}
 
 
 head_labels = {'hd', 'rhd', 'whd', 'cmp', 'np_head', 'crd'}
@@ -89,9 +88,14 @@ def endo(of: Type) -> Type: return Functor(of, of)
 
 
 def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
+    def var_to_key(_var: Variable) -> int:
+        return dep_to_key(_var.type.decoration) if isinstance(_var.type, (Diamond, Box)) else -1
+
     if proof.rule == Logical.Variable:
         return proof
-    variables = [(ctx, v) for ctx, v in proof.vars() if condition(v)]
+    variables = sorted([(ctx, v) for ctx, v in proof.vars() if condition(v)],
+                       key=lambda pair: var_to_key(pair[1]))
+
     for ctx, var in variables:
         if ctx:
             proof, var = make_extractable(proof, var)
@@ -118,9 +122,10 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
             *({index for node in dag.successors(branch_root) if (index := dag.get(node, 'index')) is not None}
               for branch_root in branch_roots))
 
-    def coindexed_with(indices: set[str]) -> Callable[[Variable], bool]:
+    def coindexed_with(indices: set[str], ids: set[str]) -> Callable[[Variable], bool]:
         def go(_var: Variable) -> bool:
-            return dag.get(str(_var.index), 'index') in indices
+            node = str(_var.index)
+            return dag.get(node, 'index') in indices and node not in ids
         return go
 
     def make_adj(_adjuncts: list[tuple[str, str]], _top_type: Type) -> list[Proof]:
@@ -146,8 +151,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         per_conjunct = [coindexed & set(dag.successors(_conjunct)) for _conjunct in _conjuncts]
         abstraction_types = [dag.get(var, 'proof').type for c in per_conjunct for var in c]
         if not abstraction_types:
-            # todo: see e.g. WR-P-E-I-0000027216.p.1.s.23.xml
-            raise ExtractionError(f'No type information for {_node_id}')
+            raise ExtractionError(f'Missing type information.')
         # todo: polymorphism assertion or type coercion
         return next(iter(abstraction_types))
 
@@ -181,13 +185,8 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
             assert len(det_proofs) <= 1
             return unbox_and_apply(apply(unbox_and_apply(np_proof, det_proofs), arg_proofs), adj_proofs)
         case [], [], [(_, head)], adjuncts, arguments, []:
-            if dag.get(head, 'lemma') == 'vallen':
-                arg_proofs = make_args(
-                    arguments,
-                    lambda x: (coindexed_with(nodes_to_indices({head}))(x)
-                               or isinstance(x.type, Diamond) and x.type.decoration == 'vc'))
-            else:
-                arg_proofs = make_args(arguments, coindexed_with(nodes_to_indices({head})))
+            coindex_against = {head, *(node for dep, node in arguments if dep == 'su')}
+            arg_proofs = make_args(arguments, coindexed_with(nodes_to_indices(coindex_against), coindex_against))
             adj_proofs = make_adj(adjuncts, top_type)
             head_term = prove(dag, head, 'hd', make_functor(top_type, [a.type for a in arg_proofs]))
             return unbox_and_apply(apply(head_term, arg_proofs), adj_proofs)
@@ -195,7 +194,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_indices = nodes_to_indices(node for _, node in heads + shared_adjuncts + arguments)
             shared_indices |= shared_content(c for _, c in conjuncts)
-            cnj_proofs = make_args(conjuncts, coindexed_with(shared_indices), top_type)
+            cnj_proofs = make_args(conjuncts, coindexed_with(shared_indices, set()), top_type)
             hd_proofs = [prove(dag, head, 'hd', get_type_of(head, [cnj for _, cnj in conjuncts])) for _, head in heads]
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
@@ -207,7 +206,7 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_nodes = {node for _, node in shared_adjuncts + arguments} | {det}
-            cnj_proofs = make_args(conjuncts, coindexed_with(nodes_to_indices(shared_nodes)), top_type)
+            cnj_proofs = make_args(conjuncts, coindexed_with(nodes_to_indices(shared_nodes), set()), top_type)
             det_term = prove(dag, det, 'det', get_type_of(det, [cnj for _, cnj in conjuncts]))
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)

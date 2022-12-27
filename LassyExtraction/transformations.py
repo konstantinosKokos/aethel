@@ -36,13 +36,11 @@ def prepare_for_extraction(etree: ElementTree, name: str | None = None, ) -> lis
         _dag = raise_nouns(_dag)
         _dag = factor_distributed_subgraphs(_dag)
         _dag = coerce_conjunctions(_dag)
-        _dag = flatten_unaries(_dag)
-        _dag = compress_ghost_trees(_dag)
         assertions(_dag)
         return _dag
 
     return sorted([f(dag) for dag in salvage_headless(ad_hoc_fixes(etree_to_dag(etree, name)))],
-                  key=lambda dag: int(dag.meta['name'].split('(')[1].rstrip(')')))
+                  key=lambda dag: int(dag.meta['name'].split('(')[1].split(')')[0]))
 
 
 def etree_to_dag(etree: ElementTree, name: str | None) -> DAG[str]:
@@ -184,24 +182,27 @@ def relabel_extra_crds(dag: DAG[str]) -> DAG[str]:
 
 
 def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
-    def infinitival(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'inf', 'ti', 'ppart', 'ssub', } or
-                cat == 'conj' and any(infinitival(p) for p in dag.parents(_node)))
+    def find_auxilliary_head(phrases: Iterator[str], index: str) -> str | None:
+        def sentential(node: str) -> bool:
+            return ((cat := dag.get(node, 'cat')) in {'smain', 'sv1', 'ssub'} or
+                    (cat == 'conj' and any(map(sentential, dag.parents(node)))))
 
-    def sentential(_node: str) -> bool:
-        return ((cat := dag.get(_node, 'cat')) in {'sv1', 'smain', 'ssub', 'inf', 'ti', 'ahi', 'ppart', 'np'} or
-                (cat == 'conj' and any(map(sentential, dag.parents(_node)))))
+        def sentential_branch(p: str) -> bool:
+            return any(all((dag.get(c, 'index') == index,
+                            not is_ghost(dag, c),
+                            dag.get(c, )))
+                       for c in dag.children(p))
 
-    def candidate(label: str) -> bool:
-        # todo: should I actually be removing obj edges
-        return label in {'su', 'obj1', 'obj2', 'sup', 'pobj1'}
+        def get_head(p: str) -> str | None:
+            return next((edge.target for edge in dag.outgoing_edges(p) if edge.label == 'hd'), None)
+
+        return next((get_head(p) for p in phrases if sentential_branch(p)), None)
 
     def is_understood(edge: Edge[str]) -> bool:
-        if is_ghost(dag, edge.target) and candidate(edge.label):
-            index = dag.get(edge.target, 'index')
-            return any(sentential(p) and any(dag.get(c, 'index') == index for c in dag.children(p))
-                       for p in dag.predecessors(edge.source))
-        return False
+        return all((is_ghost(dag, edge.target),
+                   edge.label == 'su',
+                    find_auxilliary_head(dag.predecessors(edge.source), dag.get(edge.target, 'index')) is not None,
+                    ))
 
     return dag.remove_edges(is_understood)
 
@@ -209,7 +210,7 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
 def relabel_determiners(dag: DAG[str]) -> DAG[str]:
     possessives = {'mij', 'mijn', 'mijn', 'je', 'jouw', 'uw', 'zijn', 'zijne', 'haar', 'ons', 'onze', 'hun', 'wier',
                    'wien', 'wiens', 'hum', 'z\'n', 'z´n', 'm\'n', 'm´n', 'zin', 'huin', 'onst', 'welks'}
-    determiners = {'welke', 'die', 'deze', 'dit', 'dat', 'zo\'n', 'zo´n', 'wat', 'wélke', 'zo`n', 'díe', 'dát', 'déze'}
+    determiners = {'welke', 'die', 'deze', 'dit', 'dat', 'zo\'n', 'zo´n', 'wélke', 'zo`n', 'díe', 'dát', 'déze'}
     edges = {edge for edge in dag.edges
              if edge.label == 'det' or (edge.label == 'mod' and dag.get(edge.source, 'cat') == 'np')}
     for edge in edges:
@@ -268,32 +269,6 @@ def boundaries_of(dag: DAG[str], left: str, right: str) -> dict[str, str]:
     return {'begin': dag.get(left, 'begin'), 'end': dag.get(right, 'end')}
 
 
-def flatten_unaries(dag: DAG[str]) -> DAG[str]:
-    # todo: this wont work in the presence of a sequence of unaries
-    unary_trees = {(n, next(iter(es))) for n in dag.nodes if len(es := dag.outgoing_edges(n)) == 1}
-    to_add = set()
-    to_remove = set()
-    for intermediate, outgoing in unary_trees:
-        incoming = next(iter(dag.incoming_edges(intermediate)))
-        to_add.add(Edge(incoming.source, outgoing.target, incoming.label))
-        to_remove.add(intermediate)
-    dag.edges |= to_add
-    dag.remove_nodes(to_remove)
-    return dag
-
-
-def compress_ghost_trees(dag: DAG[str]) -> DAG[str]:
-    ghost_trees = {n: tuple(sorted([dag.get(c, 'index') for c in cs], key=int))
-                   for n in dag.nodes if (cs := list(dag.children(n)))
-                   and all(is_ghost(dag, c) for c in cs)}
-    indexed_subtrees = tuple(ghost_trees.values())
-    ghost_parents = {k for k, vs in ghost_trees.items() if indexed_subtrees.count(vs) > 1}
-    for gp in ghost_parents:
-        # todo: what if a ghost node occurs in a different context
-        dag = reindex_complex_ghost(dag, gp, list(dag.children(gp)))
-    return dag
-
-
 def reindex_complex_ghost(dag: DAG[str], parent: str, children: list[str]) -> DAG[str]:
     material = dag.first_common_predecessor(*[get_material(dag, n) for n in children])
     if (idx := dag.get(material, 'index')) is not None:
@@ -314,7 +289,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     months = {'januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli',
               'augustus', 'september', 'oktober', 'november', 'december'}
     currencies = {'eur', 'euro', 'usd', '$', '£', '€', '¥'}
-    measurements = {'duizend', 'honderd', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
+    measurements = {'honderd', 'paar', 'duizend', 'miljoen', 'miljard', 'biljoen', 'biljard', 'triljoen', 'triljard'}
     directions = {'westen', 'zuiden', 'noorden', 'oosten'}
 
     def tw(node: str) -> bool: return dag.get(get_material(dag, node), 'pt') == 'tw'
@@ -333,7 +308,7 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
     def get_lemmas(nodes: list[str]) -> list[str]: return [dag.get(get_material(dag, n), 'lemma') for n in nodes]
 
     def maybe_set_attrs(ghostly: bool, node: str, attrs: dict[str, str]):
-        dag.set(node, {k: v for k, v in attrs.items() if (not ghostly) or k not in {'cat', 'pt', 'pos'}})
+        dag.set(node, {k: v for k, v in attrs.items() if (not ghostly) or k not in {'pt', 'pos'}})
 
     def ghosts(nodes: list[str]) -> bool: return all(map(ghost, nodes))
 
@@ -397,9 +372,10 @@ def structure_mwu(dag: DAG[str]) -> DAG[str]:
 
     def fix_watvoor(parent: str, nodes: list[str]) -> bool:
         lemmas = get_lemmas(nodes)
+
         match lemmas:
             case ['wat', 'voor']:
-                dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'mod')}
+                dag.edges |= {Edge(parent, nodes[0], 'obj1'), Edge(parent, nodes[1], 'hd')}
                 maybe_set_attrs(ghosts(nodes), parent, {'cat': 'pp'})
                 detach_mwps(parent, nodes)
                 return True
@@ -622,7 +598,8 @@ def salvage_headless(dag: DAG[str]) -> list[DAG[str]]:
         return insert_punct(_subgraph, root) if len(puncts) > 0 else _subgraph
 
     def rename(_subgraph: DAG[str], root: str) -> DAG[str]:
-        _subgraph.meta['name'] += f'({root})'
+        fn = _subgraph.meta['name'].split('.xml')[0]
+        _subgraph.meta['name'] = fn + f'({root}).xml'
         return _subgraph
 
     def f(_subgraph: DAG[str], root: str) -> DAG[str]:
@@ -680,7 +657,6 @@ def _factor_group(dag: DAG[str], index: str, label: str, edges: list[Edge[str]])
         raise TransformationError(f'Cannot redistribute edges over a non-conjunction ancestor')
     material = find_coindex(dag, index)
     fresh_node = add_ghost_of(dag, material)
-    common_ancestor = dag.first_common_predecessor(*{edge.target for edge in edges})
 
     material_src = next((edge.source for edge in edges if edge.target == material))
     dag.edges |= {Edge(material_src, fresh_node, label), Edge(common_ancestor, material, label)}

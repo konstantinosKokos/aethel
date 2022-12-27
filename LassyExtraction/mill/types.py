@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from abc import ABCMeta
+from abc import ABC
 from typing import TypeVar
 
 ########################################################################################################################
@@ -10,57 +10,34 @@ from typing import TypeVar
 T = TypeVar('T', bound='Type')
 
 
-class Type(ABCMeta):
-    _registry: dict[str, T]
-    def __repr__(cls) -> str: return type_repr(cls)
-    def order(cls) -> int: return type_order(cls)
-    def __eq__(cls, other) -> bool: return type_eq(cls, other)
-    def __hash__(cls) -> int: return type_hash(cls)
-    def prefix(cls) -> str: return type_prefix(cls)
-
-    @classmethod
-    def __init_subclass__(mcs, **kwargs):
-        super(Type, mcs).__init_subclass__(**kwargs)
-        mcs._registry = {}
-
-    def __new__(mcs, name, bases: tuple[Type, ...] = ()) -> T:
-        if name in mcs._registry:
-            return mcs._registry[name]
-        ret = super(Type, mcs).__new__(mcs, name, bases, {})
-        mcs._registry[name] = ret
-        return ret
+class Type(ABC):
+    def __repr__(self) -> str: return type_repr(self)
+    def order(self) -> int: return type_order(self)
+    def __eq__(self, other) -> bool: return type_eq(self, other)
+    def __hash__(self) -> int: return type_hash(self)
+    def prefix(self) -> str: return type_prefix(self)
+    def __abs__(self) -> Type: return decolor_type(self)
 
     @staticmethod
-    def parse_prefix(string: str) -> Type: return parse_prefix(string)
+    def parse_prefix(prefix: str) -> Type: return parse_prefix(prefix)
 
 
 class Atom(Type):
-    _registry: dict[str, Atom]
     sign: str
     __match_args__ = ('sign',)
 
-    def __new__(mcs, sign: str, bases: tuple[Type, ...] = ()) -> Atom:
-        return super(Atom, mcs).__new__(mcs, sign, bases)
-
-    def __init__(cls, sign: str, _: tuple[Type, ...] = ()) -> None:
-        super(Atom, cls).__init__(cls)
-        cls.sign = sign
+    def __init__(self, sign: str) -> None:
+        self.sign = sign
 
 
 class Functor(Type):
-    _registry: dict[str, Functor]
-    argument: Type
-    result: Type
-
+    argument:   Type
+    result:     Type
     __match_args__ = ('argument', 'result')
 
-    def __new__(mcs, argument: Type, result: Type) -> Functor:
-        return super(Functor, mcs).__new__(mcs, Functor.repr(argument, result))
-
-    def __init__(cls, argument: Type, result: Type) -> None:
-        super(Functor, cls).__init__(cls)
-        cls.argument = argument
-        cls.result = result
+    def __init__(self, argument: Type, result: Type) -> None:
+        self.argument = argument
+        self.result = result
 
     @staticmethod
     def repr(argument: Type, result: Type) -> str:
@@ -68,44 +45,26 @@ class Functor(Type):
         return f'{par(argument)}⟶{result}'
 
 
-class Modal(Type):
-    _registry: dict[str, Modal]
-    content: Type
+class Modal(Type, ABC):
+    content:    Type
     decoration: str
-
     __match_args__ = ('decoration', 'content')
 
 
 class Box(Modal):
-    _registry: dict[str, Box]
-    content: Type
-    decoration: str
-
-    __match_args__ = ('decoration', 'content')
-
-    def __new__(mcs, decoration: str, content: Type,) -> Box:
-        return super(Box, mcs).__new__(mcs, f'□{decoration}({content})')
-
-    def __init__(cls, decoration: str, content: Type) -> None:
-        super(Box, cls).__init__(cls)
-        cls.content = content
-        cls.decoration = decoration
+    def __init__(self, decoration: str, content: Type) -> None:
+        self.content = content
+        self.decoration = decoration
 
 
 class Diamond(Modal):
-    _registry: dict[str, Diamond]
     content: Type
     decoration: str
-
     __match_args__ = ('decoration', 'content')
 
-    def __new__(mcs, decoration: str, content: Type) -> Diamond:
-        return super(Diamond, mcs).__new__(mcs, f'◇{decoration}({content})')
-
-    def __init__(cls, decoration: str, content: Type) -> None:
-        super(Diamond, cls).__init__(cls)
-        cls.content = content
-        cls.decoration = decoration
+    def __init__(self, decoration: str, content: Type) -> None:
+        self.content = content
+        self.decoration = decoration
 
 
 ########################################################################################################################
@@ -135,7 +94,7 @@ def type_repr(_type: Type) -> str:
 def type_eq(_type: Type, other: Type) -> bool:
     match _type:
         case Atom(sign):
-            return isinstance(other, Atom) and sign == other.sign and _type.__bases__ == other.__bases__
+            return isinstance(other, Atom) and sign == other.sign
         case Functor(argument, result):
             return isinstance(other, Functor) and type_eq(argument, other.argument) and type_eq(result, other.result)
         case Box(decoration, content):
@@ -211,3 +170,10 @@ class TypeInference:
         if dia is not None and dia != wrapped.decoration:
             raise TypeInference.TypeCheckError(f'{wrapped} is not a {dia}-diamond')
         return wrapped.content, wrapped.decoration
+
+
+def decolor_type(_type: Type) -> Type:
+    match _type:
+        case Atom(_): return _type
+        case Functor(arg, res): return Functor(decolor_type(arg), decolor_type(res))
+        case Modal(_, content): return decolor_type(content)

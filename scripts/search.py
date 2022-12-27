@@ -1,6 +1,6 @@
 from __future__ import annotations
 from LassyExtraction.frontend import Sample
-from LassyExtraction.mill.proofs import Rule, Type
+from LassyExtraction.mill.proofs import Rule, Type, Logical, Structural
 from LassyExtraction.extraction import Atoms
 from typing import Callable, Iterator, Iterable
 from itertools import takewhile
@@ -67,7 +67,8 @@ def may_only_contain_rules(rules: set[Rule]) -> Query:
 
 def must_contain_rules(rules: set[Rule]) -> Query:
     def f(sample: Sample) -> bool:
-        return any(proof.rule in rules for proof in sample.proof.subproofs())
+        proof_rules = {proof.rule for proof in sample.proof.subproofs()}
+        return all(rule in proof_rules for rule in rules)
     return Query(f)
 
 
