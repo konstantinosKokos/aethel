@@ -151,7 +151,6 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         per_conjunct = [coindexed & set(dag.successors(_conjunct)) for _conjunct in _conjuncts]
         abstraction_types = [dag.get(var, 'proof').type for c in per_conjunct for var in c]
         if not abstraction_types:
-            # todo: see e.g. WR-P-E-I-0000027216.p.1.s.23.xml
             raise ExtractionError(f'Missing type information.')
         # todo: polymorphism assertion or type coercion
         return next(iter(abstraction_types))
