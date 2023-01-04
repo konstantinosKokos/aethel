@@ -58,10 +58,6 @@ class Box(Modal):
 
 
 class Diamond(Modal):
-    content: Type
-    decoration: str
-    __match_args__ = ('decoration', 'content')
-
     def __init__(self, decoration: str, content: Type) -> None:
         self.content = content
         self.decoration = decoration

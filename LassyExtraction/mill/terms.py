@@ -59,6 +59,7 @@ class ArrowElimination(Term):
     def __init__(self, function: Term, argument: Term):
         self.function = function
         self.argument = argument
+        _ = self.type
 
     @property
     def type(self) -> Type:
@@ -76,7 +77,7 @@ class ArrowIntroduction(Term):
 
     @property
     def type(self) -> Type:
-        return Functor(self.abstraction.type, self.body.type)  # type: ignore
+        return Functor(self.abstraction.type, self.body.type)
 
 
 class DiamondIntroduction(Term):
