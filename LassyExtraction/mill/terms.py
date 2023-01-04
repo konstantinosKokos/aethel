@@ -24,6 +24,8 @@ TERM = TypeVar('TERM', bound=Term)
 
 
 class Variable(Term):
+    type: Type
+    index: int
     __match_args__ = ('type', 'index')
 
     def __init__(self, _type: Type, index: int):
@@ -36,6 +38,8 @@ class Variable(Term):
 
 
 class Constant(Term):
+    type: Type
+    index: int
     __match_args__ = ('type', 'index')
 
     def __init__(self, _type: Type, index: int):
@@ -48,6 +52,8 @@ class Constant(Term):
 
 
 class ArrowElimination(Term):
+    function: Term
+    argument: Term
     __match_args__ = ('function', 'argument')
 
     def __init__(self, function: Term, argument: Term):
@@ -60,6 +66,8 @@ class ArrowElimination(Term):
 
 
 class ArrowIntroduction(Term):
+    abstraction: Variable
+    body: Term
     __match_args__ = ('abstraction', 'body')
 
     def __init__(self, abstraction: Variable, body: Term):
@@ -72,6 +80,8 @@ class ArrowIntroduction(Term):
 
 
 class DiamondIntroduction(Term):
+    decoration: str
+    body: Term
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, diamond: str, body: Term):
@@ -84,6 +94,8 @@ class DiamondIntroduction(Term):
 
 
 class BoxElimination(Term):
+    decoration: str
+    body: Term
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, box: str | None, body: Term):
@@ -96,6 +108,8 @@ class BoxElimination(Term):
 
 
 class BoxIntroduction(Term):
+    decoration: str
+    body: Term
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, box: str, body: Term):
@@ -108,6 +122,8 @@ class BoxIntroduction(Term):
 
 
 class DiamondElimination(Term):
+    decoration: str
+    body: Term
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, diamond: str | None, body: Term):
@@ -120,6 +136,9 @@ class DiamondElimination(Term):
 
 
 class CaseOf(Term):
+    becomes: Term
+    where: Term
+    original: Term
     __match_args__ = ('becomes', 'where', 'original')
 
     def __init__(self, becomes: Term, where: Term, original: Term):
