@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .types import Type, TypeInference, Functor, Diamond, Box, TypeVar
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Callable, Iterable
 
 
@@ -9,12 +9,15 @@ class TermError(Exception):
 
 
 class Term(ABC):
-    type:   Type
     def __repr__(self) -> str: return term_repr(self)
     def __matmul__(self, other) -> ArrowElimination: return ArrowElimination(self, other)
     def vars(self) -> Iterable[Variable]: return term_vars(self)
     def constants(self) -> Iterable[Constant]: return term_constants(self)
     def __eq__(self, other) -> bool: return isinstance(other, Term) and term_eq(self, other)
+
+    @property
+    @abstractmethod
+    def type(self) -> Type: ...
 
 
 TERM = TypeVar('TERM', bound=Term)
@@ -25,7 +28,11 @@ class Variable(Term):
 
     def __init__(self, _type: Type, index: int):
         self.index = index
-        self.type = _type
+        self._type = _type
+
+    @property
+    def type(self) -> Type:
+        return self._type
 
 
 class Constant(Term):
@@ -33,7 +40,11 @@ class Constant(Term):
 
     def __init__(self, _type: Type, index: int):
         self.index = index
-        self.type = _type
+        self._type = _type
+
+    @property
+    def type(self) -> Type:
+        return self._type
 
 
 class ArrowElimination(Term):
@@ -42,7 +53,10 @@ class ArrowElimination(Term):
     def __init__(self, function: Term, argument: Term):
         self.function = function
         self.argument = argument
-        self.type = TypeInference.arrow_elim(function.type, argument.type)
+
+    @property
+    def type(self) -> Type:
+        return TypeInference.arrow_elim(self.function.type, self.argument.type)
 
 
 class ArrowIntroduction(Term):
@@ -51,7 +65,10 @@ class ArrowIntroduction(Term):
     def __init__(self, abstraction: Variable, body: Term):
         self.abstraction = abstraction
         self.body = body
-        self.type = Functor(abstraction.type, body.type)
+
+    @property
+    def type(self) -> Type:
+        return Functor(self.abstraction.type, self.body.type)  # type: ignore
 
 
 class DiamondIntroduction(Term):
@@ -60,15 +77,22 @@ class DiamondIntroduction(Term):
     def __init__(self, diamond: str, body: Term):
         self.decoration = diamond
         self.body = body
-        self.type = Diamond(diamond, body.type)
+
+    @property
+    def type(self) -> Type:
+        return Diamond(self.decoration, self.body.type)
 
 
 class BoxElimination(Term):
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, box: str | None, body: Term):
-        self.type, self.decoration = TypeInference.box_elim(body.type, box)
+        _, self.decoration = TypeInference.box_elim(body.type, box)
         self.body = body
+
+    @property
+    def type(self) -> Type:
+        return TypeInference.box_elim(self.body.type, self.decoration)[0]
 
 
 class BoxIntroduction(Term):
@@ -77,25 +101,35 @@ class BoxIntroduction(Term):
     def __init__(self, box: str, body: Term):
         self.decoration = box
         self.body = body
-        self.type = Box(box, body.type)
+
+    @property
+    def type(self) -> Type:
+        return Box(self.decoration, self.body.type)
 
 
 class DiamondElimination(Term):
     __match_args__ = ('decoration', 'body')
 
     def __init__(self, diamond: str | None, body: Term):
-        self.type, self.decoration = TypeInference.dia_elim(body.type, diamond)
+        _, self.decoration = TypeInference.dia_elim(body.type, diamond)
         self.body = body
+
+    @property
+    def type(self) -> Type:
+        return TypeInference.dia_elim(self.body.type, self.decoration)[0]
 
 
 class CaseOf(Term):
     __match_args__ = ('becomes', 'where', 'original')
 
     def __init__(self, becomes: Term, where: Term, original: Term):
-        self.type = original.type
         self.becomes = becomes
         self.where = where
         self.original = original
+
+    @property
+    def type(self) -> Type:
+        return self.original.type
 
 
 ########################################################################################################################
