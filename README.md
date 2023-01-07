@@ -15,7 +15,7 @@ Lassy-style dependency graphs.
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
 You will need to download the most recent binarized version of the dataset
-([1.0.0a4](https://surfdrive.surf.nl/files/index.php/s/t2DQucnwcdmMcd2)).
+([1.0.0a5](https://surfdrive.surf.nl/files/index.php/s/F4Wq0KcMi91d9TO)).
 Begin by cloning the project locally and placing the dump file in `data/` (remember to unzip).
 You can then load the dump by running:
 
@@ -54,6 +54,8 @@ If looking for older versions, take a look at other branches of this repository.
 >> slightly increased.
 > ---
 > ### Minor Changelog
+> #### 1.0.0a5 (01/2023)
+> * Explicit objects are hypothesized from within the local phrase. 
 > #### 1.0.0a4 (12/2022)
 > * Past participles now have explicit objects.
 > #### 1.0.0a3 (10/2022)
