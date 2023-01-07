@@ -3,6 +3,7 @@ from LassyExtraction.utils.graph import DAG
 from LassyExtraction.transformations import prepare_many, get_lex_nodes, sort_nodes, is_ghost
 from LassyExtraction.frontend import Sample, LexicalPhrase, LexicalItem
 from LassyExtraction.extraction import prove_dag, ExtractionError, Proof
+from collections import Counter
 import os
 
 
@@ -57,14 +58,16 @@ def store_aethel(version: str,
             print(f'Loaded {len(transformed)} trees.')
 
     print('Proving transformed trees...')
-    train, dev, test = [], [], []
+    train, dev, test, errors = [], [], [], []
     for tree in transformed:
         try:
             sample = make_sample(tree)
-        except ExtractionError:
+        except ExtractionError as e:
+            errors.append(str(e))
             continue
         (train if sample.subset == 'train' else dev if sample.subset == 'dev' else test).append(sample)
     print(f'Proved {(l:=sum(map(len, (train, dev, test))))} samples. (coverage: {l / len(transformed)})')
+    print(Counter(errors))
     print('Saving samples...')
     with open(output_path, 'wb') as f:
         pickle.dump((version, [[sample.save() for sample in subset] for subset in (train, dev, test)]), f)
@@ -72,7 +75,7 @@ def store_aethel(version: str,
 
 
 if __name__ == '__main__':
-    store_aethel(version := '1.0.0a4',
+    store_aethel(version := '1.0.0a5',
                  transform_path=f'../data/transformed_{version}.pickle',
                  output_path=f'../data/aethel_{version}.pickle',
                  save_intermediate=True)

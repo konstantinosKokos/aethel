@@ -105,15 +105,15 @@ def abstract(proof: Proof, condition: Callable[[Variable], bool]) -> Proof:
 
 
 def prove_dag(dag: DAG) -> Proof:
-    return rename_duplicates(prove(dag, next(iter(dag.get_roots())), None, None))
+    return rename_duplicates(prove(dag, next(iter(dag.get_roots())), None, None, set()))
 
 
-def prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
-    dag.attribs[root]['proof'] = (ret := _prove(dag, root, label, hint))
+def prove(dag: DAG, root: str, label: str | None, hint: Type | None, coindex_ctx: set[str]) -> Proof:
+    dag.attribs[root]['proof'] = (ret := _prove(dag, root, label, hint, coindex_ctx))
     return ret
 
 
-def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
+def _prove(dag: DAG, root: str, label: str | None, hint: Type | None, coindex_ctx: set[str]) -> Proof:
     def nodes_to_indices(nodes: Iterable[str]) -> set[str]:
         return {index for node in nodes if (index := dag.get(node, 'index')) is not None}
 
@@ -129,13 +129,14 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
         return go
 
     def make_adj(_adjuncts: list[tuple[str, str]], _top_type: Type) -> list[Proof]:
-        return [prove(dag, _child, _label, Box(_label, endo(_top_type))) for _label, _child in _adjuncts]
+        return [prove(dag, _child, _label, Box(_label, endo(_top_type)), set()) for _label, _child in _adjuncts]
 
     def make_args(_dependents: list[tuple[str, str]],
+                  _coindex_ctx: set[str],
                   abstract_if: Callable[[Variable], bool] = lambda _: False,
                   forced_type: Type | None = None) -> list[Proof]:
         return [_proof.diamond(_label) if _proof.rule != Logical.Variable else _proof for _label, _proof in
-                [(_label, abstract(prove(dag, _child, _label, forced_type), abstract_if))
+                [(_label, abstract(prove(dag, _child, _label, forced_type, _coindex_ctx), abstract_if))
                  for _label, _child in _dependents]
                 if _label != 'punct']
 
@@ -176,44 +177,69 @@ def _prove(dag: DAG, root: str, label: str | None, hint: Type | None) -> Proof:
     top_type = Atoms[dag.get(root, 'cat')] if hint is None else hint
     match split_children(dag, root):
         case [], dets, [('np_head', head)], adjuncts, arguments, []:
-            np_proof = prove(dag, head, 'np_head', None)
-            arg_proofs = make_args(arguments)
+            np_proof = prove(dag, head, 'np_head', None, coindex_ctx)
+            arg_proofs = make_args(arguments, coindex_ctx)
             det_proofs = [
-                prove(dag, det, 'det', Box('det', make_functor(top_type, [a.type for a in arg_proofs + [np_proof]])))
+                prove(dag=dag,
+                      root=det,
+                      label='det',
+                      hint=Box('det', make_functor(top_type, [a.type for a in arg_proofs + [np_proof]])),
+                      coindex_ctx=coindex_ctx)
                 for _, det in dets]
             adj_proofs = make_adj(adjuncts, top_type)
             assert len(det_proofs) <= 1
             return unbox_and_apply(apply(unbox_and_apply(np_proof, det_proofs), arg_proofs), adj_proofs)
         case [], [], [(_, head)], adjuncts, arguments, []:
-            coindex_against = {head, *(node for dep, node in arguments if dep == 'su')}
-            arg_proofs = make_args(arguments, coindexed_with(nodes_to_indices(coindex_against), coindex_against))
+            coindex_ctx = {*coindex_ctx, *(a for d, a in arguments if d == 'su')}
+            coindex_against = {head, *coindex_ctx}
+            arg_proofs = make_args(_dependents=arguments,
+                                   _coindex_ctx=coindex_ctx,
+                                   abstract_if=coindexed_with(nodes_to_indices(coindex_against), coindex_against))
             adj_proofs = make_adj(adjuncts, top_type)
-            head_term = prove(dag, head, 'hd', make_functor(top_type, [a.type for a in arg_proofs]))
+            head_term = prove(dag, head, 'hd', make_functor(top_type, [a.type for a in arg_proofs]), coindex_ctx)
             return unbox_and_apply(apply(head_term, arg_proofs), adj_proofs)
         case conjuncts, [], [('crd', crd), *heads], adjuncts, arguments, correlatives:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_indices = nodes_to_indices(node for _, node in heads + shared_adjuncts + arguments)
             shared_indices |= shared_content(c for _, c in conjuncts)
-            cnj_proofs = make_args(conjuncts, coindexed_with(shared_indices, set()), top_type)
-            hd_proofs = [prove(dag, head, 'hd', get_type_of(head, [cnj for _, cnj in conjuncts])) for _, head in heads]
+
+            cnj_proofs = make_args(_dependents=conjuncts,
+                                   _coindex_ctx=coindex_ctx,
+                                   abstract_if=coindexed_with(shared_indices, set()),
+                                   forced_type=top_type)
+            hd_proofs = [prove(dag=dag,
+                               root=head,
+                               label='hd',
+                               hint=get_type_of(head, [cnj for _, cnj in conjuncts]),
+                               coindex_ctx=coindex_ctx)
+                         for _, head in heads]
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
-            cor_proofs, arg_proofs = make_args(correlatives), make_args(arguments)
+            cor_proofs = make_args(_dependents=correlatives, _coindex_ctx=set())
+            arg_proofs = make_args(_dependents=arguments, _coindex_ctx=coindex_ctx)
             all_args = shared_adj_proofs + arg_proofs + hd_proofs + cnj_proofs + cor_proofs
             crd_type = make_functor(top_type, [a.type for a in all_args])
-            crd_proof = prove(dag, crd, 'crd', crd_type)
+            crd_proof = prove(dag, crd, 'crd', crd_type, coindex_ctx)
             return unbox_and_apply(apply(crd_proof, all_args), dist_adj_proofs)
         case conjuncts, [('det', det)], [('crd', crd)], adjuncts, arguments, correlatives:
             shared_adjuncts, distributed_adjuncts = shared_and_distributed(conjuncts, adjuncts)
             shared_nodes = {node for _, node in shared_adjuncts + arguments} | {det}
-            cnj_proofs = make_args(conjuncts, coindexed_with(nodes_to_indices(shared_nodes), set()), top_type)
-            det_term = prove(dag, det, 'det', get_type_of(det, [cnj for _, cnj in conjuncts]))
+            cnj_proofs = make_args(_dependents=conjuncts,
+                                   _coindex_ctx=coindex_ctx,
+                                   abstract_if=coindexed_with(nodes_to_indices(shared_nodes), set()),
+                                   forced_type=top_type)
+            det_term = prove(dag=dag,
+                             root=det,
+                             label='det',
+                             hint=get_type_of(det, [cnj for _, cnj in conjuncts]),
+                             coindex_ctx=coindex_ctx)
             shared_adj_proofs = make_adj(shared_adjuncts, top_type)
             dist_adj_proofs = make_adj(distributed_adjuncts, top_type)
-            cor_proofs, arg_proofs = make_args(correlatives), make_args(arguments)
+            cor_proofs = make_args(_dependents=correlatives, _coindex_ctx=set())
+            arg_proofs = make_args(_dependents=arguments, _coindex_ctx=coindex_ctx)
             all_args = shared_adj_proofs + arg_proofs + [det_term] + cnj_proofs + cor_proofs
             crd_type = make_functor(top_type, [a.type for a in all_args])
-            crd_proof = prove(dag, crd, 'crd', crd_type)
+            crd_proof = prove(dag, crd, 'crd', crd_type, set())
             return unbox_and_apply(apply(crd_proof, all_args), dist_adj_proofs)
         case [_, *_], _, _, _, _, _:
             raise ExtractionError('Headless conjunction')

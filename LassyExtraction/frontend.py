@@ -15,7 +15,7 @@ class ProofBank:
     def __getitem__(self, item: int) -> Sample: return self.samples[item]
     def __len__(self) -> int: return len(self.samples)
     def find_by_name(self, name: str) -> list[Sample]: return [sample for sample in self.samples if name in sample.name]
-    def __repr__(self) -> str: return f"æthel dump version {self.version} containing {len(self)} samples."
+    def __repr__(self) -> str: return f"æthel version {self.version} containing {len(self)} samples."
     def __post_init__(self): print(f'Loaded {self}')
 
     @staticmethod
@@ -58,7 +58,7 @@ class LexicalPhrase:
     type:   Type
 
     @property
-    def string(self): return ' '.join(item.word for item in self.items)
+    def string(self) -> str: return ' '.join(item.word for item in self.items)
     def __repr__(self) -> str: return f'LexicalPhrase(string={self.string}, type={self.type}, len={len(self)})'
     def __len__(self) -> int: return len(self.items)
 
