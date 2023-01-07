@@ -188,10 +188,7 @@ def remove_understood_argument(dag: DAG[str]) -> DAG[str]:
                     (cat == 'conj' and any(map(sentential, dag.parents(node)))))
 
         def sentential_branch(p: str) -> bool:
-            return any(all((dag.get(c, 'index') == index,
-                            not is_ghost(dag, c),
-                            dag.get(c, )))
-                       for c in dag.children(p))
+            return any(dag.get(c, 'index') == index for c in dag.children(p))
 
         def get_head(p: str) -> str | None:
             return next((edge.target for edge in dag.outgoing_edges(p) if edge.label == 'hd'), None)
