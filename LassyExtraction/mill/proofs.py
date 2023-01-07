@@ -108,7 +108,7 @@ class Logical(Rule):
                                  premises=(body,),
                                  conclusion=Judgement(Sequence(unary), BoxIntroduction(box, body.term)))
                 raise ProofError(f'{body.structure} is not {box}-bracketed')
-            case _: raise ProofError(f'{body.structure} is not a singleton')
+            case _: raise ProofError(f'{body.structure} is not a singleton containing a unary')
 
     @staticmethod
     def _init_box_elim(body: Proof, box: str | None) -> Proof:
