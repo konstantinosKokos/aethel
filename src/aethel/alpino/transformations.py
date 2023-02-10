@@ -2,7 +2,7 @@
     Pipeline for making data graphs compatible with the proof extraction algorithm.
 """
 
-from .utils.graph import DAG, Edge
+from src.aethel.utils.graph import DAG, Edge
 from xml.etree.cElementTree import ElementTree
 from typing import Iterator
 

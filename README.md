@@ -8,7 +8,7 @@ Lassy-style dependency graphs.
 
 **Cool things to look out for**:
 * an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert dependency graphs to λ-terms and annoy your informal linguist friends!
-* a faithful implementation of modal linear logic proofs and its terms -- almost as good as doing it on paper!
+* a faithful implementation of (temporal) modal linear logic proofs and its terms -- almost as good as doing it on paper!
 ---
 
 ## Installing & Using with æthel
@@ -20,8 +20,10 @@ Begin by cloning the project locally and placing the dump file in `data/` (remem
 You can then load the dump by running:
 
 ```python
-import LassyExtraction
-aethel = LassyExtraction.ProofBank.load_data("PATH_TO_DUMP_FILE")
+
+from src import aethel
+
+aethel = aethel.ProofBank.load_data("PATH_TO_DUMP_FILE")
 ```
 
 *Note that loading might take a short while, as proofs are reconstructed bottom up and type-checked along the way.*
@@ -35,6 +37,8 @@ Different major versions are not backward compatible.
 Train/dev/test segmentation is respected to the largest extent possible. 
 If looking for older versions, take a look at other branches of this repository.
 
+### 1.0.1 (02/2023)
+> Tidier packaging and installation. Backwards compatible with 1.0.0x.
 ### 1.0.0a (06/2022) 
 > Implementation of long-postponed changes to the type system. In practical terms, type assignments are a bit more
 > complicated but all proofs are now sound wrt. to the underlying logic.
@@ -71,28 +75,30 @@ If looking for older versions, take a look at other branches of this repository.
 > * A few leftover proofs failing the linearity criterion are removed.
 
 ## Project Structure
-* `LassyExtraction.frontend` is the high-level interface that allows user access to the processed corpus.
-* `LassyExtraction.mill` contains an implementation of the grammar's type system, namely 
- Implication-Only Multiplicative Intuitionistic Linear Logic with unary Modalities.
+The package source code can be found in directory `src`.
+* `aethel.frontend` is the high-level interface that allows user access to the processed corpus.
+* `aethel.mill` contains an implementation of the grammar's type system, namely 
+ Implication-Only Multiplicative Intuitionistic Linear Logic with Unary Temporal Modalities.
 Each of the following modules provide implementations for specific aspects of the logic:
-  * `LassyExtraction.mill.proofs` - classes & methods for the representation and manipulation of 
+  * `aethel.mill.proofs` - classes & methods for the representation and manipulation of 
   judgements, rules and proofs in natural deduction format.
-  * `LassyExtraction.mill.nets` - ditto for decomposition formulas, axiom links and proof nets,
+  * `aethel.mill.nets` - ditto for decomposition formulas, axiom links and proof nets,
   and conversion to and from natural deduction.
-  * `LassyExtraction.mill.terms` - a rudimentary implementation of the term calculus.
-  * `LassyExtraction.mill.types` - a metacass-based implementation of logical formulas.
-  * `LassyExtraction.mill.structures` - a handy abstraction over the antecedent structure of logical judgements.
-  * `LassyExtraction.mill.serialization` - parsers and serializers for the above.
-* `LassyExtraction.transformations` contains the linguistic transformations necessary to make Lassy-style 
- analyses amenable to proof-theoretic analyses, and packs them into a single pipeline. *Warning: Not for the 
-faint of heart.* 
-* `LassyExtraction.extraction` implements the extraction algorithm, whereby transformed Lassy graphs are gradually
-proven in a bottom-up fashion.
-* `LassyExtraction.utils` general utilities:
-  * `LassyExtraction.utils.graph` - definitions of simple graph-theoretic operations.
-  * `LassyExtraction.utils.viz` - visualization of Lassy dependency graphs, useful for debugging.
-  * `LassyExtraction.utils.lassy` - a wrapper for reading Lassy xml trees.
-  * `LassyExtraction.utils.tex` - export proofs and samples to latex code.
+  * `aethel.mill.terms` - a rudimentary implementation of the term calculus.
+  * `aethel.mill.types` - a metacass-based implementation of logical formulas.
+  * `aethel.mill.structures` - a handy abstraction over the antecedent structure of logical judgements.
+  * `aethel.mill.serialization` - parsers and serializers for the above.
+* `aethel.alpino` contains utilities to interface with Alpino-style graphs
+  * `aethel.alpino.transformations` contains the linguistic transformations necessary to make Alpino 
+   analyses amenable to proof-theoretic analyses, and packs them into a single pipeline. *Warning: Not for the 
+  faint of heart.* 
+  * `aethel.alpino.extraction` implements the extraction algorithm, whereby transformed Alpino graphs are gradually
+  proven in a bottom-up fashion.
+  * `aethel.alpino.lassy` - a wrapper for reading Lassy xml trees.
+* `aethel.utils` general utilities:
+  * `aethel.utils.graph` - definitions of simple graph-theoretic operations.
+  * `aethel.utils.viz` - visualization of Lassy dependency graphs, useful for debugging.
+  * `aethel.utils.tex` - export proofs and samples to latex code.
 
 Subdirectory `examples` contains (or will contain) introductory jupyter notebooks. 
 Subdirectory `scripts` contains (or will contain) high-level scripts for processing the corpus and lexicon.

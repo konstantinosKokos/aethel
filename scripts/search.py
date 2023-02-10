@@ -1,7 +1,8 @@
 from __future__ import annotations
-from LassyExtraction.frontend import Sample
-from LassyExtraction.mill.proofs import Rule, Type, Logical, Structural
-from LassyExtraction.extraction import Atoms
+from aethel.frontend import Sample
+from aethel.mill.proofs import Rule, Type
+from aethel.mill.terms import (DiamondIntroduction, Term, Variable, Constant, ArrowIntroduction, ArrowElimination,
+                               CaseOf)
 from typing import Callable, Iterator, Iterable
 from itertools import takewhile
 
@@ -76,3 +77,41 @@ def length_between(_min: int, _max: int) -> Query:
     def f(sample: Sample) -> bool:
         return _min <= len(sample.lexical_phrases) <= _max
     return Query(f)
+
+
+def term_contains(string: str) -> Query:
+    def f(sample: Sample) -> bool:
+        return string in str(sample.proof.term)
+    return Query(f)
+
+
+def contains_type(_type: Type) -> Query:
+    def f(sample: Sample) -> bool:
+        return any(lp.type == _type for lp in sample.lexical_phrases)
+    return Query(f)
+
+
+def vc_chain(num: int) -> Query:
+    def f(sample: Sample) -> bool:
+        def g(term: Term, c: int) -> int:
+            match term:
+                case Variable(_) | Constant(_):
+                    return c
+                case ArrowElimination(l, r):
+                    return max(g(l, c), g(r,c))
+                case ArrowIntroduction(_, b):
+                    return g(b, c)
+                case CaseOf(_, _, original):
+                    return g(original,c)
+                case DiamondIntroduction(d, b):
+                    c += d == 'vc'
+                    return g(b, c)
+                case _:
+                    return g(term.body, c)
+        return g(sample.proof.term, 0) >= num
+    return Query(f)
+
+
+def f(sample: Sample) -> bool:
+    first_letters = [lp.string[0].lower() for lp in sample.lexical_phrases]
+    return first_letters == sorted(first_letters)

@@ -2,9 +2,9 @@
     An example interface to Alpino parse outputs.
 """
 
-from LassyExtraction.transformations import prepare_for_extraction
-from LassyExtraction.extraction import prove_dag, Proof, ExtractionError
-from LassyExtraction.utils.lassy import parse
+from aethel.alpino.transformations import prepare_for_extraction
+from aethel.alpino.extraction import prove_dag, Proof, ExtractionError
+from aethel.alpino.lassy import parse
 
 
 def parse_alpino_file(path: str) -> list[Proof]:

@@ -1,8 +1,8 @@
-from LassyExtraction.utils.lassy import Lassy
-from LassyExtraction.utils.graph import DAG
-from LassyExtraction.transformations import prepare_many, get_lex_nodes, sort_nodes, is_ghost
-from LassyExtraction.frontend import Sample, LexicalPhrase, LexicalItem
-from LassyExtraction.extraction import prove_dag, ExtractionError, Proof
+from aethel.alpino.lassy import Lassy
+from aethel.utils.graph import DAG
+from aethel.alpino.transformations import prepare_many, get_lex_nodes, sort_nodes, is_ghost
+from aethel.frontend import Sample, LexicalPhrase, LexicalItem
+from aethel.alpino.extraction import prove_dag, ExtractionError, Proof
 from collections import Counter
 import os
 

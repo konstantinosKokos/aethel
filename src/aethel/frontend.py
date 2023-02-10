@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+import sys
+
 from .mill.proofs import Proof, term_repr, Type
 from .mill.serialization import (SerializedType, serialize_type, deserialize_type,
                                  SerializedProof, serialize_proof, deserialize_proof)

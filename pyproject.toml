@@ -1,0 +1,24 @@
+[project]
+name = "aethel"
+version = "1.0.1"
+authors = [
+  {name="Konstantinos Kogkalidis"},
+]
+description = "Python module for (i) the representation of typelogical grammar derivations and (ii) their extraction from Lassy and Alpino-style dependency graphs."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Natural Language :: Dutch",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Software Development :: Compilers",
+    "Typing :: Typed"
+]
+keywords = ["lambda-calculus", "corpus", "dutch", "natural-deduction", "categorial-grammar", "linear-logic", "alpino", "lassy", "proof-net", "type-logical-grammar", "aethel-dataset"]
+
+[project.urls]
+"Homepage" = "https://github.com/konstantinosKokos/aethel"
+"Bug Tracker" = "https://github.com/konstantinosKokos/aethel/issues"
