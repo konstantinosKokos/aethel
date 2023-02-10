@@ -14,8 +14,6 @@ Lassy-style dependency graphs.
 ## Installing & Using with æthel
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
-You will need to download the most recent binarized version of the dataset
-([1.0.0a5](https://surfdrive.surf.nl/files/index.php/s/F4Wq0KcMi91d9TO)).
 Begin by cloning the project locally and unzipping the dump file in `data/` (remember to unzip).
 You can then install the project by running:
 
