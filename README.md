@@ -9,7 +9,7 @@ Lassy-style dependency graphs.
 
 **Cool things to look out for**:
 * an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert dependency graphs to λ-terms and annoy your informal linguist friends!
-* a faithful implementation of (temporal) modal linear logic proofs and its terms -- almost as good as doing it on Haskell!
+* a faithful implementation of (temporal) modal linear logic proofs and its terms -- almost as good and twice as slow as doing it on Haskell!
 ---
 
 ## Installing & Using æthel
