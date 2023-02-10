@@ -1,6 +1,7 @@
-# lassy-tlg-extraction
+# æthel
 
----
+> In the beginning was the word,
+> and the word had a `Type`.
 
 Source code and Python module for the representation of typelogical grammar derivations and their extraction from 
 Lassy-style dependency graphs. 
@@ -8,10 +9,10 @@ Lassy-style dependency graphs.
 
 **Cool things to look out for**:
 * an interface to [Alpino](http://www.let.rug.nl/vannoord/alp/Alpino/) outputs -- convert dependency graphs to λ-terms and annoy your informal linguist friends!
-* a faithful implementation of (temporal) modal linear logic proofs and its terms -- almost as good as doing it on paper!
+* a faithful implementation of (temporal) modal linear logic proofs and its terms -- almost as good as doing it on Haskell!
 ---
 
-## Installing & Using with æthel
+## Installing & Using æthel
 This repository is required to access and play with the æthel dataset, which contains typelogical analyses
 for the majority of the [Lassy Small](https://taalmaterialen.ivdnt.org/download/lassy-klein-corpus6/) corpus.
 Begin by cloning the project locally and unzipping the dump file in `data/` (remember to unzip).
@@ -88,7 +89,7 @@ Each of the following modules provide implementations for specific aspects of th
   * `aethel.mill.nets` - ditto for decomposition formulas, axiom links and proof nets,
   and conversion to and from natural deduction.
   * `aethel.mill.terms` - a rudimentary implementation of the term calculus.
-  * `aethel.mill.types` - a metacass-based implementation of logical formulas.
+  * `aethel.mill.types` - an implementation of logical formulas.
   * `aethel.mill.structures` - a handy abstraction over the antecedent structure of logical judgements.
   * `aethel.mill.serialization` - parsers and serializers for the above.
 * `aethel.alpino` contains utilities to interface with Alpino-style graphs
@@ -98,7 +99,7 @@ Each of the following modules provide implementations for specific aspects of th
   * `aethel.alpino.extraction` implements the extraction algorithm, whereby transformed Alpino graphs are gradually
   proven in a bottom-up fashion.
   * `aethel.alpino.lassy` - a wrapper for reading Lassy xml trees.
-* `aethel.utils` general utilities:
+* `aethel.utils` contains general utilities:
   * `aethel.utils.graph` - definitions of simple graph-theoretic operations.
   * `aethel.utils.viz` - visualization of Lassy dependency graphs, useful for debugging.
   * `aethel.utils.tex` - export proofs and samples to latex code.
