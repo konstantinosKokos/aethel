@@ -1,7 +1,7 @@
 from src.aethel.mill.proofs import Proof, variable, constant, Logical, Structural, make_extractable, deep_extract
 from src.aethel.mill.types import Atom, Type, Functor, Diamond, Box
 from src.aethel.mill.terms import Variable
-from src.aethel.lassy.transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
+from src.aethel.alpino.transformations import DAG, is_ghost, node_to_key, get_material, find_coindexed, is_bottom
 from typing import Callable, Iterable
 from functools import reduce
 
