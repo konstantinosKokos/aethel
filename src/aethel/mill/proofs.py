@@ -534,7 +534,7 @@ def proof_eq(left: Proof, right: Proof) -> bool:
     return all((left.premises == right.premises, left.conclusion == right.conclusion, left.rule == right.rule))
 
 
-def decolor_proof(proof: Proof, ) -> Proof:
+def decolor_proof(proof: Proof) -> Proof:
     def go(p: Proof, replacing: dict[int, Proof]) -> tuple[Proof, dict[int, Proof]]:
         match p.rule:
             case Logical.Constant:
