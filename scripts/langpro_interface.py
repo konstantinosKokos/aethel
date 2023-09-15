@@ -13,10 +13,10 @@ def proof_to_natlog(proof: Proof) -> str:
 
 def term_to_natlog(term: Term) -> str:
     match term:
-        case Variable(index):
-            return f'v(X{index},{type_to_natlog(term.type)}'
-        case Constant(index):
-            return f't({index},{type_to_natlog(term.type)})'
+        case Variable(_type, index):
+            return f'v(X{index},{type_to_natlog(_type)}'
+        case Constant(_type, index):
+            return f't({index},{type_to_natlog(_type)})'
         case ArrowElimination(function, argument):
             return f'(({term_to_natlog(function)}) @ ({term_to_natlog(argument)}))'
         case ArrowIntroduction(var, body):
