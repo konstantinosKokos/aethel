@@ -19,7 +19,88 @@ SerializedProof = tuple[SerializedRule,
                         | tuple['SerializedProof', SerializedTerm, 'SerializedProof']]
 
 
-def serialize_type(_type: Type) -> SerializedType: return type_prefix(_type)
+def json_to_serial_term(json: dict) -> SerializedTerm:
+    _type = json['type']
+    if (index := json.get('variable')) is not None:
+        constructor = Variable
+    else:
+        index = json.get('constant')
+        constructor = Constant
+    return constructor, (_type, index)
+
+
+def json_to_serial_proof(json: dict) -> SerializedProof:
+    match (rule := json['rule']):
+        case 'Logical.Variable' | 'Logical.Constant':
+            ret = json_to_serial_term(json)
+        case 'Logical.ArrowIntroduction':
+            ret = (json_to_serial_proof(json['body']), json_to_serial_term(json['var']))
+        case 'Logical.ArrowElimination':
+            ret = (json_to_serial_proof(json['head']), json_to_serial_proof(json['argument']))
+        case 'Logical.DiamondIntroduction':
+            ret = (json_to_serial_proof(json['body']), json['diamond'])
+        case 'Logical.DiamondElimination':
+            ret = (json_to_serial_proof(json['original']),
+                   json_to_serial_term(json['where']),
+                   json_to_serial_proof(json['becomes']))
+        case 'Logical.BoxIntroduction':
+            ret = (json_to_serial_proof(json['body']), json['box'])
+        case 'Logical.BoxElimination':
+            ret = (json_to_serial_proof(json['body']), json['box'])
+        case 'Structural.Extract':
+            ret = (json_to_serial_proof(json['body']), json_to_serial_term(json['focus']))
+        case _:
+            raise NotImplementedError
+    return rule, ret
+
+
+def serial_term_to_json(term: SerializedTerm) -> dict:
+    constructor, args = term
+    if constructor == Variable:
+        (_type, index) = args
+        return {'variable': index, 'type': _type}
+    if constructor == Constant:
+        (_type, index) = args
+        return {'constant': index, 'type': _type}
+    raise NotImplementedError
+
+
+def serial_proof_to_json(proof: SerializedProof) -> dict:
+    rule, args = proof
+    match rule:
+        case 'Logical.Variable' | 'Logical.Constant':
+            ret = serial_term_to_json(args)
+        case 'Logical.ArrowIntroduction':
+            body, var = args
+            ret = {'var': serial_term_to_json(var), 'body': serial_proof_to_json(body)}
+        case 'Logical.ArrowElimination':
+            fn, arg = args
+            ret = {'head': serial_proof_to_json(fn), 'argument': serial_proof_to_json(arg)}
+        case 'Logical.DiamondIntroduction':
+            body, diamond = args
+            ret = {'body': serial_proof_to_json(body), 'diamond': diamond}
+        case 'Logical.DiamondElimination':
+            original, where, becomes = args
+            ret = {'original': serial_proof_to_json(original),
+                   'where': serial_term_to_json(where),
+                   'becomes': serial_proof_to_json(becomes)}
+        case 'Logical.BoxIntroduction':
+            body, box = args
+            ret = {'body': serial_proof_to_json(body), 'box': box}
+        case 'Logical.BoxElimination':
+            body, box = args
+            ret = {'body': serial_proof_to_json(body), 'box': box}
+        case 'Structural.Extract':
+            body, focus = args
+            ret = {'body': serial_proof_to_json(body), 'focus': serial_term_to_json(focus)}
+        case _:
+            raise NotImplementedError
+    ret['rule'] = rule
+    return ret
+
+
+def serialize_type(_type: Type) -> SerializedType:
+    return type_prefix(_type)
 
 
 def deserialize_type(serialized: SerializedType) -> Type: return parse_prefix(serialized)
